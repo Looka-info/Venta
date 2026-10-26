@@ -1,0 +1,38 @@
+// Vanta Milestone 4: Array Bounds Safety and Slice Indexing
+//
+// Demonstrates safe fixed-size array reads and writes, loop iteration,
+// reference indexing, and string slice byte indexing.
+
+fn sum_array(arr: &[i64; 4]) -> i64 {
+    let mut total: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 4 {
+        total += arr[i];
+        i += 1;
+    }
+    return total;
+}
+
+pub fn main() -> i64 {
+    print_str("Initializing array...\n");
+    let mut numbers: [i64; 4] = [10, 20, 30, 40];
+
+    print_str("Modifying element at index 2...\n");
+    numbers[2] = 99;
+
+    print_str("Summing array elements through reference...\n");
+    let total: i64 = sum_array(&numbers);
+    print_str("Total sum: ");
+    print_i64(total);
+    print_str("\n");
+
+    print_str("Indexing string slice 'Vanta'...\n");
+    let s: &str = "Vanta";
+    let first_char: u8 = s[0];
+    print_str("First ASCII byte: ");
+    print_i64(first_char);
+    print_str("\n");
+
+    print_str("Array bounds safety verified successfully.\n");
+    return 0;
+}

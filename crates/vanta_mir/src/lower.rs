@@ -171,6 +171,65 @@ impl<'a> MirLowerer<'a> {
         }
     }
 
+    fn emit_bounds_check(&mut self, idx_v: ValueId, len_v: ValueId) -> BlockId {
+        let zero_v = self.new_value();
+        self.emit(Instruction::ConstInt {
+            dest: zero_v,
+            val: 0,
+            ty: Type::I64,
+        });
+
+        let ge_zero = self.new_value();
+        self.emit(Instruction::Binary {
+            dest: ge_zero,
+            op: MirBinaryOp::GtEq,
+            lhs: idx_v,
+            rhs: zero_v,
+            ty: Type::Bool,
+        });
+
+        let lt_len = self.new_value();
+        self.emit(Instruction::Binary {
+            dest: lt_len,
+            op: MirBinaryOp::Lt,
+            lhs: idx_v,
+            rhs: len_v,
+            ty: Type::Bool,
+        });
+
+        let in_bounds = self.new_value();
+        self.emit(Instruction::Binary {
+            dest: in_bounds,
+            op: MirBinaryOp::And,
+            lhs: ge_zero,
+            rhs: lt_len,
+            ty: Type::Bool,
+        });
+
+        let ok_block = self.new_block("bounds_ok");
+        let fail_block = self.new_block("bounds_fail");
+
+        self.terminate(Terminator::CondBranch {
+            cond: in_bounds,
+            then_block: ok_block,
+            else_block: fail_block,
+        });
+
+        // Fail block calls runtime bounds check failure and exits 101
+        self.switch_to_block(fail_block);
+        self.emit(Instruction::Call {
+            dest: None,
+            callee: "vanta_bounds_check_fail".to_string(),
+            args: vec![idx_v, len_v],
+            ret_type: Type::Unit,
+        });
+        self.terminate(Terminator::Unreachable);
+
+        // Resume execution in ok_block
+        self.switch_to_block(ok_block);
+        ok_block
+    }
+
     fn lower_block(&mut self, block: &Block) -> Option<ValueId> {
         self.var_map.push(HashMap::new());
 
@@ -227,6 +286,33 @@ impl<'a> MirLowerer<'a> {
                             ptr: ptr_v,
                             len: len_v,
                         });
+                    } else if let Type::Array { inner, .. } = &ty {
+                        if let ExprKind::ArrayLiteral(elements) = &init_expr.kind {
+                            let elem_size = inner.size_in_bytes().max(8);
+                            for (idx, elem) in elements.iter().enumerate() {
+                                let elem_v = self.lower_expr(elem);
+                                let idx_v = self.new_value();
+                                self.emit(Instruction::ConstInt {
+                                    dest: idx_v,
+                                    val: idx as i64,
+                                    ty: Type::I64,
+                                });
+                                let addr_v = self.new_value();
+                                self.emit(Instruction::IndexAddr {
+                                    dest: addr_v,
+                                    slot,
+                                    index: idx_v,
+                                    elem_size,
+                                });
+                                self.emit(Instruction::StoreIndirect {
+                                    addr: addr_v,
+                                    val: elem_v,
+                                });
+                            }
+                        } else {
+                            let v = self.lower_expr(init_expr);
+                            self.emit(Instruction::Store { slot, val: v });
+                        }
                     } else {
                         let v = self.lower_expr(init_expr);
                         self.emit(Instruction::Store { slot, val: v });
@@ -302,22 +388,90 @@ impl<'a> MirLowerer<'a> {
                         });
                     }
                     ExprKind::Index { array, index } => {
-                        if let ExprKind::Ident(name) = &array.kind {
-                            if let Some(slot) = self.lookup_slot(name) {
-                                let idx_v = self.lower_expr(index);
-                                let addr_v = self.new_value();
-                                self.emit(Instruction::IndexAddr {
-                                    dest: addr_v,
-                                    slot,
-                                    index: idx_v,
-                                    elem_size: 8,
+                        let idx_v = self.lower_expr(index);
+
+                        let arr_ty = self
+                            .sema
+                            .expr_types
+                            .get(&(array.as_ref() as *const Expr))
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                if let ExprKind::Ident(name) = &array.kind {
+                                    if let Some(slot) = self.lookup_slot(name) {
+                                        return self
+                                            .current_slots
+                                            .iter()
+                                            .find(|s| s.id == slot)
+                                            .map(|s| s.ty.clone())
+                                            .unwrap_or(Type::Array {
+                                                inner: Box::new(Type::I64),
+                                                len: 0,
+                                            });
+                                    }
+                                }
+                                Type::Array {
+                                    inner: Box::new(Type::I64),
+                                    len: 0,
+                                }
+                            });
+
+                        let (base_ptr, len_v, elem_size) = match &arr_ty {
+                            Type::Array { inner, len } => {
+                                let len_v = self.new_value();
+                                self.emit(Instruction::ConstInt {
+                                    dest: len_v,
+                                    val: *len as i64,
+                                    ty: Type::I64,
                                 });
-                                self.emit(Instruction::StoreIndirect {
-                                    addr: addr_v,
-                                    val: final_val,
-                                });
+                                let base_ptr = self.lower_expr(array);
+                                (base_ptr, len_v, inner.size_in_bytes().max(8))
                             }
-                        }
+                            Type::Ref { inner, .. } => match inner.as_ref() {
+                                Type::Array { inner: elem_t, len } => {
+                                    let len_v = self.new_value();
+                                    self.emit(Instruction::ConstInt {
+                                        dest: len_v,
+                                        val: *len as i64,
+                                        ty: Type::I64,
+                                    });
+                                    let base_ptr = self.lower_expr(array);
+                                    (base_ptr, len_v, elem_t.size_in_bytes().max(8))
+                                }
+                                _ => {
+                                    let dummy = self.new_value();
+                                    self.emit(Instruction::ConstInt {
+                                        dest: dummy,
+                                        val: 0,
+                                        ty: Type::I64,
+                                    });
+                                    (dummy, dummy, 8)
+                                }
+                            },
+                            _ => {
+                                let dummy = self.new_value();
+                                self.emit(Instruction::ConstInt {
+                                    dest: dummy,
+                                    val: 0,
+                                    ty: Type::I64,
+                                });
+                                (dummy, dummy, 8)
+                            }
+                        };
+
+                        // Bounds check must strictly dominate the indexed store
+                        self.emit_bounds_check(idx_v, len_v);
+
+                        let addr_v = self.new_value();
+                        self.emit(Instruction::IndexPtrAddr {
+                            dest: addr_v,
+                            base_ptr,
+                            index: idx_v,
+                            elem_size,
+                        });
+                        self.emit(Instruction::StoreIndirect {
+                            addr: addr_v,
+                            val: final_val,
+                        });
                     }
                     _ => {}
                 }
@@ -412,12 +566,21 @@ impl<'a> MirLowerer<'a> {
             }
             ExprKind::Ident(name) => {
                 if let Some(slot) = self.lookup_slot(name) {
+                    let slot_ty = self
+                        .current_slots
+                        .iter()
+                        .find(|s| s.id == slot)
+                        .map(|s| s.ty.clone());
                     let dest = self.new_value();
-                    self.emit(Instruction::Load {
-                        dest,
-                        slot,
-                        ty: Type::I64,
-                    });
+                    if let Some(Type::Array { .. }) = slot_ty {
+                        self.emit(Instruction::SlotAddr { dest, slot });
+                    } else {
+                        self.emit(Instruction::Load {
+                            dest,
+                            slot,
+                            ty: slot_ty.unwrap_or(Type::I64),
+                        });
+                    }
                     dest
                 } else {
                     let dest = self.new_value();
@@ -504,6 +667,34 @@ impl<'a> MirLowerer<'a> {
                 dest
             }
             ExprKind::Call { callee, args } => {
+                if callee == "panic" {
+                    let (ptr_v, len_v) = if let Some(arg) = args.first() {
+                        self.lower_slice_expr(arg)
+                    } else {
+                        let zero = self.new_value();
+                        self.emit(Instruction::ConstInt {
+                            dest: zero,
+                            val: 0,
+                            ty: Type::I64,
+                        });
+                        (zero, zero)
+                    };
+                    self.emit(Instruction::Call {
+                        dest: None,
+                        callee: "vanta_panic".to_string(),
+                        args: vec![ptr_v, len_v],
+                        ret_type: Type::Unit,
+                    });
+                    self.terminate(Terminator::Unreachable);
+                    let dummy = self.new_value();
+                    self.emit(Instruction::ConstInt {
+                        dest: dummy,
+                        val: 0,
+                        ty: Type::I64,
+                    });
+                    return dummy;
+                }
+
                 let mut arg_vals = Vec::new();
                 for arg in args {
                     let mut is_slice = false;
@@ -649,30 +840,109 @@ impl<'a> MirLowerer<'a> {
                 dest
             }
             ExprKind::Index { array, index } => {
-                if let ExprKind::Ident(name) = &array.kind {
-                    if let Some(slot) = self.lookup_slot(name) {
-                        let idx_v = self.lower_expr(index);
-                        let addr_v = self.new_value();
-                        self.emit(Instruction::IndexAddr {
-                            dest: addr_v,
-                            slot,
-                            index: idx_v,
-                            elem_size: 8,
-                        });
-                        let dest = self.new_value();
-                        self.emit(Instruction::LoadIndirect {
-                            dest,
-                            addr: addr_v,
+                let idx_v = self.lower_expr(index);
+
+                let arr_ty = self
+                    .sema
+                    .expr_types
+                    .get(&(array.as_ref() as *const Expr))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        if let ExprKind::Ident(name) = &array.kind {
+                            if let Some(slot) = self.lookup_slot(name) {
+                                return self
+                                    .current_slots
+                                    .iter()
+                                    .find(|s| s.id == slot)
+                                    .map(|s| s.ty.clone())
+                                    .unwrap_or(Type::Array {
+                                        inner: Box::new(Type::I64),
+                                        len: 0,
+                                    });
+                            }
+                        }
+                        Type::Array {
+                            inner: Box::new(Type::I64),
+                            len: 0,
+                        }
+                    });
+
+                let (base_ptr, len_v, elem_ty, elem_size) = match &arr_ty {
+                    Type::Array { inner, len } => {
+                        let len_v = self.new_value();
+                        self.emit(Instruction::ConstInt {
+                            dest: len_v,
+                            val: *len as i64,
                             ty: Type::I64,
                         });
-                        return dest;
+                        let base_ptr = self.lower_expr(array);
+                        (
+                            base_ptr,
+                            len_v,
+                            inner.as_ref().clone(),
+                            inner.size_in_bytes().max(8),
+                        )
                     }
-                }
+                    Type::Ref { inner, .. } => match inner.as_ref() {
+                        Type::Array { inner: elem_t, len } => {
+                            let len_v = self.new_value();
+                            self.emit(Instruction::ConstInt {
+                                dest: len_v,
+                                val: *len as i64,
+                                ty: Type::I64,
+                            });
+                            let base_ptr = self.lower_expr(array);
+                            (
+                                base_ptr,
+                                len_v,
+                                elem_t.as_ref().clone(),
+                                elem_t.size_in_bytes().max(8),
+                            )
+                        }
+                        Type::Str => {
+                            let (ptr_v, len_v) = self.lower_slice_expr(array);
+                            (ptr_v, len_v, Type::U8, 1)
+                        }
+                        _ => {
+                            let dummy = self.new_value();
+                            self.emit(Instruction::ConstInt {
+                                dest: dummy,
+                                val: 0,
+                                ty: Type::I64,
+                            });
+                            (dummy, dummy, Type::I64, 8)
+                        }
+                    },
+                    Type::Str => {
+                        let (ptr_v, len_v) = self.lower_slice_expr(array);
+                        (ptr_v, len_v, Type::U8, 1)
+                    }
+                    _ => {
+                        let dummy = self.new_value();
+                        self.emit(Instruction::ConstInt {
+                            dest: dummy,
+                            val: 0,
+                            ty: Type::I64,
+                        });
+                        (dummy, dummy, Type::I64, 8)
+                    }
+                };
+
+                // Bounds check strictly dominates indexed load
+                self.emit_bounds_check(idx_v, len_v);
+
+                let addr_v = self.new_value();
+                self.emit(Instruction::IndexPtrAddr {
+                    dest: addr_v,
+                    base_ptr,
+                    index: idx_v,
+                    elem_size,
+                });
                 let dest = self.new_value();
-                self.emit(Instruction::ConstInt {
+                self.emit(Instruction::LoadIndirect {
                     dest,
-                    val: 0,
-                    ty: Type::I64,
+                    addr: addr_v,
+                    ty: elem_ty,
                 });
                 dest
             }

@@ -1,0 +1,15 @@
+// Vanta Milestone 4: Runtime Panic Handling and Bounds Failure
+//
+// Demonstrates that out-of-bounds indexing triggers deterministic panic
+// writing to standard error (fd 2) and terminating with status 101.
+
+pub fn main() -> i64 {
+    print_str("Starting execution...\n");
+    let arr: [i64; 3] = [100, 200, 300];
+
+    // Triggering bounds check failure (index 5 >= length 3)
+    let _val: i64 = arr[5];
+
+    print_str("This line is unreachable.\n");
+    return 0;
+}

@@ -103,6 +103,22 @@ impl SemanticContext {
                 span: Span::new(vanta_source::FileId(0), 0, 0),
             },
         );
+        functions.insert(
+            "panic".into(),
+            FnSignature {
+                name: "panic".into(),
+                params: vec![(
+                    "msg".into(),
+                    Type::Ref {
+                        is_mut: false,
+                        inner: Box::new(Type::Str),
+                    },
+                    false,
+                )],
+                ret_type: Type::Unit,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
 
         Self {
             functions,
@@ -294,14 +310,19 @@ impl SemanticAnalyzer {
         // Pass 2: Collect function signatures
         for item in &program.items {
             if let Item::Function(f) = item {
-                if f.name.name == "print_i64" || f.name.name == "print_str" {
+                if f.name.name == "print_i64"
+                    || f.name.name == "print_str"
+                    || f.name.name == "panic"
+                {
                     diags.emit(
                         Diagnostic::error(format!(
                             "Cannot redefine built-in intrinsic '{}'",
                             f.name.name
                         ))
                         .with_code(codes::E0103_REDEFINED_INTRINSIC)
-                        .with_note("built-in standard output intrinsics are globally reserved")
+                        .with_note(
+                            "built-in standard output and runtime intrinsics are globally reserved",
+                        )
                         .with_span(f.name.span),
                     );
                     continue;
@@ -632,6 +653,22 @@ impl SemanticAnalyzer {
                             }
                         }
                     }
+                    ExprKind::Index { array, .. } => {
+                        let target_ty = self.check_expr(target, diags);
+                        self.check_place_mutability(array, span, diags);
+                        if target_ty != val_ty {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Type mismatch in assignment: target {:?}, value {:?}",
+                                    target_ty, val_ty
+                                ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", target_ty))
+                                .with_actual(format!("{}", val_ty))
+                                .with_span(*span),
+                            );
+                        }
+                    }
                     _ => {
                         let target_ty = self.check_expr(target, diags);
                         if target_ty != val_ty {
@@ -680,7 +717,9 @@ impl SemanticAnalyzer {
                 };
 
                 if let Some(expected) = &self.ctx.current_fn_ret_type {
-                    if *expected != ret_ty {
+                    if *expected == Type::I64 && ret_ty.is_integer() {
+                        // Integer widening to i64
+                    } else if *expected != ret_ty {
                         diags.emit(
                             Diagnostic::error(format!(
                                 "Return type mismatch: expected {:?}, found {:?}",
@@ -697,6 +736,68 @@ impl SemanticAnalyzer {
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
             Stmt::Expr(expr) => {
                 self.check_expr(expr, diags);
+            }
+        }
+    }
+
+    fn check_place_mutability(&self, expr: &Expr, span: &Span, diags: &mut DiagnosticBag) {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                if let Some(sym_id) = self.ctx.lookup_symbol(name) {
+                    let sym = self.ctx.symbols.get(&sym_id).cloned().unwrap();
+                    if !sym.is_mut {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Cannot assign to indexed element of immutable variable '{}'",
+                                name
+                            ))
+                            .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                            .with_suggestion(
+                                "declare variable as mutable with 'let mut'",
+                                Some(sym.span),
+                                "let mut",
+                            )
+                            .with_span(*span),
+                        );
+                    }
+                    if sym.ty.is_str_slice() || sym.ty == Type::Str {
+                        diags.emit(
+                            Diagnostic::error("String slices are immutable and cannot be modified through indexing")
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                        );
+                    }
+                }
+            }
+            ExprKind::Index { array, .. } => {
+                self.check_place_mutability(array, span, diags);
+            }
+            ExprKind::Deref(inner) => {
+                if let Some(inner_ty) = self.ctx.expr_types.get(&(inner.as_ref() as *const Expr)) {
+                    match inner_ty {
+                        Type::Ref { is_mut: true, .. } => {}
+                        _ => {
+                            diags.emit(
+                                Diagnostic::error(
+                                    "Cannot assign to indexed element through immutable reference",
+                                )
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {
+                if let Some(ty) = self.ctx.expr_types.get(&(expr as *const Expr)) {
+                    if ty.is_str_slice() || *ty == Type::Str {
+                        diags.emit(
+                            Diagnostic::error("String slices are immutable and cannot be modified through indexing")
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                        );
+                    }
+                }
             }
         }
     }
@@ -773,7 +874,7 @@ impl SemanticAnalyzer {
                         lhs_ty
                     }
                     BinaryOp::Eq | BinaryOp::NotEq => {
-                        if lhs_ty != rhs_ty {
+                        if !(lhs_ty == rhs_ty || (lhs_ty.is_integer() && rhs_ty.is_integer())) {
                             diags.emit(
                                 Diagnostic::error(format!(
                                     "Equality comparison requires matching types, found {:?} and {:?}",
@@ -788,10 +889,10 @@ impl SemanticAnalyzer {
                         Type::Bool
                     }
                     BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
-                        if !lhs_ty.is_integer() || lhs_ty != rhs_ty {
+                        if !lhs_ty.is_integer() || !rhs_ty.is_integer() {
                             diags.emit(
                                 Diagnostic::error(format!(
-                                    "Relational comparison requires matching integer types, found {:?} and {:?}",
+                                    "Relational comparison requires integer operands, found {:?} and {:?}",
                                     lhs_ty, rhs_ty
                                 ))
                                 .with_code(codes::E0204_INVALID_OPERAND_TYPE)
@@ -974,7 +1075,11 @@ impl SemanticAnalyzer {
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_ty = self.check_expr(arg, diags);
                         if let Some((_, param_ty, _)) = sig.params.get(idx) {
-                            if arg_ty != *param_ty {
+                            if (callee == "print_i64" || *param_ty == Type::I64)
+                                && arg_ty.is_integer()
+                            {
+                                // Integer arguments promote to 64-bit parameter
+                            } else if arg_ty != *param_ty {
                                 let mut diag = Diagnostic::error(format!(
                                     "Argument {} to function '{}' expects {}, found {}",
                                     idx + 1,
@@ -1100,22 +1205,26 @@ impl SemanticAnalyzer {
                     );
                 }
 
-                match arr_ty {
-                    Type::Array { inner, .. } => *inner,
-                    Type::Ref { inner, .. } => match *inner {
-                        Type::Array { inner: elem_ty, .. } => *elem_ty,
-                        _ => {
-                            diags.emit(
-                                Diagnostic::error("Indexing requires an array or array reference")
+                match &arr_ty {
+                    Type::Array { inner, .. } => *inner.clone(),
+                    Type::Ref { inner, .. } => {
+                        match inner.as_ref() {
+                            Type::Array { inner: elem_ty, .. } => *elem_ty.clone(),
+                            Type::Str => Type::U8,
+                            _ => {
+                                diags.emit(
+                                Diagnostic::error("Indexing requires an array, array reference, or string slice")
                                     .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                     .with_span(array.span),
                             );
-                            Type::I64
+                                Type::I64
+                            }
                         }
-                    },
+                    }
+                    Type::Str => Type::U8,
                     _ => {
                         diags.emit(
-                            Diagnostic::error("Indexing requires an array type")
+                            Diagnostic::error("Indexing requires an array type or string slice")
                                 .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(array.span),
                         );

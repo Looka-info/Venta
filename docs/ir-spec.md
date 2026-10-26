@@ -36,15 +36,40 @@ MirFunction
 
 ## 3. Instructions
 
-- `SlotAddr(ValueId, SlotId)`: Compute address of a local slot.
-- `Load(ValueId, SlotId, Type)`: Load value from a local slot.
-- `Store(SlotId, ValueId)`: Store value into a local slot.
-- `ConstInt(ValueId, i64, Type)`: Load integer constant.
-- `ConstBool(ValueId, bool)`: Load boolean constant.
-- `Binary(ValueId, BinaryOp, ValueId, ValueId, Type)`: Binary arithmetic or logical operation.
+- `SlotAddr(ValueId, SlotId)`: Compute address of a local stack slot.
+- `Load(ValueId, SlotId, Type)`: Load value from a local stack slot.
+- `Store(SlotId, ValueId)`: Store value into a local stack slot.
+- `ConstInt(ValueId, i64, Type)`: Materialize an integer constant.
+- `ConstBool(ValueId, bool)`: Materialize a boolean constant.
+- `Binary(ValueId, BinaryOp, ValueId, ValueId, Type)`: Binary arithmetic, comparison, or logical operation.
 - `Unary(ValueId, UnaryOp, ValueId, Type)`: Negation, bitwise NOT, logical NOT.
-- `Call(ValueId, String, Vec<ValueId>, Type)`: Direct function call.
-- `GetElementPtr(ValueId, ValueId, usize, Type)`: Compute field or element address.
+- `Call(Option<ValueId>, String, Vec<ValueId>, Type)`: Direct function call.
+- `IndexAddr(ValueId, SlotId, ValueId, usize)`: Compute address of element within a stack slot (`slot_addr + index * elem_size`).
+- `IndexPtrAddr(ValueId, ValueId, ValueId, usize)`: Compute element address from a dynamic base pointer (`base_ptr + index * elem_size`).
+- `LoadIndirect(ValueId, ValueId, Type)`: Load a typed value from an arbitrary memory address.
+- `StoreIndirect(ValueId, ValueId)`: Store a value into an arbitrary memory address.
+- `StrSlice(ValueId, ValueId, String, usize)`: Materialize a string slice descriptor `(data_ptr, byte_len)`.
+- `StoreSlice(SlotId, ValueId, ValueId)`: Store two-word slice descriptor into a 16-byte local slot.
+- `LoadSlice(ValueId, ValueId, SlotId)`: Load two-word slice descriptor from a 16-byte local slot.
+
+### 3.1 Bounds Check Lowering Pattern
+For indexed access `arr[i]`:
+```text
+  %zero = ConstInt(0, i64)
+  %ge_zero = Binary(GtEq, %idx, %zero, bool)
+  %lt_len = Binary(Lt, %idx, %len, bool)
+  %in_bounds = Binary(And, %ge_zero, %lt_len, bool)
+  CondBranch %in_bounds, bb_ok, bb_fail
+
+bb_fail:
+  Call vanta_bounds_check_fail(%idx, %len)
+  Unreachable
+
+bb_ok:
+  %addr = IndexPtrAddr(%base_ptr, %idx, elem_size)
+  %val = LoadIndirect(%addr, elem_type)
+```
+The check strictly dominates all address calculation and memory operations.
 
 ---
 

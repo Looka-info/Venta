@@ -36,6 +36,7 @@ impl FrameLayout {
                     | vanta_mir::Instruction::Binary { dest, .. }
                     | vanta_mir::Instruction::Unary { dest, .. }
                     | vanta_mir::Instruction::IndexAddr { dest, .. }
+                    | vanta_mir::Instruction::IndexPtrAddr { dest, .. }
                     | vanta_mir::Instruction::LoadIndirect { dest, .. } => vec![*dest],
                     vanta_mir::Instruction::StrSlice {
                         dest_ptr, dest_len, ..

@@ -77,3 +77,27 @@ if cond {
 let y = x + 1;
 ```
 If an execution branch fails to initialize `x`, the compiler reports a compile-time diagnostic.
+
+---
+
+## 5. Array and Slice Bounds Safety Guarantees
+
+In accordance with Core Safety Tenet #6, all indexed element accesses (`arr[i]`) on fixed arrays (`[T; N]`), array references (`&[T; N]`), and string slices (`&str`) are checked for spatial validity before memory is accessed.
+
+### 5.1 Validity Range & Sign Preservation
+1. Access is defined if and only if `0 <= i < length`.
+2. Negative signed integers (`i < 0`) are evaluated under signed comparison semantics. Negative values are never cast or coerced into unsigned integers before checking, preventing wrapping vulnerabilities.
+3. Indexing an empty collection (`length == 0`) unconditionally panics.
+
+### 5.2 Control-Flow Dominance
+The bounds check conditional branch strictly dominates the memory place calculation and read/write instructions in the Control Flow Graph. An out-of-bounds index immediately diverts control flow to a cold runtime panic path, ensuring that out-of-bounds pointer arithmetic and memory loads/stores are never executed.
+
+### 5.3 Deterministic Panic and Exit
+1. Bounds violations invoke `vanta_bounds_check_fail(index, length)`.
+2. Diagnostic output is written directly to standard error (fd 2):
+   `Vanta panic: index out of bounds (index %ld, length %ld)\n`
+3. The process exits with exit status `101` (`_exit(101)`).
+4. Zero heap memory is allocated during panic handling; stack buffers and direct POSIX write syscalls ensure deterministic termination under out-of-memory or stack constraints.
+
+### 5.4 Optimizer Proofs
+Optimizers (`-O1`) may remove runtime checks if and only if constant propagation or range analysis proves `0 <= index < length` along all reaching execution paths. If an index is proven statically out of bounds, the optimizer preserves the deterministic panic path and removes the dead downstream memory access. Both `-O0` and `-O1` maintain identical observable behavior.

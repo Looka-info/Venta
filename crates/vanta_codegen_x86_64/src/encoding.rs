@@ -393,6 +393,13 @@ impl CodeEmitter {
                 self.emit_u8(0xB6);
                 self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), src.hw_encoding()));
             }
+            MachineInst::MovzxMem { dest, base, offset } => {
+                let rex = Self::rex(true, dest.is_extended(), false, base.is_extended());
+                self.emit_u8(rex);
+                self.emit_u8(0x0F);
+                self.emit_u8(0xB6);
+                self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
+            }
             MachineInst::Lea { dest, src } => match src {
                 Operand::Mem { base, offset } => {
                     self.emit_u8(Self::rex(

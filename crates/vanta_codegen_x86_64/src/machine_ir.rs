@@ -66,6 +66,8 @@ pub enum MachineInst {
     Setcc { cond: ConditionCode, dest: Reg },
     /// movzx dest, byte_reg (zero-extend 8-bit to 64-bit)
     Movzx { dest: Reg, src: Reg },
+    /// movzx dest, byte ptr [base + offset] (zero-extend 8-bit memory to 64-bit)
+    MovzxMem { dest: Reg, base: Reg, offset: i32 },
     /// lea dest, [base + offset]
     Lea { dest: Reg, src: Operand },
     /// lea dest, [rip + symbol]

@@ -95,6 +95,12 @@ pub enum Instruction {
         index: ValueId,
         elem_size: usize,
     },
+    IndexPtrAddr {
+        dest: ValueId,
+        base_ptr: ValueId,
+        index: ValueId,
+        elem_size: usize,
+    },
     LoadIndirect {
         dest: ValueId,
         addr: ValueId,

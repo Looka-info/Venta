@@ -387,7 +387,38 @@ impl<'a> InstructionSelector<'a> {
                     src: Operand::Reg(Reg::R10),
                 });
             }
-            Instruction::LoadIndirect { dest, addr, .. } => {
+            Instruction::IndexPtrAddr {
+                dest,
+                base_ptr,
+                index,
+                elem_size,
+            } => {
+                let base_op = self.frame.get_value_op(*base_ptr);
+                let index_op = self.frame.get_value_op(*index);
+                let dest_op = self.frame.get_value_op(*dest);
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R10),
+                    src: base_op,
+                });
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R11),
+                    src: index_op,
+                });
+                out.push(MachineInst::Imul {
+                    dest: Reg::R11,
+                    src: Operand::Imm(*elem_size as i64),
+                });
+                out.push(MachineInst::Add {
+                    dest: Operand::Reg(Reg::R10),
+                    src: Operand::Reg(Reg::R11),
+                });
+                out.push(MachineInst::Mov {
+                    dest: dest_op,
+                    src: Operand::Reg(Reg::R10),
+                });
+            }
+            Instruction::LoadIndirect { dest, addr, ty } => {
                 let addr_op = self.frame.get_value_op(*addr);
                 let dest_op = self.frame.get_value_op(*dest);
 
@@ -395,13 +426,21 @@ impl<'a> InstructionSelector<'a> {
                     dest: Operand::Reg(Reg::R10),
                     src: addr_op,
                 });
-                out.push(MachineInst::Mov {
-                    dest: Operand::Reg(Reg::R11),
-                    src: Operand::Mem {
+                if *ty == vanta_sema::Type::U8 || *ty == vanta_sema::Type::I8 {
+                    out.push(MachineInst::MovzxMem {
+                        dest: Reg::R11,
                         base: Reg::R10,
                         offset: 0,
-                    },
-                });
+                    });
+                } else {
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: Operand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
+                    });
+                }
                 out.push(MachineInst::Mov {
                     dest: dest_op,
                     src: Operand::Reg(Reg::R11),

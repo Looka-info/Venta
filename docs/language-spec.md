@@ -162,9 +162,42 @@ fn print_str(value: &str) -> ()
 - Preserves embedded NUL bytes (`\0`) and arbitrary UTF-8 multibyte sequences.
 - Retries on `EINTR` and handles partial writes.
 
+### 6.3 `panic`
+```vanta
+fn panic(msg: &str) -> ()
+```
+- Explicitly aborts execution with a panic message.
+- Emits `"Vanta panic: "` followed by `msg` and a trailing newline `\n` directly to standard error (file descriptor 2).
+- Immediately invokes `_exit(101)` without executing subsequent statements.
+- Zero heap allocation; uses fixed stack-allocated buffers and direct unbuffered write syscalls.
+- Protected keyword / globally reserved intrinsic that cannot be redefined.
+
 ---
 
-## 7. ABI & Target Platform
+## 7. Array and Slice Bounds Safety
+
+Vanta enforces strict, deterministic runtime bounds checking for all indexed reads and writes on fixed-size arrays (`[T; N]`), array references (`&[T; N]`), and string slices (`&str`).
+
+### 7.1 Bounds Validation Rules
+1. **Valid Range**: An index `i` is valid if and only if `0 <= i < length`.
+2. **Signed Index Handling**: Signed negative indices (`i < 0`) are explicitly caught and rejected without converting them to unsigned representations prior to validation.
+3. **Upper Bound & Empty Collections**: Any index `i >= length` triggers an immediate bounds failure. Empty collections (`length == 0`) reject all indexing operations.
+4. **CFG Dominance**: The bounds check conditional branch strictly dominates the memory read or write instruction in the control flow graph. No out-of-bounds address computation or memory access can execute.
+
+### 7.2 Failure Behavior & Output
+When a bounds check fails:
+- Standard error (file descriptor 2) receives the exact formatted diagnostic:
+  `Vanta panic: index out of bounds (index %ld, length %ld)\n`
+- The process terminates immediately via `_exit(101)`.
+- No heap memory is allocated; zero recursion, zero unwinding, zero signal handler risk.
+
+### 7.3 Optimization Semantics
+- At `-O0`: All bounds checks are generated and executed dynamically at runtime.
+- At `-O1`: Bounds checks are eliminated if and only if the optimizer statically proves that `0 <= i < length`. Statically proven out-of-bounds accesses fold directly to deterministic panic calls, eliminating dead memory operations. Both optimization modes produce identical observable runtime behavior.
+
+---
+
+## 8. ABI & Target Platform
 
 - **Architecture**: x86-64
 - **Operating System**: Linux
