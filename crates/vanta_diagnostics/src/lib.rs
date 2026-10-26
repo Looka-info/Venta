@@ -11,6 +11,10 @@ pub mod codes {
     pub const E0103_REDEFINED_INTRINSIC: &str = "E0103";
     pub const E0104_UNKNOWN_STRUCT: &str = "E0104";
     pub const E0105_UNKNOWN_FIELD: &str = "E0105";
+    pub const E0106_DUPLICATE_FIELD: &str = "E0106";
+    pub const E0107_MISSING_FIELD: &str = "E0107";
+    pub const E0108_UNKNOWN_METHOD: &str = "E0108";
+    pub const E0109_INVALID_RECEIVER: &str = "E0109";
     pub const E0201_TYPE_MISMATCH: &str = "E0201";
     pub const E0202_UNSIZED_TYPE_VALUE: &str = "E0202";
     pub const E0203_MUTABLE_STR_SLICE: &str = "E0203";
@@ -18,6 +22,7 @@ pub mod codes {
     pub const E0205_ARGUMENT_MISMATCH: &str = "E0205";
     pub const E0206_INVALID_RETURN_TYPE: &str = "E0206";
     pub const E0207_RETURN_TYPE_MISMATCH: &str = "E0207";
+    pub const E0208_RECURSIVE_STRUCT: &str = "E0208";
     pub const E0301_UNINITIALIZED_READ: &str = "E0301";
     pub const E0302_USE_OF_MOVED_VALUE: &str = "E0302";
     pub const E0303_MUTATE_IMMUTABLE: &str = "E0303";

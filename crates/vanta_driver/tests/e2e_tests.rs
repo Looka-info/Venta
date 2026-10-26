@@ -1285,3 +1285,421 @@ fn test_compile_fail_redefining_panic_intrinsic() {
     assert!(json_report.contains("\"code\":\"E0103\""));
     assert!(json_report.contains("Cannot redefine built-in intrinsic 'panic'"));
 }
+
+#[test]
+fn test_e2e_struct_declaration_and_field_access() {
+    let src = r#"
+    struct Point {
+        x: i64,
+        y: i64,
+    }
+
+    pub fn main() -> i64 {
+        let p = Point { x: 10, y: 20 };
+        print_i64(p.x);
+        print_i64(p.y);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("struct_access", src, 0, b"1020");
+}
+
+#[test]
+fn test_e2e_struct_field_mutation() {
+    let src = r#"
+    struct Point {
+        x: i64,
+        y: i64,
+    }
+
+    pub fn main() -> i64 {
+        let mut p = Point { x: 10, y: 20 };
+        p.x = 42;
+        p.y = p.y + 5;
+        print_i64(p.x);
+        print_i64(p.y);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("struct_mutation", src, 0, b"4225");
+}
+
+#[test]
+fn test_e2e_struct_layout_and_padding() {
+    let src = r#"
+    struct Mixed {
+        a: u8,
+        b: i64,
+        c: u8,
+    }
+
+    pub fn main() -> i64 {
+        let mut m = Mixed { a: 7, b: 1000, c: 99 };
+        print_i64(m.b);
+        m.b = 2000;
+        print_i64(m.b);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("struct_padding", src, 0, b"10002000");
+}
+
+#[test]
+fn test_e2e_nested_structs() {
+    let src = r#"
+    struct Vec2 {
+        x: i64,
+        y: i64,
+    }
+
+    struct Player {
+        pos: Vec2,
+        health: i64,
+    }
+
+    pub fn main() -> i64 {
+        let mut p = Player {
+            pos: Vec2 { x: 15, y: 30 },
+            health: 100,
+        };
+        print_i64(p.pos.x);
+        print_i64(p.pos.y);
+        print_i64(p.health);
+
+        p.pos.x = 50;
+        p.health = 80;
+        print_i64(p.pos.x);
+        print_i64(p.health);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("nested_structs", src, 0, b"15301005080");
+}
+
+#[test]
+fn test_e2e_inherent_methods_mut_and_ref() {
+    let src = r#"
+    struct Point {
+        x: i64,
+        y: i64,
+    }
+
+    impl Point {
+        fn translate(self: &mut Self, dx: i64, dy: i64) {
+            self.x = self.x + dx;
+            self.y = self.y + dy;
+        }
+
+        fn sum(self: &Self) -> i64 {
+            return self.x + self.y;
+        }
+    }
+
+    pub fn main() -> i64 {
+        let mut p = Point { x: 10, y: 20 };
+        p.translate(5, 7);
+        let s = p.sum();
+        print_i64(s);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("struct_methods", src, 0, b"42");
+}
+
+#[test]
+fn test_e2e_dynamic_slice_borrow_and_len() {
+    let src = r#"
+    pub fn main() -> i64 {
+        let arr: [i64; 4] = [10, 20, 30, 40];
+        let view: &[i64] = &arr;
+        print_i64(view.len());
+        print_i64(view[0]);
+        print_i64(view[1]);
+        print_i64(view[2]);
+        print_i64(view[3]);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("slice_borrow_len", src, 0, b"410203040");
+}
+
+#[test]
+fn test_e2e_dynamic_slice_passed_to_function() {
+    let src = r#"
+    fn sum_slice(s: &[i64]) -> i64 {
+        let mut total = 0;
+        let mut i = 0;
+        let n = s.len();
+        while i < n {
+            total = total + s[i];
+            i = i + 1;
+        }
+        return total;
+    }
+
+    pub fn main() -> i64 {
+        let arr: [i64; 3] = [100, 200, 300];
+        let total = sum_slice(&arr);
+        print_i64(total);
+        return 0;
+    }
+    "#;
+    run_differential_stdout_test("slice_func_arg", src, 0, b"600");
+}
+
+#[test]
+fn test_e2e_dynamic_slice_out_of_bounds_panic() {
+    let src = r#"
+    pub fn main() -> i64 {
+        let arr: [i64; 3] = [1, 2, 3];
+        let view: &[i64] = &arr;
+        print_i64(view[3]);
+        return 0;
+    }
+    "#;
+    run_differential_test("slice_oob_panic", src, 101);
+}
+
+#[test]
+fn test_compile_fail_recursive_struct() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("rec.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Node {
+            val: i64,
+            next: Node,
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0208\""));
+    assert!(json_report.contains("infinite size due to recursive cycle"));
+}
+
+#[test]
+fn test_compile_fail_missing_field() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("missing.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+        fn test() {
+            let p = Point { x: 10 };
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0107\""));
+    assert!(json_report.contains("Missing field 'y'"));
+}
+
+#[test]
+fn test_compile_fail_duplicate_field() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("dup_field.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+        fn test() {
+            let p = Point { x: 10, y: 20, x: 30 };
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0106\""));
+    assert!(json_report.contains("Duplicate field 'x'"));
+}
+
+#[test]
+fn test_compile_fail_unknown_method() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("unknown_m.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+        fn test() {
+            let p = Point { x: 10, y: 20 };
+            p.non_existent();
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0108\""));
+    assert!(json_report.contains("No method named 'non_existent'"));
+}
+
+#[test]
+fn test_compile_fail_invalid_receiver() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("bad_recv.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+        impl Point {
+            fn bad(x: i64) {}
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0109\""));
+    assert!(json_report.contains("must have 'self' as its first parameter"));
+}
+
+#[test]
+fn test_compile_fail_mutating_through_immutable_ref() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("immut_ref.va");
+    fs::write(
+        &src_path,
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+        impl Point {
+            fn try_mutate(self: &Self) {
+                self.x = 99;
+            }
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0303\""));
+    assert!(json_report.contains("Cannot assign through immutable reference 'self'"));
+}
+
+#[test]
+fn test_compile_fail_mutating_array_while_borrowed_by_slice() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("borrow_conflict.va");
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            let mut arr: [i64; 3] = [1, 2, 3];
+            let view: &[i64] = &arr;
+            arr = [4, 5, 6];
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err());
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"code\":\"E0306\""));
+    assert!(json_report.contains("Cannot assign to 'arr' because it is borrowed"));
+}

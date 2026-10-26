@@ -140,6 +140,7 @@ impl<'a> Lexer<'a> {
                 "break" => TokenKind::Break,
                 "continue" => TokenKind::Continue,
                 "struct" => TokenKind::Struct,
+                "impl" => TokenKind::Impl,
                 "pub" => TokenKind::Pub,
                 "as" => TokenKind::As,
                 "const" => TokenKind::Const,

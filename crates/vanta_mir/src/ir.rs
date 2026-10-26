@@ -1,6 +1,7 @@
 //! Vanta Mid-Level IR (MIR) definitions.
 
-use vanta_sema::Type;
+use std::collections::HashMap;
+use vanta_sema::{StructDef, Type};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);
@@ -16,6 +17,8 @@ pub struct LocalSlot {
     pub id: SlotId,
     pub name: String,
     pub ty: Type,
+    pub size: usize,
+    pub align: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +104,11 @@ pub enum Instruction {
         index: ValueId,
         elem_size: usize,
     },
+    FieldAddr {
+        dest: ValueId,
+        base_ptr: ValueId,
+        offset: usize,
+    },
     LoadIndirect {
         dest: ValueId,
         addr: ValueId,
@@ -167,4 +175,5 @@ pub struct StringLiteral {
 pub struct MirProgram {
     pub functions: Vec<MirFunction>,
     pub string_literals: Vec<StringLiteral>,
+    pub structs: HashMap<String, StructDef>,
 }

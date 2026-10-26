@@ -137,6 +137,15 @@ impl MirVerifier {
                         }
                         defined_values.insert(*dest);
                     }
+                    Instruction::FieldAddr { dest, base_ptr, .. } => {
+                        if !defined_values.contains(base_ptr) {
+                            diags.emit(mir_error(format!(
+                                "Value {:?} used before definition in base_ptr in '{}'",
+                                base_ptr, func.name
+                            )));
+                        }
+                        defined_values.insert(*dest);
+                    }
                     Instruction::LoadIndirect { dest, addr, .. } => {
                         if !defined_values.contains(addr) {
                             diags.emit(mir_error(format!(

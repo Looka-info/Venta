@@ -60,10 +60,14 @@ impl<'a> MirLowerer<'a> {
     fn new_slot(&mut self, name: String, ty: Type) -> SlotId {
         let s = SlotId(self.next_slot);
         self.next_slot += 1;
+        let size = ty.size_with_structs(&self.sema.structs);
+        let align = ty.alignment_with_structs(&self.sema.structs);
         self.current_slots.push(LocalSlot {
             id: s,
             name: name.clone(),
             ty,
+            size,
+            align,
         });
         self.var_map.last_mut().unwrap().insert(name, s);
         s
@@ -118,14 +122,71 @@ impl<'a> MirLowerer<'a> {
     }
 
     pub fn lower_program(&mut self, program: &Program) -> MirProgram {
-        let mut mir_prog = MirProgram::default();
+        let mut mir_prog = MirProgram {
+            structs: self.sema.structs.clone(),
+            ..Default::default()
+        };
         for item in &program.items {
-            if let Item::Function(f) = item {
-                mir_prog.functions.push(self.lower_function(f));
+            match item {
+                Item::Function(f) => {
+                    mir_prog.functions.push(self.lower_function(f));
+                }
+                Item::Impl(impl_block) => {
+                    for method in &impl_block.methods {
+                        let mangled_name =
+                            format!("{}_{}", impl_block.target.name, method.name.name);
+                        mir_prog
+                            .functions
+                            .push(self.lower_method(method, &mangled_name));
+                    }
+                }
+                _ => {}
             }
         }
         mir_prog.string_literals = std::mem::take(&mut self.string_literals);
         mir_prog
+    }
+
+    fn lower_method(&mut self, m: &FnDecl, mangled_name: &str) -> MirFunction {
+        self.next_val = 1;
+        self.next_slot = 1;
+        self.next_block = 1;
+        self.current_slots.clear();
+        self.current_blocks.clear();
+        self.var_map = vec![HashMap::new()];
+        self.loop_exit_blocks.clear();
+        self.loop_cond_blocks.clear();
+
+        let sig = self.sema.functions.get(mangled_name).unwrap();
+        let entry = self.new_block("entry");
+        self.switch_to_block(entry);
+
+        let mut params = Vec::new();
+        for (name, ty, _) in &sig.params {
+            let slot = self.new_slot(name.clone(), ty.clone());
+            params.push((slot, ty.clone()));
+        }
+
+        let tail_val = self.lower_block(&m.body);
+
+        // Ensure block terminates
+        if !self.is_current_terminated() {
+            if sig.ret_type == Type::Unit {
+                self.terminate(Terminator::Return(None));
+            } else if let Some(val) = tail_val {
+                self.terminate(Terminator::Return(Some(val)));
+            } else {
+                self.terminate(Terminator::Unreachable);
+            }
+        }
+
+        MirFunction {
+            name: mangled_name.to_string(),
+            params,
+            ret_type: sig.ret_type.clone(),
+            slots: std::mem::take(&mut self.current_slots),
+            blocks: std::mem::take(&mut self.current_blocks),
+        }
     }
 
     fn lower_function(&mut self, f: &FnDecl) -> MirFunction {
@@ -230,6 +291,80 @@ impl<'a> MirLowerer<'a> {
         ok_block
     }
 
+    fn lower_place_addr(&mut self, expr: &Expr) -> (ValueId, Type) {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                let slot = self
+                    .lookup_slot(name)
+                    .unwrap_or_else(|| panic!("Undefined slot for variable '{}'", name));
+                let slot_ty = self
+                    .current_slots
+                    .iter()
+                    .find(|s| s.id == slot)
+                    .unwrap()
+                    .ty
+                    .clone();
+
+                if let Type::Ref { is_mut: _, inner } = &slot_ty {
+                    let ptr = self.new_value();
+                    self.emit(Instruction::Load {
+                        dest: ptr,
+                        slot,
+                        ty: slot_ty.clone(),
+                    });
+                    (ptr, (**inner).clone())
+                } else {
+                    let ptr = self.new_value();
+                    self.emit(Instruction::SlotAddr { dest: ptr, slot });
+                    (ptr, slot_ty)
+                }
+            }
+            ExprKind::FieldAccess { target, field } => {
+                let (base_ptr, base_ty) = self.lower_place_addr(target);
+                let struct_name = match &base_ty {
+                    Type::Struct(s) => s.clone(),
+                    Type::Ref { inner, .. } => {
+                        if let Type::Struct(s) = &**inner {
+                            s.clone()
+                        } else {
+                            panic!("Field access on non-struct type: {:?}", base_ty);
+                        }
+                    }
+                    _ => panic!("Field access on non-struct type: {:?}", base_ty),
+                };
+                let s_def = self.sema.structs[&struct_name].clone();
+                let f_def = s_def.find_field(&field.name).unwrap_or_else(|| {
+                    panic!("Field '{}' not found in '{}'", field.name, struct_name)
+                });
+                let field_ptr = self.new_value();
+                self.emit(Instruction::FieldAddr {
+                    dest: field_ptr,
+                    base_ptr,
+                    offset: f_def.offset,
+                });
+                (field_ptr, f_def.ty.clone())
+            }
+            ExprKind::Deref(inner) => {
+                let addr = self.lower_expr(inner);
+                let inner_ty = self
+                    .sema
+                    .expr_types
+                    .get(&(inner.as_ref() as *const Expr))
+                    .cloned()
+                    .unwrap_or(Type::I64);
+                let target_ty = match inner_ty {
+                    Type::Ref { inner: t, .. } => *t,
+                    _ => Type::I64,
+                };
+                (addr, target_ty)
+            }
+            _ => {
+                let val = self.lower_expr(expr);
+                (val, Type::I64)
+            }
+        }
+    }
+
     fn lower_block(&mut self, block: &Block) -> Option<ValueId> {
         self.var_map.push(HashMap::new());
 
@@ -265,7 +400,13 @@ impl<'a> MirLowerer<'a> {
                 } else if let Some(sym) = self.sema.symbols.values().find(|s| s.span == name.span) {
                     sym.ty.clone()
                 } else if let Some(init_expr) = init {
-                    if let ExprKind::String(_) = &init_expr.kind {
+                    if let Some(inferred) = self.sema.expr_types.get(&(init_expr as *const Expr)) {
+                        inferred.clone()
+                    } else if let Some(sym) =
+                        self.sema.symbols.values().find(|s| s.name == name.name)
+                    {
+                        sym.ty.clone()
+                    } else if let ExprKind::String(_) = &init_expr.kind {
                         Type::Ref {
                             is_mut: false,
                             inner: Box::new(Type::Str),
@@ -273,19 +414,33 @@ impl<'a> MirLowerer<'a> {
                     } else {
                         Type::I64
                     }
+                } else if let Some(sym) = self.sema.symbols.values().find(|s| s.name == name.name) {
+                    sym.ty.clone()
                 } else {
                     Type::I64
                 };
 
                 let slot = self.new_slot(name.name.clone(), ty.clone());
                 if let Some(init_expr) = init {
-                    if ty.is_str_slice() {
+                    if ty.is_str_slice() || ty.is_slice() {
                         let (ptr_v, len_v) = self.lower_slice_expr(init_expr);
                         self.emit(Instruction::StoreSlice {
                             slot,
                             ptr: ptr_v,
                             len: len_v,
                         });
+                    } else if let Type::Struct(sname) = &ty {
+                        let base_ptr = self.new_value();
+                        self.emit(Instruction::SlotAddr {
+                            dest: base_ptr,
+                            slot,
+                        });
+                        if let ExprKind::StructLiteral { fields, .. } = &init_expr.kind {
+                            self.lower_init_struct_fields(base_ptr, sname, fields);
+                        } else {
+                            let (src_ptr, _) = self.lower_place_addr(init_expr);
+                            self.copy_struct_bytes(src_ptr, base_ptr, sname);
+                        }
                     } else if let Type::Array { inner, .. } = &ty {
                         if let ExprKind::ArrayLiteral(elements) = &init_expr.kind {
                             let elem_size = inner.size_in_bytes().max(8);
@@ -333,7 +488,7 @@ impl<'a> MirLowerer<'a> {
                             .find(|s| s.id == slot)
                             .map(|s| s.ty.clone());
                         if let Some(ty) = slot_ty {
-                            if ty.is_str_slice() && *op == AssignOp::Eq {
+                            if (ty.is_str_slice() || ty.is_slice()) && *op == AssignOp::Eq {
                                 let (ptr_v, len_v) = self.lower_slice_expr(value);
                                 self.emit(Instruction::StoreSlice {
                                     slot,
@@ -343,6 +498,20 @@ impl<'a> MirLowerer<'a> {
                                 return;
                             }
                         }
+                    }
+                }
+
+                if *op == AssignOp::Eq {
+                    let target_ty = self.sema.expr_types.get(&(target as *const Expr)).cloned();
+                    if let Some(Type::Struct(sname)) = target_ty {
+                        let (dst_ptr, _) = self.lower_place_addr(target);
+                        if let ExprKind::StructLiteral { fields, .. } = &value.kind {
+                            self.lower_init_struct_fields(dst_ptr, &sname, fields);
+                        } else {
+                            let (src_ptr, _) = self.lower_place_addr(value);
+                            self.copy_struct_bytes(src_ptr, dst_ptr, &sname);
+                        }
+                        return;
                     }
                 }
 
@@ -379,6 +548,13 @@ impl<'a> MirLowerer<'a> {
                                 val: final_val,
                             });
                         }
+                    }
+                    ExprKind::FieldAccess { .. } => {
+                        let (field_ptr, _) = self.lower_place_addr(target);
+                        self.emit(Instruction::StoreIndirect {
+                            addr: field_ptr,
+                            val: final_val,
+                        });
                     }
                     ExprKind::Deref(inner) => {
                         let addr = self.lower_expr(inner);
@@ -641,19 +817,7 @@ impl<'a> MirLowerer<'a> {
                 dest
             }
             ExprKind::Ref { expr: inner, .. } => {
-                if let ExprKind::Ident(name) = &inner.kind {
-                    if let Some(slot) = self.lookup_slot(name) {
-                        let dest = self.new_value();
-                        self.emit(Instruction::SlotAddr { dest, slot });
-                        return dest;
-                    }
-                }
-                let dest = self.new_value();
-                self.emit(Instruction::ConstInt {
-                    dest,
-                    val: 0,
-                    ty: Type::I64,
-                });
+                let (dest, _) = self.lower_place_addr(inner);
                 dest
             }
             ExprKind::Deref(inner) => {
@@ -695,16 +859,26 @@ impl<'a> MirLowerer<'a> {
                     return dummy;
                 }
 
+                let sig_opt = self.sema.functions.get(callee).cloned();
                 let mut arg_vals = Vec::new();
-                for arg in args {
+                for (idx, arg) in args.iter().enumerate() {
                     let mut is_slice = false;
-                    if let ExprKind::String(_) = &arg.kind {
-                        is_slice = true;
-                    } else if let ExprKind::Ident(name) = &arg.kind {
-                        if let Some(slot) = self.lookup_slot(name) {
-                            if let Some(s) = self.current_slots.iter().find(|s| s.id == slot) {
-                                if s.ty.is_str_slice() {
-                                    is_slice = true;
+                    if let Some(sig) = &sig_opt {
+                        if let Some((_, pty, _)) = sig.params.get(idx) {
+                            if pty.is_str_slice() || pty.is_slice() {
+                                is_slice = true;
+                            }
+                        }
+                    }
+                    if !is_slice {
+                        if let ExprKind::String(_) = &arg.kind {
+                            is_slice = true;
+                        } else if let ExprKind::Ident(name) = &arg.kind {
+                            if let Some(slot) = self.lookup_slot(name) {
+                                if let Some(s) = self.current_slots.iter().find(|s| s.id == slot) {
+                                    if s.ty.is_str_slice() || s.ty.is_slice() {
+                                        is_slice = true;
+                                    }
                                 }
                             }
                         }
@@ -903,6 +1077,11 @@ impl<'a> MirLowerer<'a> {
                             let (ptr_v, len_v) = self.lower_slice_expr(array);
                             (ptr_v, len_v, Type::U8, 1)
                         }
+                        Type::Slice(elem_t) => {
+                            let (ptr_v, len_v) = self.lower_slice_expr(array);
+                            let elem_size = elem_t.size_with_structs(&self.sema.structs).max(8);
+                            (ptr_v, len_v, elem_t.as_ref().clone(), elem_size)
+                        }
                         _ => {
                             let dummy = self.new_value();
                             self.emit(Instruction::ConstInt {
@@ -950,14 +1129,136 @@ impl<'a> MirLowerer<'a> {
                 let (ptr_v, _len_v) = self.lower_slice_expr(expr);
                 ptr_v
             }
-            _ => {
+            ExprKind::FieldAccess { .. } => {
+                let (field_ptr, field_ty) = self.lower_place_addr(expr);
                 let dest = self.new_value();
-                self.emit(Instruction::ConstInt {
+                self.emit(Instruction::LoadIndirect {
                     dest,
-                    val: 0,
-                    ty: Type::I64,
+                    addr: field_ptr,
+                    ty: field_ty,
                 });
                 dest
+            }
+            ExprKind::StructLiteral { name, fields } => {
+                let slot = self.new_slot(
+                    format!("_struct_lit_{}", self.next_val),
+                    Type::Struct(name.name.clone()),
+                );
+                let base_ptr = self.new_value();
+                self.emit(Instruction::SlotAddr {
+                    dest: base_ptr,
+                    slot,
+                });
+                self.lower_init_struct_fields(base_ptr, &name.name, fields);
+                base_ptr
+            }
+            ExprKind::MethodCall {
+                target,
+                method,
+                args,
+            } => {
+                let target_ty = self
+                    .sema
+                    .expr_types
+                    .get(&(target.as_ref() as *const Expr))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        if let ExprKind::Ident(name) = &target.kind {
+                            if let Some(slot) = self.lookup_slot(name) {
+                                return self
+                                    .current_slots
+                                    .iter()
+                                    .find(|s| s.id == slot)
+                                    .map(|s| s.ty.clone())
+                                    .unwrap_or(Type::Unit);
+                            }
+                        }
+                        Type::Unit
+                    });
+
+                let is_slice_or_array = target_ty.is_str_slice()
+                    || target_ty.is_slice()
+                    || matches!(&target_ty, Type::Ref { inner, .. } if matches!(inner.as_ref(), Type::Array { .. }));
+
+                if is_slice_or_array && method.name == "len" {
+                    if let Type::Ref { inner, .. } = &target_ty {
+                        if let Type::Array { len, .. } = inner.as_ref() {
+                            let len_v = self.new_value();
+                            self.emit(Instruction::ConstInt {
+                                dest: len_v,
+                                val: *len as i64,
+                                ty: Type::I64,
+                            });
+                            return len_v;
+                        }
+                    }
+                    let (_ptr_v, len_v) = self.lower_slice_expr(target);
+                    len_v
+                } else {
+                    let struct_name = match &target_ty {
+                        Type::Struct(s) => s.clone(),
+                        Type::Ref { inner, .. } => {
+                            if let Type::Struct(s) = &**inner {
+                                s.clone()
+                            } else {
+                                panic!("Method call on non-struct type: {:?}", target_ty);
+                            }
+                        }
+                        _ => panic!("Method call on non-struct type: {:?}", target_ty),
+                    };
+
+                    let mangled = self
+                        .sema
+                        .methods
+                        .get(&(struct_name, method.name.clone()))
+                        .unwrap()
+                        .clone();
+                    let sig = self.sema.functions.get(&mangled).unwrap().clone();
+
+                    let mut arg_vals = Vec::new();
+                    // First arg is receiver pointer
+                    let (receiver_ptr, _) = self.lower_place_addr(target);
+                    arg_vals.push(receiver_ptr);
+
+                    // Other args
+                    for (idx, arg) in args.iter().enumerate() {
+                        let param_is_slice = sig
+                            .params
+                            .get(idx + 1)
+                            .map(|p| p.1.is_str_slice() || p.1.is_slice())
+                            .unwrap_or(false);
+                        if param_is_slice {
+                            let (ptr_v, len_v) = self.lower_slice_expr(arg);
+                            arg_vals.push(ptr_v);
+                            arg_vals.push(len_v);
+                        } else {
+                            arg_vals.push(self.lower_expr(arg));
+                        }
+                    }
+
+                    let dest = if sig.ret_type == Type::Unit {
+                        None
+                    } else {
+                        Some(self.new_value())
+                    };
+
+                    self.emit(Instruction::Call {
+                        dest,
+                        callee: mangled,
+                        args: arg_vals,
+                        ret_type: sig.ret_type,
+                    });
+
+                    dest.unwrap_or_else(|| {
+                        let dummy = self.new_value();
+                        self.emit(Instruction::ConstInt {
+                            dest: dummy,
+                            val: 0,
+                            ty: Type::I64,
+                        });
+                        dummy
+                    })
+                }
             }
         }
     }
@@ -989,6 +1290,26 @@ impl<'a> MirLowerer<'a> {
                 });
                 (dest_ptr, dest_len)
             }
+            ExprKind::Ref { expr: inner, .. } => {
+                let (ptr, ty) = self.lower_place_addr(inner);
+                if let Type::Array { len, .. } = ty {
+                    let len_v = self.new_value();
+                    self.emit(Instruction::ConstInt {
+                        dest: len_v,
+                        val: len as i64,
+                        ty: Type::I64,
+                    });
+                    (ptr, len_v)
+                } else {
+                    let zero = self.new_value();
+                    self.emit(Instruction::ConstInt {
+                        dest: zero,
+                        val: 0,
+                        ty: Type::I64,
+                    });
+                    (ptr, zero)
+                }
+            }
             _ => {
                 let dest_ptr = self.new_value();
                 let dest_len = self.new_value();
@@ -1003,6 +1324,87 @@ impl<'a> MirLowerer<'a> {
                     ty: Type::I64,
                 });
                 (dest_ptr, dest_len)
+            }
+        }
+    }
+
+    fn copy_struct_bytes(&mut self, src_ptr: ValueId, dest_ptr: ValueId, s_name: &str) {
+        let s_def = self.sema.structs[s_name].clone();
+        for offset in (0..s_def.total_size).step_by(8) {
+            let src_field = self.new_value();
+            self.emit(Instruction::FieldAddr {
+                dest: src_field,
+                base_ptr: src_ptr,
+                offset,
+            });
+            let val_v = self.new_value();
+            self.emit(Instruction::LoadIndirect {
+                dest: val_v,
+                addr: src_field,
+                ty: Type::I64,
+            });
+            let dst_field = self.new_value();
+            self.emit(Instruction::FieldAddr {
+                dest: dst_field,
+                base_ptr: dest_ptr,
+                offset,
+            });
+            self.emit(Instruction::StoreIndirect {
+                addr: dst_field,
+                val: val_v,
+            });
+        }
+    }
+
+    fn lower_init_struct_fields(
+        &mut self,
+        base_ptr: ValueId,
+        s_name: &str,
+        fields: &[(Ident, Expr)],
+    ) {
+        let s_def = self.sema.structs[s_name].clone();
+        for (f_ident, f_expr) in fields {
+            let f_def = s_def.find_field(&f_ident.name).unwrap();
+            let field_ptr = self.new_value();
+            self.emit(Instruction::FieldAddr {
+                dest: field_ptr,
+                base_ptr,
+                offset: f_def.offset,
+            });
+
+            if let Type::Struct(nested_name) = &f_def.ty {
+                if let ExprKind::StructLiteral {
+                    fields: nested_fields,
+                    ..
+                } = &f_expr.kind
+                {
+                    self.lower_init_struct_fields(field_ptr, nested_name, nested_fields);
+                } else {
+                    let (src_ptr, _) = self.lower_place_addr(f_expr);
+                    self.copy_struct_bytes(src_ptr, field_ptr, nested_name);
+                }
+            } else if f_def.ty.is_str_slice() || f_def.ty.is_slice() {
+                let (ptr_v, len_v) = self.lower_slice_expr(f_expr);
+                self.emit(Instruction::StoreIndirect {
+                    addr: field_ptr,
+                    val: ptr_v,
+                });
+                let len_ptr = self.new_value();
+                self.emit(Instruction::FieldAddr {
+                    dest: len_ptr,
+                    base_ptr,
+                    offset: f_def.offset + 8,
+                });
+                self.emit(Instruction::StoreIndirect {
+                    addr: len_ptr,
+                    val: len_v,
+                });
+            } else {
+                let f_val = self.lower_expr(f_expr);
+                self.emit(Instruction::StoreIndirect {
+                    addr: field_ptr,
+                    val: f_val,
+                });
             }
         }
     }

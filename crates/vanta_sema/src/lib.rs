@@ -2,8 +2,8 @@
 
 pub mod types;
 
-use std::collections::HashMap;
-pub use types::Type;
+use std::collections::{HashMap, HashSet};
+pub use types::{StructDef, StructField, Type};
 use vanta_diagnostics::{codes, Diagnostic, DiagnosticBag};
 use vanta_parser::ast::*;
 use vanta_source::Span;
@@ -26,13 +26,6 @@ pub struct FnSignature {
     pub name: String,
     pub params: Vec<(String, Type, bool)>, // (name, type, is_mut)
     pub ret_type: Type,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct StructDef {
-    pub name: String,
-    pub fields: Vec<(String, Type)>,
     pub span: Span,
 }
 
@@ -60,9 +53,12 @@ pub struct VarState {
 pub struct SemanticContext {
     pub functions: HashMap<String, FnSignature>,
     pub structs: HashMap<String, StructDef>,
+    pub declared_struct_names: HashSet<String>,
+    pub methods: HashMap<(String, String), String>,
     pub symbols: HashMap<SymbolId, Symbol>,
     pub expr_types: HashMap<*const Expr, Type>,
     pub resolved_symbols: HashMap<*const Expr, SymbolId>,
+    pub current_impl_target: Option<String>,
     next_sym_id: u32,
     scopes: Vec<HashMap<String, SymbolId>>,
     var_states: HashMap<SymbolId, VarState>,
@@ -76,6 +72,37 @@ impl Default for SemanticContext {
 }
 
 impl SemanticContext {
+    pub fn can_coerce(&self, from: &Type, to: &Type) -> bool {
+        if from == to {
+            return true;
+        }
+        if from.is_integer() && to.is_integer() {
+            return true;
+        }
+        if let (
+            Type::Ref {
+                is_mut: false,
+                inner: from_inner,
+            },
+            Type::Ref {
+                is_mut: false,
+                inner: to_inner,
+            },
+        ) = (from, to)
+        {
+            if let (
+                Type::Array {
+                    inner: from_elem, ..
+                },
+                Type::Slice(to_elem),
+            ) = (&**from_inner, &**to_inner)
+            {
+                return from_elem == to_elem;
+            }
+        }
+        false
+    }
+
     pub fn new() -> Self {
         let mut functions = HashMap::new();
         functions.insert(
@@ -123,9 +150,12 @@ impl SemanticContext {
         Self {
             functions,
             structs: HashMap::new(),
+            declared_struct_names: HashSet::new(),
+            methods: HashMap::new(),
             symbols: HashMap::new(),
             expr_types: HashMap::new(),
             resolved_symbols: HashMap::new(),
+            current_impl_target: None,
             next_sym_id: 1,
             scopes: vec![HashMap::new()],
             var_states: HashMap::new(),
@@ -241,6 +271,16 @@ impl SemanticContext {
                         .with_suggestion("use immutable slice '&str'", Some(ty_expr.span), "&str")
                         .with_span(ty_expr.span),
                     );
+                } else if *is_mut && matches!(inner_ty, Type::Slice(_)) {
+                    diags.emit(
+                        Diagnostic::error(
+                            "Mutable slices '&mut [T]' are not supported in this milestone; slices must be immutable '&[T]'",
+                        )
+                        .with_code(codes::E0203_MUTABLE_STR_SLICE)
+                        .with_expected("&[T]")
+                        .with_actual("&mut [T]")
+                        .with_span(ty_expr.span),
+                    );
                 }
                 Type::Ref {
                     is_mut: *is_mut,
@@ -251,11 +291,39 @@ impl SemanticContext {
                 inner: Box::new(self.type_from_ast(inner, diags)),
                 len: *len,
             },
+            TypeExprKind::Slice { inner } => {
+                let inner_ty = self.type_from_ast(inner, diags);
+                Type::Slice(Box::new(inner_ty))
+            }
             TypeExprKind::Named(name) => {
                 if name == "str" {
                     Type::Str
-                } else if self.structs.contains_key(name) {
+                } else if name == "Self" {
+                    if let Some(target) = &self.current_impl_target {
+                        Type::Struct(target.clone())
+                    } else {
+                        diags.emit(
+                            Diagnostic::error("'Self' type is only valid within an impl block")
+                                .with_code(codes::E0104_UNKNOWN_STRUCT)
+                                .with_span(ty_expr.span),
+                        );
+                        Type::Unit
+                    }
+                } else if self.structs.contains_key(name)
+                    || self.declared_struct_names.contains(name)
+                {
                     Type::Struct(name.clone())
+                } else if let Some(target) = &self.current_impl_target {
+                    if target == name {
+                        Type::Struct(name.clone())
+                    } else {
+                        diags.emit(
+                            Diagnostic::error(format!("Unknown type '{}'", name))
+                                .with_code(codes::E0104_UNKNOWN_STRUCT)
+                                .with_span(ty_expr.span),
+                        );
+                        Type::Unit
+                    }
                 } else {
                     diags.emit(
                         Diagnostic::error(format!("Unknown type '{}'", name))
@@ -280,6 +348,41 @@ impl Default for SemanticAnalyzer {
     }
 }
 
+fn get_by_value_struct_deps(ty: &Type) -> Vec<String> {
+    match ty {
+        Type::Struct(name) => vec![name.clone()],
+        Type::Array { inner, .. } => get_by_value_struct_deps(inner),
+        _ => vec![],
+    }
+}
+
+fn detect_cycle(
+    start: &str,
+    current: &str,
+    adj: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+    path: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    path.push(current.to_string());
+    if let Some(neighbors) = adj.get(current) {
+        for next in neighbors {
+            if next == start {
+                let mut cycle = path.clone();
+                cycle.push(next.clone());
+                return Some(cycle);
+            }
+            if !visited.contains(next) {
+                visited.insert(next.clone());
+                if let Some(c) = detect_cycle(start, next, adj, visited, path) {
+                    return Some(c);
+                }
+            }
+        }
+    }
+    path.pop();
+    None
+}
+
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
@@ -291,106 +394,334 @@ impl SemanticAnalyzer {
         // Pass 1: Collect struct declarations
         for item in &program.items {
             if let Item::Struct(s) = item {
-                let mut fields = Vec::new();
-                for f in &s.fields {
-                    let f_ty = self.ctx.type_from_ast(&f.ty, diags);
-                    fields.push((f.name.name.clone(), f_ty));
-                }
-                self.ctx.structs.insert(
-                    s.name.name.clone(),
-                    StructDef {
-                        name: s.name.name.clone(),
-                        fields,
-                        span: s.span,
-                    },
-                );
+                self.ctx.declared_struct_names.insert(s.name.name.clone());
             }
         }
 
-        // Pass 2: Collect function signatures
+        struct RawStruct<'a> {
+            decl: &'a StructDecl,
+            fields: Vec<(String, Type)>,
+        }
+
+        let mut raw_structs = Vec::new();
+        let mut declared_struct_names = HashSet::new();
+
         for item in &program.items {
-            if let Item::Function(f) = item {
-                if f.name.name == "print_i64"
-                    || f.name.name == "print_str"
-                    || f.name.name == "panic"
-                {
+            if let Item::Struct(s) = item {
+                if !declared_struct_names.insert(s.name.name.clone()) {
                     diags.emit(
-                        Diagnostic::error(format!(
-                            "Cannot redefine built-in intrinsic '{}'",
-                            f.name.name
-                        ))
-                        .with_code(codes::E0103_REDEFINED_INTRINSIC)
-                        .with_note(
-                            "built-in standard output and runtime intrinsics are globally reserved",
-                        )
-                        .with_span(f.name.span),
+                        Diagnostic::error(format!("Duplicate struct definition '{}'", s.name.name))
+                            .with_code(codes::E0101_DUPLICATE_SYMBOL)
+                            .with_span(s.name.span),
                     );
                     continue;
                 }
 
-                let mut params = Vec::new();
-                for p in &f.params {
-                    let p_ty = self.ctx.type_from_ast(&p.ty, diags);
-                    if p_ty == Type::Str {
+                let mut seen_fields = HashSet::new();
+                let mut fields = Vec::new();
+                for f in &s.fields {
+                    if !seen_fields.insert(f.name.name.clone()) {
                         diags.emit(
                             Diagnostic::error(format!(
-                                "Parameter '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
-                                p.name.name
+                                "Duplicate field '{}' in struct '{}'",
+                                f.name.name, s.name.name
                             ))
-                            .with_code(codes::E0202_UNSIZED_TYPE_VALUE)
-                            .with_expected("&str")
-                            .with_actual("str")
-                            .with_suggestion("change parameter type to '&str'", Some(p.ty.span), "&str")
-                            .with_span(p.span),
+                            .with_code(codes::E0106_DUPLICATE_FIELD)
+                            .with_span(f.name.span),
                         );
                     }
-                    params.push((p.name.name.clone(), p_ty, p.is_mut));
+                    let f_ty = self.ctx.type_from_ast(&f.ty, diags);
+                    fields.push((f.name.name.clone(), f_ty));
                 }
-                let ret_type = match &f.ret_type {
-                    Some(t) => self.ctx.type_from_ast(t, diags),
-                    None => Type::Unit,
-                };
-                if ret_type.is_str_slice() {
-                    diags.emit(
-                        Diagnostic::error(
-                            "Returning '&str' from user-defined functions is not yet supported in Milestone 3",
-                        )
-                        .with_code(codes::E0206_INVALID_RETURN_TYPE)
-                        .with_span(f.span),
-                    );
-                }
-
-                if self.ctx.functions.contains_key(&f.name.name) {
-                    diags.emit(
-                        Diagnostic::error(format!(
-                            "Duplicate function definition '{}'",
-                            f.name.name
-                        ))
-                        .with_code(codes::E0101_DUPLICATE_SYMBOL)
-                        .with_span(f.name.span),
-                    );
-                } else {
-                    self.ctx.functions.insert(
-                        f.name.name.clone(),
-                        FnSignature {
-                            name: f.name.name.clone(),
-                            params,
-                            ret_type,
-                            span: f.span,
-                        },
-                    );
-                }
+                raw_structs.push(RawStruct { decl: s, fields });
             }
         }
 
-        // Pass 3: Check function bodies
+        // Build dependency graph of struct embeds by value
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        for raw in &raw_structs {
+            let mut deps = Vec::new();
+            for (_, f_ty) in &raw.fields {
+                for dep in get_by_value_struct_deps(f_ty) {
+                    deps.push(dep);
+                }
+            }
+            adj.insert(raw.decl.name.name.clone(), deps);
+        }
+
+        // Cycle detection for recursive structs
+        let mut cyclic_structs = HashSet::new();
+        for raw in &raw_structs {
+            let name = &raw.decl.name.name;
+            let mut visited = HashSet::new();
+            let mut path = Vec::new();
+            if let Some(cycle) = detect_cycle(name, name, &adj, &mut visited, &mut path) {
+                cyclic_structs.insert(name.clone());
+                let cycle_str = cycle.join(" -> ");
+                diags.emit(
+                    Diagnostic::error(format!(
+                        "Struct '{}' has infinite size due to recursive cycle: {}",
+                        name, cycle_str
+                    ))
+                    .with_code(codes::E0208_RECURSIVE_STRUCT)
+                    .with_span(raw.decl.span),
+                );
+            }
+        }
+
+        // Compute layouts in topological / iterative order
+        let mut pending: Vec<_> = raw_structs
+            .into_iter()
+            .filter(|r| !cyclic_structs.contains(&r.decl.name.name))
+            .collect();
+
+        let mut changed = true;
+        while changed && !pending.is_empty() {
+            changed = false;
+            let mut still_pending = Vec::new();
+
+            for raw in pending {
+                let all_deps_resolved = raw.fields.iter().all(|(_, fty)| {
+                    for dep in get_by_value_struct_deps(fty) {
+                        if !self.ctx.structs.contains_key(&dep) {
+                            return false;
+                        }
+                    }
+                    true
+                });
+
+                if all_deps_resolved {
+                    let def = StructDef::compute_layout(
+                        raw.decl.name.name.clone(),
+                        raw.fields,
+                        &self.ctx.structs,
+                        raw.decl.span,
+                    );
+                    self.ctx.structs.insert(raw.decl.name.name.clone(), def);
+                    changed = true;
+                } else {
+                    still_pending.push(raw);
+                }
+            }
+            pending = still_pending;
+        }
+
+        // Pass 2: Collect function signatures and impl methods
         for item in &program.items {
-            if let Item::Function(f) = item {
-                self.check_function(f, diags);
+            match item {
+                Item::Function(f) => {
+                    if f.name.name == "print_i64"
+                        || f.name.name == "print_str"
+                        || f.name.name == "panic"
+                    {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Cannot redefine built-in intrinsic '{}'",
+                                f.name.name
+                            ))
+                            .with_code(codes::E0103_REDEFINED_INTRINSIC)
+                            .with_note(
+                                "built-in standard output and runtime intrinsics are globally reserved",
+                            )
+                            .with_span(f.name.span),
+                        );
+                        continue;
+                    }
+
+                    let mut params = Vec::new();
+                    for p in &f.params {
+                        let p_ty = self.ctx.type_from_ast(&p.ty, diags);
+                        if p_ty == Type::Str {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Parameter '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
+                                    p.name.name
+                                ))
+                                .with_code(codes::E0202_UNSIZED_TYPE_VALUE)
+                                .with_expected("&str")
+                                .with_actual("str")
+                                .with_suggestion("change parameter type to '&str'", Some(p.ty.span), "&str")
+                                .with_span(p.span),
+                            );
+                        }
+                        params.push((p.name.name.clone(), p_ty, p.is_mut));
+                    }
+                    let ret_type = match &f.ret_type {
+                        Some(t) => self.ctx.type_from_ast(t, diags),
+                        None => Type::Unit,
+                    };
+                    if ret_type.is_str_slice() {
+                        diags.emit(
+                            Diagnostic::error(
+                                "Returning '&str' from user-defined functions is not yet supported in Milestone 3",
+                            )
+                            .with_code(codes::E0206_INVALID_RETURN_TYPE)
+                            .with_span(f.span),
+                        );
+                    }
+
+                    if self.ctx.functions.contains_key(&f.name.name) {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Duplicate function definition '{}'",
+                                f.name.name
+                            ))
+                            .with_code(codes::E0101_DUPLICATE_SYMBOL)
+                            .with_span(f.name.span),
+                        );
+                    } else {
+                        self.ctx.functions.insert(
+                            f.name.name.clone(),
+                            FnSignature {
+                                name: f.name.name.clone(),
+                                params,
+                                ret_type,
+                                span: f.span,
+                            },
+                        );
+                    }
+                }
+                Item::Impl(impl_block) => {
+                    if !self.ctx.structs.contains_key(&impl_block.target.name) {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Cannot implement methods for unknown struct '{}'",
+                                impl_block.target.name
+                            ))
+                            .with_code(codes::E0104_UNKNOWN_STRUCT)
+                            .with_span(impl_block.target.span),
+                        );
+                        continue;
+                    }
+
+                    self.ctx.current_impl_target = Some(impl_block.target.name.clone());
+
+                    for method in &impl_block.methods {
+                        if method.params.is_empty() || method.params[0].name.name != "self" {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Method '{}' must have 'self' as its first parameter",
+                                    method.name.name
+                                ))
+                                .with_code(codes::E0109_INVALID_RECEIVER)
+                                .with_span(method.span),
+                            );
+                            continue;
+                        }
+
+                        let receiver_ty = self.ctx.type_from_ast(&method.params[0].ty, diags);
+                        let is_valid_receiver = match &receiver_ty {
+                            Type::Ref { inner, .. } => {
+                                matches!(**inner, Type::Struct(ref s) if s == &impl_block.target.name)
+                            }
+                            Type::Struct(ref s) => s == &impl_block.target.name,
+                            _ => false,
+                        };
+
+                        if !is_valid_receiver {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Invalid receiver type for method '{}' of struct '{}'",
+                                    method.name.name, impl_block.target.name
+                                ))
+                                .with_code(codes::E0109_INVALID_RECEIVER)
+                                .with_span(method.params[0].span),
+                            );
+                            continue;
+                        }
+
+                        let mut params = Vec::new();
+                        for p in &method.params {
+                            let p_ty = self.ctx.type_from_ast(&p.ty, diags);
+                            params.push((p.name.name.clone(), p_ty, p.is_mut));
+                        }
+                        let ret_type = match &method.ret_type {
+                            Some(t) => self.ctx.type_from_ast(t, diags),
+                            None => Type::Unit,
+                        };
+
+                        let mangled_name =
+                            format!("{}_{}", impl_block.target.name, method.name.name);
+                        self.ctx.methods.insert(
+                            (impl_block.target.name.clone(), method.name.name.clone()),
+                            mangled_name.clone(),
+                        );
+                        self.ctx.functions.insert(
+                            mangled_name.clone(),
+                            FnSignature {
+                                name: mangled_name,
+                                params,
+                                ret_type,
+                                span: method.span,
+                            },
+                        );
+                    }
+
+                    self.ctx.current_impl_target = None;
+                }
+                _ => {}
+            }
+        }
+
+        // Pass 3: Check function and method bodies
+        for item in &program.items {
+            match item {
+                Item::Function(f) => {
+                    self.check_function(f, diags);
+                }
+                Item::Impl(impl_block) => {
+                    self.ctx.current_impl_target = Some(impl_block.target.name.clone());
+                    for method in &impl_block.methods {
+                        let mangled_name =
+                            format!("{}_{}", impl_block.target.name, method.name.name);
+                        self.check_method(method, &mangled_name, diags);
+                    }
+                    self.ctx.current_impl_target = None;
+                }
+                _ => {}
             }
         }
 
         self.ctx
+    }
+
+    fn check_method(&mut self, m: &FnDecl, mangled_name: &str, diags: &mut DiagnosticBag) {
+        if let Some(sig) = self.ctx.functions.get(mangled_name).cloned() {
+            self.ctx.current_fn_ret_type = Some(sig.ret_type.clone());
+            self.ctx.push_scope();
+
+            for (name, ty, is_mut) in &sig.params {
+                self.ctx.declare_symbol(
+                    name.clone(),
+                    ty.clone(),
+                    *is_mut,
+                    m.span,
+                    InitState::Initialized,
+                    diags,
+                );
+            }
+
+            let body_type = self.check_block(&m.body, diags);
+
+            if sig.ret_type != Type::Unit
+                && body_type != sig.ret_type
+                && !self.block_has_return(&m.body)
+            {
+                diags.emit(
+                    Diagnostic::error(format!(
+                        "Method '{}' expects return type {:?}, but body produces {:?}",
+                        m.name.name, sig.ret_type, body_type
+                    ))
+                    .with_code(codes::E0207_RETURN_TYPE_MISMATCH)
+                    .with_expected(format!("{}", sig.ret_type))
+                    .with_actual(format!("{}", body_type))
+                    .with_span(m.body.span),
+                );
+            }
+
+            self.ctx.pop_scope();
+            self.ctx.current_fn_ret_type = None;
+        }
     }
 
     fn check_function(&mut self, f: &FnDecl, diags: &mut DiagnosticBag) {
@@ -499,10 +830,10 @@ impl SemanticAnalyzer {
                 let (inferred_ty, init_state) = if let Some(init_expr) = init {
                     let expr_ty = self.check_expr(init_expr, diags);
                     if let Some(dec_ty) = &declared_ty {
-                        if expr_ty != *dec_ty {
+                        if !self.ctx.can_coerce(&expr_ty, dec_ty) {
                             diags.emit(
                                 Diagnostic::error(format!(
-                                    "Type mismatch in let binding: expected {:?}, found {:?}",
+                                    "Type mismatch in let binding: expected {}, found {}",
                                     dec_ty, expr_ty
                                 ))
                                 .with_code(codes::E0201_TYPE_MISMATCH)
@@ -536,7 +867,7 @@ impl SemanticAnalyzer {
                     name.name.clone(),
                     inferred_ty,
                     *is_mut,
-                    *span,
+                    name.span,
                     init_state,
                     diags,
                 );
@@ -599,10 +930,10 @@ impl SemanticAnalyzer {
                                 }
                             }
 
-                            if sym.ty != val_ty {
+                            if !self.ctx.can_coerce(&val_ty, &sym.ty) {
                                 diags.emit(
                                     Diagnostic::error(format!(
-                                        "Cannot assign value of type {:?} to variable of type {:?}",
+                                        "Cannot assign value of type {} to variable of type {}",
                                         val_ty, sym.ty
                                     ))
                                     .with_code(codes::E0201_TYPE_MISMATCH)
@@ -631,10 +962,10 @@ impl SemanticAnalyzer {
                                 is_mut: true,
                                 inner: ref_target_ty,
                             } => {
-                                if *ref_target_ty != val_ty {
+                                if !self.ctx.can_coerce(&val_ty, &ref_target_ty) {
                                     diags.emit(
                                         Diagnostic::error(format!(
-                                            "Type mismatch in dereference assignment: expected {:?}, found {:?}",
+                                            "Type mismatch in dereference assignment: expected {}, found {}",
                                             ref_target_ty, val_ty
                                         ))
                                         .with_code(codes::E0201_TYPE_MISMATCH)
@@ -656,10 +987,29 @@ impl SemanticAnalyzer {
                     ExprKind::Index { array, .. } => {
                         let target_ty = self.check_expr(target, diags);
                         self.check_place_mutability(array, span, diags);
-                        if target_ty != val_ty {
+                        if !self.ctx.can_coerce(&val_ty, &target_ty) {
                             diags.emit(
                                 Diagnostic::error(format!(
-                                    "Type mismatch in assignment: target {:?}, value {:?}",
+                                    "Type mismatch in assignment: target {}, value {}",
+                                    target_ty, val_ty
+                                ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", target_ty))
+                                .with_actual(format!("{}", val_ty))
+                                .with_span(*span),
+                            );
+                        }
+                    }
+                    ExprKind::FieldAccess {
+                        target: base,
+                        field: _,
+                    } => {
+                        let target_ty = self.check_expr(target, diags);
+                        self.check_place_mutability(base, span, diags);
+                        if !self.ctx.can_coerce(&val_ty, &target_ty) {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Type mismatch in field assignment: expected {}, found {}",
                                     target_ty, val_ty
                                 ))
                                 .with_code(codes::E0201_TYPE_MISMATCH)
@@ -671,10 +1021,10 @@ impl SemanticAnalyzer {
                     }
                     _ => {
                         let target_ty = self.check_expr(target, diags);
-                        if target_ty != val_ty {
+                        if !self.ctx.can_coerce(&val_ty, &target_ty) {
                             diags.emit(
                                 Diagnostic::error(format!(
-                                    "Type mismatch in assignment: target {:?}, value {:?}",
+                                    "Type mismatch in assignment: target {}, value {}",
                                     target_ty, val_ty
                                 ))
                                 .with_code(codes::E0201_TYPE_MISMATCH)
@@ -745,24 +1095,57 @@ impl SemanticAnalyzer {
             ExprKind::Ident(name) => {
                 if let Some(sym_id) = self.ctx.lookup_symbol(name) {
                     let sym = self.ctx.symbols.get(&sym_id).cloned().unwrap();
-                    if !sym.is_mut {
-                        diags.emit(
-                            Diagnostic::error(format!(
-                                "Cannot assign to indexed element of immutable variable '{}'",
-                                name
-                            ))
-                            .with_code(codes::E0303_MUTATE_IMMUTABLE)
-                            .with_suggestion(
-                                "declare variable as mutable with 'let mut'",
-                                Some(sym.span),
-                                "let mut",
-                            )
-                            .with_span(*span),
-                        );
+                    if let Type::Ref { is_mut, .. } = &sym.ty {
+                        if !*is_mut {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Cannot assign through immutable reference '{}'",
+                                    name
+                                ))
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                            );
+                        }
+                    } else if !sym.is_mut {
+                        if matches!(&sym.ty, Type::Array { .. }) {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Cannot assign to indexed element of immutable variable '{}'",
+                                    name
+                                ))
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_suggestion(
+                                    "declare variable as mutable with 'let mut'",
+                                    Some(sym.span),
+                                    "let mut",
+                                )
+                                .with_span(*span),
+                            );
+                        } else {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Cannot assign to field of immutable variable '{}'",
+                                    name
+                                ))
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_suggestion(
+                                    "declare variable as mutable with 'let mut'",
+                                    Some(sym.span),
+                                    "let mut",
+                                )
+                                .with_span(*span),
+                            );
+                        }
                     }
                     if sym.ty.is_str_slice() || sym.ty == Type::Str {
                         diags.emit(
                             Diagnostic::error("String slices are immutable and cannot be modified through indexing")
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                        );
+                    } else if sym.ty.is_slice() {
+                        diags.emit(
+                            Diagnostic::error("Dynamic slices are immutable and cannot be modified through indexing")
                                 .with_code(codes::E0303_MUTATE_IMMUTABLE)
                                 .with_span(*span),
                         );
@@ -772,17 +1155,18 @@ impl SemanticAnalyzer {
             ExprKind::Index { array, .. } => {
                 self.check_place_mutability(array, span, diags);
             }
+            ExprKind::FieldAccess { target, .. } => {
+                self.check_place_mutability(target, span, diags);
+            }
             ExprKind::Deref(inner) => {
                 if let Some(inner_ty) = self.ctx.expr_types.get(&(inner.as_ref() as *const Expr)) {
                     match inner_ty {
                         Type::Ref { is_mut: true, .. } => {}
                         _ => {
                             diags.emit(
-                                Diagnostic::error(
-                                    "Cannot assign to indexed element through immutable reference",
-                                )
-                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
-                                .with_span(*span),
+                                Diagnostic::error("Cannot assign through immutable reference")
+                                    .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                    .with_span(*span),
                             );
                         }
                     }
@@ -793,6 +1177,12 @@ impl SemanticAnalyzer {
                     if ty.is_str_slice() || *ty == Type::Str {
                         diags.emit(
                             Diagnostic::error("String slices are immutable and cannot be modified through indexing")
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_span(*span),
+                        );
+                    } else if ty.is_slice() {
+                        diags.emit(
+                            Diagnostic::error("Dynamic slices are immutable and cannot be modified through indexing")
                                 .with_code(codes::E0303_MUTATE_IMMUTABLE)
                                 .with_span(*span),
                         );
@@ -1075,11 +1465,7 @@ impl SemanticAnalyzer {
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_ty = self.check_expr(arg, diags);
                         if let Some((_, param_ty, _)) = sig.params.get(idx) {
-                            if (callee == "print_i64" || *param_ty == Type::I64)
-                                && arg_ty.is_integer()
-                            {
-                                // Integer arguments promote to 64-bit parameter
-                            } else if arg_ty != *param_ty {
+                            if !self.ctx.can_coerce(&arg_ty, param_ty) {
                                 let mut diag = Diagnostic::error(format!(
                                     "Argument {} to function '{}' expects {}, found {}",
                                     idx + 1,
@@ -1207,20 +1593,21 @@ impl SemanticAnalyzer {
 
                 match &arr_ty {
                     Type::Array { inner, .. } => *inner.clone(),
-                    Type::Ref { inner, .. } => {
-                        match inner.as_ref() {
-                            Type::Array { inner: elem_ty, .. } => *elem_ty.clone(),
-                            Type::Str => Type::U8,
-                            _ => {
-                                diags.emit(
-                                Diagnostic::error("Indexing requires an array, array reference, or string slice")
-                                    .with_code(codes::E0204_INVALID_OPERAND_TYPE)
-                                    .with_span(array.span),
+                    Type::Ref { inner, .. } => match inner.as_ref() {
+                        Type::Array { inner: elem_ty, .. } => *elem_ty.clone(),
+                        Type::Slice(elem_ty) => *elem_ty.clone(),
+                        Type::Str => Type::U8,
+                        _ => {
+                            diags.emit(
+                                Diagnostic::error(
+                                    "Indexing requires an array, array reference, or string slice",
+                                )
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
+                                .with_span(array.span),
                             );
-                                Type::I64
-                            }
+                            Type::I64
                         }
-                    }
+                    },
                     Type::Str => Type::U8,
                     _ => {
                         diags.emit(
@@ -1234,53 +1621,72 @@ impl SemanticAnalyzer {
             }
             ExprKind::FieldAccess { target, field } => {
                 let target_ty = self.check_expr(target, diags);
-                match target_ty {
-                    Type::Struct(struct_name) => {
-                        if let Some(s_def) = self.ctx.structs.get(&struct_name) {
-                            if let Some((_, f_ty)) =
-                                s_def.fields.iter().find(|(name, _)| name == &field.name)
-                            {
-                                f_ty.clone()
-                            } else {
-                                diags.emit(
-                                    Diagnostic::error(format!(
-                                        "Struct '{}' has no field named '{}'",
-                                        struct_name, field.name
-                                    ))
-                                    .with_code(codes::E0105_UNKNOWN_FIELD)
-                                    .with_span(field.span),
-                                );
-                                Type::I64
-                            }
+                let struct_name = match &target_ty {
+                    Type::Struct(sname) => Some(sname.clone()),
+                    Type::Ref { inner, .. } => {
+                        if let Type::Struct(sname) = &**inner {
+                            Some(sname.clone())
                         } else {
-                            Type::I64
+                            None
                         }
                     }
-                    _ => {
-                        diags.emit(
-                            Diagnostic::error("Field access requires struct type")
-                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
-                                .with_span(target.span),
-                        );
+                    _ => None,
+                };
+
+                if let Some(sname) = struct_name {
+                    if let Some(s_def) = self.ctx.structs.get(&sname) {
+                        if let Some(f) = s_def.find_field(&field.name) {
+                            f.ty.clone()
+                        } else {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Struct '{}' has no field named '{}'",
+                                    sname, field.name
+                                ))
+                                .with_code(codes::E0105_UNKNOWN_FIELD)
+                                .with_span(field.span),
+                            );
+                            Type::I64
+                        }
+                    } else {
                         Type::I64
                     }
+                } else {
+                    diags.emit(
+                        Diagnostic::error(format!(
+                            "Field access requires struct type or reference to struct, found {}",
+                            target_ty
+                        ))
+                        .with_code(codes::E0204_INVALID_OPERAND_TYPE)
+                        .with_span(target.span),
+                    );
+                    Type::I64
                 }
             }
             ExprKind::StructLiteral { name, fields } => {
                 if let Some(s_def) = self.ctx.structs.get(&name.name).cloned() {
+                    let mut seen = HashSet::new();
                     for (f_ident, f_expr) in fields {
+                        if !seen.insert(f_ident.name.clone()) {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Duplicate field '{}' in struct literal '{}'",
+                                    f_ident.name, name.name
+                                ))
+                                .with_code(codes::E0106_DUPLICATE_FIELD)
+                                .with_span(f_ident.span),
+                            );
+                        }
                         let val_ty = self.check_expr(f_expr, diags);
-                        if let Some((_, expected_ty)) =
-                            s_def.fields.iter().find(|(n, _)| n == &f_ident.name)
-                        {
-                            if val_ty != *expected_ty {
+                        if let Some(expected_field) = s_def.find_field(&f_ident.name) {
+                            if !self.ctx.can_coerce(&val_ty, &expected_field.ty) {
                                 diags.emit(
                                     Diagnostic::error(format!(
-                                        "Field '{}' expects type {:?}, found {:?}",
-                                        f_ident.name, expected_ty, val_ty
+                                        "Field '{}' expects type {}, found {}",
+                                        f_ident.name, expected_field.ty, val_ty
                                     ))
                                     .with_code(codes::E0201_TYPE_MISMATCH)
-                                    .with_expected(format!("{}", expected_ty))
+                                    .with_expected(format!("{}", expected_field.ty))
                                     .with_actual(format!("{}", val_ty))
                                     .with_span(f_expr.span),
                                 );
@@ -1296,6 +1702,21 @@ impl SemanticAnalyzer {
                             );
                         }
                     }
+
+                    // Check for missing fields
+                    for declared in &s_def.fields {
+                        if !seen.contains(&declared.name) {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "Missing field '{}' in initializer for struct '{}'",
+                                    declared.name, name.name
+                                ))
+                                .with_code(codes::E0107_MISSING_FIELD)
+                                .with_span(name.span),
+                            );
+                        }
+                    }
+
                     Type::Struct(name.name.clone())
                 } else {
                     diags.emit(
@@ -1306,8 +1727,139 @@ impl SemanticAnalyzer {
                     Type::I64
                 }
             }
+            ExprKind::MethodCall {
+                target,
+                method,
+                args,
+            } => {
+                let target_ty = self.check_expr(target, diags);
+
+                let is_slice_or_array = target_ty.is_str_slice()
+                    || target_ty.is_slice()
+                    || matches!(&target_ty, Type::Ref { inner, .. } if matches!(inner.as_ref(), Type::Array { .. }));
+
+                if is_slice_or_array && method.name == "len" {
+                    if !args.is_empty() {
+                        diags.emit(
+                            Diagnostic::error("Method 'len' expects 0 arguments")
+                                .with_code(codes::E0205_ARGUMENT_MISMATCH)
+                                .with_span(method.span),
+                        );
+                    }
+                    Type::I64
+                } else {
+                    let struct_name = match &target_ty {
+                        Type::Struct(sname) => Some(sname.clone()),
+                        Type::Ref { inner, .. } => {
+                            if let Type::Struct(sname) = &**inner {
+                                Some(sname.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(sname) = struct_name {
+                        if let Some(mangled) = self
+                            .ctx
+                            .methods
+                            .get(&(sname.clone(), method.name.clone()))
+                            .cloned()
+                        {
+                            if let Some(sig) = self.ctx.functions.get(&mangled).cloned() {
+                                // Receiver checks
+                                if let Some((_, receiver_ty, _)) = sig.params.first() {
+                                    match receiver_ty {
+                                        Type::Ref { is_mut: true, .. } => {
+                                            self.check_place_mutability(
+                                                target,
+                                                &target.span,
+                                                diags,
+                                            );
+                                            if let Type::Ref { is_mut: false, .. } = target_ty {
+                                                diags.emit(
+                                                    Diagnostic::error(format!(
+                                                        "Cannot call method '{}' requiring '&mut Self' on immutable reference",
+                                                        method.name
+                                                    ))
+                                                    .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                                    .with_span(target.span),
+                                                );
+                                            }
+                                        }
+                                        Type::Ref { is_mut: false, .. } => {}
+                                        Type::Struct(_) => {}
+                                        _ => {}
+                                    }
+                                }
+
+                                let expected_arg_count = sig.params.len().saturating_sub(1);
+                                if args.len() != expected_arg_count {
+                                    diags.emit(
+                                        Diagnostic::error(format!(
+                                            "Method '{}' expects {} arguments, but {} were provided",
+                                            method.name,
+                                            expected_arg_count,
+                                            args.len()
+                                        ))
+                                        .with_code(codes::E0205_ARGUMENT_MISMATCH)
+                                        .with_span(expr.span),
+                                    );
+                                }
+
+                                for (idx, arg) in args.iter().enumerate() {
+                                    let arg_ty = self.check_expr(arg, diags);
+                                    if let Some((_, param_ty, _)) = sig.params.get(idx + 1) {
+                                        if !self.ctx.can_coerce(&arg_ty, param_ty) {
+                                            diags.emit(
+                                                Diagnostic::error(format!(
+                                                    "Argument {} to method '{}' expects {}, found {}",
+                                                    idx + 1,
+                                                    method.name,
+                                                    param_ty,
+                                                    arg_ty
+                                                ))
+                                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                                .with_expected(format!("{}", param_ty))
+                                                .with_actual(format!("{}", arg_ty))
+                                                .with_span(arg.span),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                sig.ret_type
+                            } else {
+                                Type::I64
+                            }
+                        } else {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "No method named '{}' found on struct '{}'",
+                                    method.name, sname
+                                ))
+                                .with_code(codes::E0108_UNKNOWN_METHOD)
+                                .with_span(method.span),
+                            );
+                            Type::I64
+                        }
+                    } else {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Method call '{}' on non-struct type {}",
+                                method.name, target_ty
+                            ))
+                            .with_code(codes::E0204_INVALID_OPERAND_TYPE)
+                            .with_span(target.span),
+                        );
+                        Type::I64
+                    }
+                }
+            }
         };
 
+        self.ctx.expr_types.insert(expr as *const Expr, ty.clone());
         ty
     }
 }
@@ -1374,5 +1926,154 @@ mod tests {
         assert!(diags.diagnostics().iter().any(|d| d
             .message
             .contains("Cannot borrow immutable variable 'x' as mutable")));
+    }
+
+    #[test]
+    fn test_struct_layout_and_methods() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "struct_test.va".into(),
+            r#"
+            struct Point {
+                x: i64,
+                y: i64,
+            }
+
+            impl Point {
+                fn translate(self: &mut Self, dx: i64, dy: i64) {
+                    self.x = self.x + dx;
+                    self.y = self.y + dy;
+                }
+
+                fn sum(self: &Self) -> i64 {
+                    return self.x + self.y;
+                }
+            }
+
+            fn main() {
+                let mut p = Point { x: 10, y: 20 };
+                p.translate(5, 7);
+                let s = p.sum();
+            }
+            "#
+            .into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+        assert!(!diags.has_errors());
+
+        let analyzer = SemanticAnalyzer::new();
+        let ctx = analyzer.analyze(&program, &mut diags);
+        assert!(!diags.has_errors());
+
+        let point_def = ctx.structs.get("Point").expect("Point struct exists");
+        assert_eq!(point_def.total_size, 16);
+        assert_eq!(point_def.alignment, 8);
+        assert_eq!(point_def.fields[0].offset, 0);
+        assert_eq!(point_def.fields[1].offset, 8);
+    }
+
+    #[test]
+    fn test_recursive_struct_rejected() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "recursive.va".into(),
+            r#"
+            struct Node {
+                val: i64,
+                next: Node,
+            }
+            "#
+            .into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+
+        let analyzer = SemanticAnalyzer::new();
+        let _ctx = analyzer.analyze(&program, &mut diags);
+        assert!(diags.has_errors());
+        assert!(diags
+            .diagnostics()
+            .iter()
+            .any(|d| d.code == Some(codes::E0208_RECURSIVE_STRUCT)));
+    }
+
+    #[test]
+    fn test_struct_missing_field_rejected() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "missing.va".into(),
+            r#"
+            struct Point {
+                x: i64,
+                y: i64,
+            }
+
+            fn main() {
+                let p = Point { x: 10 };
+            }
+            "#
+            .into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+
+        let analyzer = SemanticAnalyzer::new();
+        let _ctx = analyzer.analyze(&program, &mut diags);
+        assert!(diags.has_errors());
+        assert!(diags
+            .diagnostics()
+            .iter()
+            .any(|d| d.code == Some(codes::E0107_MISSING_FIELD)));
+    }
+
+    #[test]
+    fn test_dynamic_slice_coercion_and_len() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "slice.va".into(),
+            r#"
+            fn sum_slice(s: &[i64]) -> i64 {
+                let n = s.len();
+                let mut sum = 0;
+                let mut i = 0;
+                while i < n {
+                    sum = sum + s[i];
+                    i = i + 1;
+                }
+                return sum;
+            }
+
+            fn main() {
+                let arr: [i64; 3] = [10, 20, 30];
+                let view: &[i64] = &arr;
+                let res = sum_slice(view);
+            }
+            "#
+            .into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+        assert!(!diags.has_errors());
+
+        let analyzer = SemanticAnalyzer::new();
+        let _ctx = analyzer.analyze(&program, &mut diags);
+        assert!(!diags.has_errors());
     }
 }

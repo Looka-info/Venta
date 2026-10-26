@@ -18,14 +18,14 @@ MIR characteristics:
 
 ## 2. Structure
 
-A `MirProgram` consists of global declarations and a set of `MirFunction` definitions.
+A `MirProgram` consists of global declarations, struct layout definitions (`structs: HashMap<String, StructDef>`), interned string literals, and a set of `MirFunction` definitions.
 
 ```
 MirFunction
 ├── name: String
 ├── params: Vec<(SlotId, Type)>
 ├── return_type: Type
-├── local_slots: Vec<LocalSlot>
+├── local_slots: Vec<LocalSlot> (id, name, ty, size, align)
 └── blocks: Vec<BasicBlock>
     ├── id: BlockId
     ├── instructions: Vec<Instruction>
@@ -46,6 +46,7 @@ MirFunction
 - `Call(Option<ValueId>, String, Vec<ValueId>, Type)`: Direct function call.
 - `IndexAddr(ValueId, SlotId, ValueId, usize)`: Compute address of element within a stack slot (`slot_addr + index * elem_size`).
 - `IndexPtrAddr(ValueId, ValueId, ValueId, usize)`: Compute element address from a dynamic base pointer (`base_ptr + index * elem_size`).
+- `FieldAddr(ValueId, ValueId, u32)`: Compute field address from a struct base pointer (`base_ptr + offset`).
 - `LoadIndirect(ValueId, ValueId, Type)`: Load a typed value from an arbitrary memory address.
 - `StoreIndirect(ValueId, ValueId)`: Store a value into an arbitrary memory address.
 - `StrSlice(ValueId, ValueId, String, usize)`: Materialize a string slice descriptor `(data_ptr, byte_len)`.

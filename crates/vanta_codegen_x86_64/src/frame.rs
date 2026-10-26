@@ -20,7 +20,9 @@ impl FrameLayout {
 
         // Allocate slots for local variables
         for slot in &func.slots {
-            let size = slot.ty.size_in_bytes().max(8) as i32;
+            let align = slot.align.max(8) as i32;
+            let size = slot.size.max(8) as i32;
+            current_offset = (current_offset + align - 1) & !(align - 1);
             current_offset += size;
             slot_offsets.insert(slot.id, current_offset);
         }
@@ -32,6 +34,7 @@ impl FrameLayout {
                     vanta_mir::Instruction::ConstInt { dest, .. }
                     | vanta_mir::Instruction::ConstBool { dest, .. }
                     | vanta_mir::Instruction::SlotAddr { dest, .. }
+                    | vanta_mir::Instruction::FieldAddr { dest, .. }
                     | vanta_mir::Instruction::Load { dest, .. }
                     | vanta_mir::Instruction::Binary { dest, .. }
                     | vanta_mir::Instruction::Unary { dest, .. }
@@ -103,7 +106,7 @@ impl FrameLayout {
         // Spill incoming register arguments into their allocated stack slots
         let mut arg_reg_idx = 0;
         for (slot, ty) in &func.params {
-            if ty.is_str_slice() {
+            if ty.is_str_slice() || ty.is_slice() {
                 if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
                     let ptr_reg = Reg::ARG_REGS[arg_reg_idx];
                     let len_reg = Reg::ARG_REGS[arg_reg_idx + 1];

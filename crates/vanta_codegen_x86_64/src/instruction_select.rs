@@ -418,6 +418,29 @@ impl<'a> InstructionSelector<'a> {
                     src: Operand::Reg(Reg::R10),
                 });
             }
+            Instruction::FieldAddr {
+                dest,
+                base_ptr,
+                offset,
+            } => {
+                let base_op = self.frame.get_value_op(*base_ptr);
+                let dest_op = self.frame.get_value_op(*dest);
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R10),
+                    src: base_op,
+                });
+                if *offset > 0 {
+                    out.push(MachineInst::Add {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Imm(*offset as i64),
+                    });
+                }
+                out.push(MachineInst::Mov {
+                    dest: dest_op,
+                    src: Operand::Reg(Reg::R10),
+                });
+            }
             Instruction::LoadIndirect { dest, addr, ty } => {
                 let addr_op = self.frame.get_value_op(*addr);
                 let dest_op = self.frame.get_value_op(*dest);

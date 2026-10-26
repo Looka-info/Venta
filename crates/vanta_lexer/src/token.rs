@@ -16,6 +16,7 @@ pub enum TokenKind {
     Break,
     Continue,
     Struct,
+    Impl,
     Pub,
     As,
     Const,

@@ -112,6 +112,9 @@ impl DeadCodeElimination {
                         used_values.insert(*base_ptr);
                         used_values.insert(*index);
                     }
+                    Instruction::FieldAddr { base_ptr, .. } => {
+                        used_values.insert(*base_ptr);
+                    }
                     Instruction::StoreSlice { ptr, len, .. } => {
                         used_values.insert(*ptr);
                         used_values.insert(*len);
@@ -159,7 +162,8 @@ impl DeadCodeElimination {
                         }
                     }
                     Instruction::IndexAddr { dest, .. }
-                    | Instruction::IndexPtrAddr { dest, .. } => used_values.contains(dest),
+                    | Instruction::IndexPtrAddr { dest, .. }
+                    | Instruction::FieldAddr { dest, .. } => used_values.contains(dest),
                     Instruction::StrSlice {
                         dest_ptr, dest_len, ..
                     } => used_values.contains(dest_ptr) || used_values.contains(dest_len),

@@ -101,3 +101,43 @@ The bounds check conditional branch strictly dominates the memory place calculat
 
 ### 5.4 Optimizer Proofs
 Optimizers (`-O1`) may remove runtime checks if and only if constant propagation or range analysis proves `0 <= index < length` along all reaching execution paths. If an index is proven statically out of bounds, the optimizer preserves the deterministic panic path and removes the dead downstream memory access. Both `-O0` and `-O1` maintain identical observable behavior.
+
+---
+
+## 6. Struct Memory Layout and Alignment
+
+Vanta guarantees deterministic, predictable struct layouts:
+
+### 6.1 Field Ordering and Natural Alignment
+1. **Declaration Order Preservation**: Struct fields are laid out in memory in their exact order of declaration. The compiler performs no hidden field reordering in Milestone 5.
+2. **Natural Alignment**: Each field's byte offset is aligned to a multiple of its natural alignment (`align(T) = min(sizeof(T), 8)`). If the preceding field ends at an unaligned offset, the compiler inserts padding bytes.
+3. **Trailing Padding and Struct Alignment**: The total size of a struct is rounded up to a multiple of the struct's maximum field alignment (`max_align = max(align(field_1), ..., align(field_n))`).
+4. **Example**:
+   ```vanta
+   struct Mixed {
+       a: u8,   // offset 0, size 1, align 1
+                // padding: 7 bytes (offsets 1..7)
+       b: i64,  // offset 8, size 8, align 8
+       c: u8,   // offset 16, size 1, align 1
+                // padding: 7 bytes (offsets 17..23)
+   }            // total size: 24 bytes, align: 8 bytes
+   ```
+
+### 6.2 Nested Structs
+Nested structs are laid out inline (by value) within the outer struct according to their own alignment and size. A nested struct field requires no heap allocations or indirection pointers.
+
+---
+
+## 7. Dynamic Slice Descriptor Layout and Borrow Safety
+
+### 7.1 Fat Pointer Representation
+A dynamic slice `&[T]` is an immutable 2-word fat pointer descriptor:
+- Word 0: `data_ptr: *const T` (64-bit virtual memory address of the first element).
+- Word 1: `len: u64` (64-bit element count).
+- Size: 16 bytes. Alignment: 8 bytes.
+- System V AMD64 ABI: When passed as function arguments or returned, dynamic slices occupy two consecutive 64-bit integer registers (e.g. `%rdi` for pointer and `%rsi` for length).
+
+### 7.2 Borrow Checker Invariants
+1. **Array to Slice Coercion**: Taking `&arr` where `arr: [T; N]` creates a shared borrow of `arr` with length `N`.
+2. **Mutation Prevention**: While the slice borrow `&arr` is active, the underlying array `arr` cannot be modified, reassigned, or moved (`E0306_ASSIGN_BORROWED_VARIABLE`).
+3. **Immutability of Slices**: Dynamic slice elements cannot be written through indexing (`s[i] = x` triggers `E0303_MUTATE_IMMUTABLE`). Mutating slices (`&mut [T]`) is deferred to a future milestone.

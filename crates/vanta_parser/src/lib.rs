@@ -103,15 +103,48 @@ impl Parser {
         match self.peek() {
             TokenKind::Fn => self.parse_fn(is_pub, diags).map(Item::Function),
             TokenKind::Struct => self.parse_struct(is_pub, diags).map(Item::Struct),
+            TokenKind::Impl => self.parse_impl(diags).map(Item::Impl),
             other => {
                 diags.emit(
-                    Diagnostic::error(format!("Expected item (fn or struct), found {:?}", other))
-                        .with_code(codes::E0004_SYNTAX_ERROR)
-                        .with_span(self.current_span()),
+                    Diagnostic::error(format!(
+                        "Expected item (fn, struct, or impl), found {:?}",
+                        other
+                    ))
+                    .with_code(codes::E0004_SYNTAX_ERROR)
+                    .with_span(self.current_span()),
                 );
                 None
             }
         }
+    }
+
+    fn parse_impl(&mut self, diags: &mut DiagnosticBag) -> Option<ImplBlock> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Impl, diags)?;
+        let target = self.parse_ident(diags)?;
+        self.expect(TokenKind::LBrace, diags)?;
+
+        let mut methods = Vec::new();
+        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+            let is_pub = if self.check(&TokenKind::Pub) {
+                self.bump();
+                true
+            } else {
+                false
+            };
+            if let Some(m) = self.parse_fn(is_pub, diags) {
+                methods.push(m);
+            } else {
+                break;
+            }
+        }
+        let end_tok = self.expect(TokenKind::RBrace, diags)?;
+
+        Some(ImplBlock {
+            target,
+            methods,
+            span: start_span.merge(end_tok.span),
+        })
     }
 
     fn parse_fn(&mut self, is_pub: bool, diags: &mut DiagnosticBag) -> Option<FnDecl> {
@@ -340,32 +373,42 @@ impl Parser {
             TokenKind::LBracket => {
                 self.bump();
                 let inner = self.parse_type(diags)?;
-                self.expect(TokenKind::Semicolon, diags)?;
-                let len = match self.peek() {
-                    TokenKind::IntLiteral(n) if *n >= 0 => {
-                        let len = *n as usize;
-                        self.bump();
-                        len
-                    }
-                    _ => {
-                        diags.emit(
-                            Diagnostic::error(
-                                "Array length must be a non-negative integer literal",
-                            )
-                            .with_code(codes::E0004_SYNTAX_ERROR)
-                            .with_span(self.current_span()),
-                        );
-                        0
-                    }
-                };
-                let end_tok = self.expect(TokenKind::RBracket, diags)?;
-                Some(TypeExpr {
-                    kind: TypeExprKind::Array {
-                        inner: Box::new(inner),
-                        len,
-                    },
-                    span: start_span.merge(end_tok.span),
-                })
+                if self.check(&TokenKind::RBracket) {
+                    let end_tok = self.bump();
+                    Some(TypeExpr {
+                        kind: TypeExprKind::Slice {
+                            inner: Box::new(inner),
+                        },
+                        span: start_span.merge(end_tok.span),
+                    })
+                } else {
+                    self.expect(TokenKind::Semicolon, diags)?;
+                    let len = match self.peek() {
+                        TokenKind::IntLiteral(n) if *n >= 0 => {
+                            let len = *n as usize;
+                            self.bump();
+                            len
+                        }
+                        _ => {
+                            diags.emit(
+                                Diagnostic::error(
+                                    "Array length must be a non-negative integer literal",
+                                )
+                                .with_code(codes::E0004_SYNTAX_ERROR)
+                                .with_span(self.current_span()),
+                            );
+                            0
+                        }
+                    };
+                    let end_tok = self.expect(TokenKind::RBracket, diags)?;
+                    Some(TypeExpr {
+                        kind: TypeExprKind::Array {
+                            inner: Box::new(inner),
+                            len,
+                        },
+                        span: start_span.merge(end_tok.span),
+                    })
+                }
             }
             TokenKind::LParen => {
                 self.bump();
@@ -719,17 +762,39 @@ impl Parser {
                     );
                 }
                 TokenKind::Dot => {
-                    // Field Access
                     self.bump();
                     let field = self.parse_ident(diags)?;
-                    let span = expr.span.merge(field.span);
-                    expr = Expr::new(
-                        ExprKind::FieldAccess {
-                            target: Box::new(expr),
-                            field,
-                        },
-                        span,
-                    );
+                    if self.check(&TokenKind::LParen) {
+                        self.bump();
+                        let mut args = Vec::new();
+                        while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::Eof) {
+                            args.push(self.parse_expr(diags)?);
+                            if self.check(&TokenKind::Comma) {
+                                self.bump();
+                            } else {
+                                break;
+                            }
+                        }
+                        let end_tok = self.expect(TokenKind::RParen, diags)?;
+                        let span = expr.span.merge(end_tok.span);
+                        expr = Expr::new(
+                            ExprKind::MethodCall {
+                                target: Box::new(expr),
+                                method: field,
+                                args,
+                            },
+                            span,
+                        );
+                    } else {
+                        let span = expr.span.merge(field.span);
+                        expr = Expr::new(
+                            ExprKind::FieldAccess {
+                                target: Box::new(expr),
+                                field,
+                            },
+                            span,
+                        );
+                    }
                 }
                 TokenKind::LBracket => {
                     // Index Access

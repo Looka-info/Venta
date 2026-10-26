@@ -38,6 +38,7 @@ pub enum TypeExprKind {
     Primitive(PrimType),
     Reference { is_mut: bool, inner: Box<TypeExpr> },
     Array { inner: Box<TypeExpr>, len: usize },
+    Slice { inner: Box<TypeExpr> },
     Named(String),
     Unit,
 }
@@ -57,6 +58,14 @@ pub struct Program {
 pub enum Item {
     Function(FnDecl),
     Struct(StructDecl),
+    Impl(ImplBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    pub target: Ident,
+    pub methods: Vec<FnDecl>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -178,6 +187,11 @@ pub enum ExprKind {
     FieldAccess {
         target: Box<Expr>,
         field: Ident,
+    },
+    MethodCall {
+        target: Box<Expr>,
+        method: Ident,
+        args: Vec<Expr>,
     },
     If {
         cond: Box<Expr>,

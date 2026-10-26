@@ -30,7 +30,7 @@ Identifiers must not collide with reserved keywords.
 ### 2.4 Keywords
 The following keywords are reserved:
 ```
-as, break, const, continue, else, false, fn, if, let, loop,
+as, break, const, continue, else, false, fn, if, impl, let, loop,
 mut, pub, return, struct, true, type, unsafe, while
 ```
 
@@ -68,16 +68,21 @@ Vanta is strictly and statically typed. Type inference is local to variable decl
 3. **Unit**: `()` (zero-sized type, represents empty return or statement completion).
 
 ### 3.2 Compound Types
-1. **Fixed-Size Arrays**: `[T; N]` where `T` is a type and `N` is an integer constant expression greater than or equal to 0.
-2. **Slices**: `&[T]` and `&mut [T]` representing a contiguous sequence `(pointer, length)`.
+1. **Fixed-Size Arrays**: `[T; N]` where `T` is a type and `N` is an integer constant expression greater than or equal to 0. Elements reside contiguously in memory without per-element overhead.
+2. **Dynamic Slices (`&[T]`)**: First-class immutable dynamically sized views over contiguous memory. A slice descriptor consists of two 64-bit words: `(data_pointer: *const T, length: u64)` (16 bytes, 8-byte aligned). Slices support:
+   - Borrow coercion from array references: `let view: &[i64] = &arr;`.
+   - Length query method: `view.len() -> i64`.
+   - Bounds-checked indexing: `view[i] -> T` (panics with exit status 101 on out-of-bounds access).
+   - Dynamic slices implement `Copy` and cannot be modified or re-sliced into mutable buffers in Milestone 5.
 3. **String Slices (`&str`)**: First-class immutable string slice consisting of a two-word descriptor `(data_pointer: *const u8, byte_length: u64)` (16 bytes, 8-byte aligned). The referent type `str` is an unsized UTF-8 sequence that cannot be passed or stored by value. `&str` implements `Copy`. `&mut str` is disallowed.
-4. **Structs**: Nominal product types with named fields:
+4. **User-Defined Structs**: Nominal product types with named fields laid out with natural alignment and padding:
    ```vanta
    struct Point {
        x: i64,
        y: i64,
    }
    ```
+   Structs can be initialized via named field initializers (`Point { x: 10, y: 20 }`), nested within other structs, and mutated field-by-field (`point.x = 42;`) if the root binding is mutable.
 5. **References**:
    - Immutable Reference: `&T` (shared, read-only).
    - Mutable Reference: `&mut T` (exclusive, read-write).
@@ -134,6 +139,37 @@ fn square(x: i64) -> i64 {
    - `while <cond> { ... }`: Evaluates condition before each iteration.
    - `loop { ... }`: Infinite loop until `break`.
    - `break` and `continue` statements.
+
+### 5.4 Structs and Inherent Methods
+
+Structs declare user-defined types with named fields:
+```vanta
+struct Point {
+    x: i64,
+    y: i64,
+}
+```
+
+Inherent methods are declared using `impl` blocks:
+```vanta
+impl Point {
+    fn translate(self: &mut Self, dx: i64, dy: i64) {
+        self.x = self.x + dx;
+        self.y = self.y + dy;
+    }
+
+    fn sum(self: &Self) -> i64 {
+        return self.x + self.y;
+    }
+}
+```
+
+#### Rules for Inherent Methods:
+1. **Receiver Parameter**: The first parameter must be named `self` with type `Self`, `&Self`, or `&mut Self`.
+2. **Static Resolution**: Method calls `p.translate(dx, dy)` resolve at compile time with zero virtual-table or dynamic dispatch overhead.
+3. **Auto-Referencing and Auto-Dereferencing**: Calling `p.translate(dx, dy)` automatically borrows `&mut p` if the receiver expects `&mut Self`. Accessing fields on references (`self.x`) automatically dereferences.
+4. **Mutability Enforcement**: Methods with receiver `&Self` cannot mutate fields (`self.x = 99` emits `E0303_MUTATE_IMMUTABLE`). Methods with receiver `&mut Self` require a mutable place binding at the call site.
+5. **No Recursive Structs by Value**: A struct cannot directly or transitively contain an instance of itself by value (`E0208_RECURSIVE_STRUCT`), ensuring finite stack sizes.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Program = { Item } ;
 
-Item = FunctionDecl | StructDecl ;
+Item = FunctionDecl | StructDecl | ImplBlock ;
 
 FunctionDecl = [ "pub" ] "fn" Identifier "(" [ ParameterList ] ")" [ "->" Type ] Block ;
 
@@ -13,9 +13,12 @@ StructDecl    = [ "pub" ] "struct" Identifier "{" [ StructFields ] "}" ;
 StructFields  = StructField { "," StructField } [ "," ] ;
 StructField   = [ "pub" ] Identifier ":" Type ;
 
+ImplBlock     = "impl" Identifier "{" { FunctionDecl } "}" ;
+
 Type = PrimitiveType
      | ReferenceType
      | ArrayType
+     | SliceType
      | StructType
      | TupleType ;
 
@@ -27,6 +30,7 @@ PrimitiveType = "i8" | "i16" | "i32" | "i64"
 
 ReferenceType = "&" [ "mut" ] Type ;
 ArrayType     = "[" Type ";" IntegerLiteral "]" ;
+SliceType     = "[" Type "]" ;
 StructType    = Identifier ;
 TupleType     = "(" [ Type { "," Type } ] ")" ;
 
@@ -71,10 +75,11 @@ MultiplicativeExpr = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
 UnaryExpr = ( "-" | "!" | "*" | "&" | "&" "mut" ) UnaryExpr
           | PostfixExpr ;
 
-PostfixExpr = PrimaryExpr { CallSuffix | MemberSuffix | IndexSuffix } ;
-CallSuffix   = "(" [ ArgumentList ] ")" ;
-MemberSuffix = "." Identifier ;
-IndexSuffix  = "[" Expression "]" ;
+PostfixExpr = PrimaryExpr { CallSuffix | MethodCallSuffix | MemberSuffix | IndexSuffix } ;
+CallSuffix       = "(" [ ArgumentList ] ")" ;
+MethodCallSuffix = "." Identifier "(" [ ArgumentList ] ")" ;
+MemberSuffix     = "." Identifier ;
+IndexSuffix      = "[" Expression "]" ;
 
 ArgumentList = Expression { "," Expression } [ "," ] ;
 
