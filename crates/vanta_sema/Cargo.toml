@@ -1,0 +1,14 @@
+[package]
+name = "vanta_sema"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_diagnostics = { workspace = true }
+vanta_parser = { workspace = true }
+
+[dev-dependencies]
+vanta_lexer = { workspace = true }

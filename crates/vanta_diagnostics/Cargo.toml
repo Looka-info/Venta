@@ -1,0 +1,9 @@
+[package]
+name = "vanta_diagnostics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta_source = { workspace = true }

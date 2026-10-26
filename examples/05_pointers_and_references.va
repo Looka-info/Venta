@@ -1,0 +1,9 @@
+fn add_ten(p: &mut i64) {
+    *p += 10;
+}
+
+pub fn main() -> i64 {
+    let mut val: i64 = 32;
+    add_ten(&mut val);
+    return val;
+}

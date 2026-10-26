@@ -1,0 +1,97 @@
+(* Vanta Formal Grammar (EBNF) *)
+
+Program = { Item } ;
+
+Item = FunctionDecl | StructDecl ;
+
+FunctionDecl = [ "pub" ] "fn" Identifier "(" [ ParameterList ] ")" [ "->" Type ] Block ;
+
+ParameterList = Parameter { "," Parameter } [ "," ] ;
+Parameter     = [ "mut" ] Identifier ":" Type ;
+
+StructDecl    = [ "pub" ] "struct" Identifier "{" [ StructFields ] "}" ;
+StructFields  = StructField { "," StructField } [ "," ] ;
+StructField   = [ "pub" ] Identifier ":" Type ;
+
+Type = PrimitiveType
+     | ReferenceType
+     | ArrayType
+     | StructType
+     | TupleType ;
+
+PrimitiveType = "i8" | "i16" | "i32" | "i64"
+              | "u8" | "u16" | "u32" | "u64"
+              | "f32" | "f64"
+              | "bool" ;
+
+ReferenceType = "&" [ "mut" ] Type ;
+ArrayType     = "[" Type ";" IntegerLiteral "]" ;
+StructType    = Identifier ;
+TupleType     = "(" [ Type { "," Type } ] ")" ;
+
+Block = "{" { Statement } [ Expression ] "}" ;
+
+Statement = LetStmt
+          | AssignmentStmt
+          | WhileStmt
+          | LoopStmt
+          | ReturnStmt
+          | BreakStmt
+          | ContinueStmt
+          | ExpressionStmt ;
+
+LetStmt        = "let" [ "mut" ] Identifier [ ":" Type ] [ "=" Expression ] ";" ;
+AssignmentStmt = LValue ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) Expression ";" ;
+WhileStmt      = "while" Expression Block ;
+LoopStmt       = "loop" Block ;
+ReturnStmt     = "return" [ Expression ] ";" ;
+BreakStmt      = "break" ";" ;
+ContinueStmt   = "continue" ";" ;
+ExpressionStmt = Expression ";" ;
+
+LValue = Identifier
+       | LValue "." Identifier
+       | LValue "[" Expression "]"
+       | "*" LValue ;
+
+Expression = LogicalOrExpr ;
+
+LogicalOrExpr  = LogicalAndExpr { "||" LogicalAndExpr } ;
+LogicalAndExpr = BitwiseOrExpr { "&&" BitwiseOrExpr } ;
+BitwiseOrExpr  = BitwiseXorExpr { "|" BitwiseXorExpr } ;
+BitwiseXorExpr = BitwiseAndExpr { "^" BitwiseAndExpr } ;
+BitwiseAndExpr = EqualityExpr { "&" EqualityExpr } ;
+EqualityExpr   = RelationalExpr { ( "==" | "!=" ) RelationalExpr } ;
+RelationalExpr = ShiftExpr { ( "<" | "<=" | ">" | ">=" ) ShiftExpr } ;
+ShiftExpr      = AdditiveExpr { ( "<<" | ">>" ) AdditiveExpr } ;
+AdditiveExpr   = MultiplicativeExpr { ( "+" | "-" ) MultiplicativeExpr } ;
+MultiplicativeExpr = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+
+UnaryExpr = ( "-" | "!" | "*" | "&" | "&" "mut" ) UnaryExpr
+          | PostfixExpr ;
+
+PostfixExpr = PrimaryExpr { CallSuffix | MemberSuffix | IndexSuffix } ;
+CallSuffix   = "(" [ ArgumentList ] ")" ;
+MemberSuffix = "." Identifier ;
+IndexSuffix  = "[" Expression "]" ;
+
+ArgumentList = Expression { "," Expression } [ "," ] ;
+
+PrimaryExpr = IntegerLiteral
+            | BooleanLiteral
+            | Identifier
+            | IfExpr
+            | Block
+            | ArrayLiteral
+            | StructLiteral
+            | "(" Expression ")" ;
+
+IfExpr = "if" Expression Block [ "else" ( IfExpr | Block ) ] ;
+ArrayLiteral = "[" [ Expression { "," Expression } [ "," ] ] "]" ;
+StructLiteral = Identifier "{" [ StructFieldInits ] "}" ;
+StructFieldInits = StructFieldInit { "," StructFieldInit } [ "," ] ;
+StructFieldInit = Identifier ":" Expression ;
+
+Identifier = ( Letter | "_" ) { Letter | Digit | "_" } ;
+IntegerLiteral = DecimalLiteral | HexLiteral | BinaryLiteral ;
+BooleanLiteral = "true" | "false" ;

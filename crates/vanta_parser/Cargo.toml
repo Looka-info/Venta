@@ -1,0 +1,11 @@
+[package]
+name = "vanta_parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_diagnostics = { workspace = true }
+vanta_lexer = { workspace = true }

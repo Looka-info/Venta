@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vanta_source",
+    "crates/vanta_diagnostics",
+    "crates/vanta_lexer",
+    "crates/vanta_parser",
+    "crates/vanta_sema",
+    "crates/vanta_mir",
+    "crates/vanta_codegen_x86_64",
+    "crates/vanta_driver",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Vanta Language Authors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vanta-lang/vanta"
+
+[workspace.dependencies]
+vanta_source = { path = "crates/vanta_source" }
+vanta_diagnostics = { path = "crates/vanta_diagnostics" }
+vanta_lexer = { path = "crates/vanta_lexer" }
+vanta_parser = { path = "crates/vanta_parser" }
+vanta_sema = { path = "crates/vanta_sema" }
+vanta_mir = { path = "crates/vanta_mir" }
+vanta_codegen_x86_64 = { path = "crates/vanta_codegen_x86_64" }

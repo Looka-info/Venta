@@ -1,0 +1,22 @@
+[package]
+name = "vanta_driver"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vantac"
+path = "src/main.rs"
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_diagnostics = { workspace = true }
+vanta_lexer = { workspace = true }
+vanta_parser = { workspace = true }
+vanta_sema = { workspace = true }
+vanta_mir = { workspace = true }
+vanta_codegen_x86_64 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

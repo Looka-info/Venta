@@ -1,0 +1,8 @@
+fn square(x: i64) -> i64 {
+    return x * x;
+}
+
+pub fn main() -> i64 {
+    let a: i64 = 7;
+    return square(a);
+}
