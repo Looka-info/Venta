@@ -22,7 +22,8 @@ Type = PrimitiveType
 PrimitiveType = "i8" | "i16" | "i32" | "i64"
               | "u8" | "u16" | "u32" | "u64"
               | "f32" | "f64"
-              | "bool" ;
+              | "bool"
+              | "str" ;
 
 ReferenceType = "&" [ "mut" ] Type ;
 ArrayType     = "[" Type ";" IntegerLiteral "]" ;
@@ -79,6 +80,7 @@ ArgumentList = Expression { "," Expression } [ "," ] ;
 
 PrimaryExpr = IntegerLiteral
             | BooleanLiteral
+            | StringLiteral
             | Identifier
             | IfExpr
             | Block
@@ -95,3 +97,5 @@ StructFieldInit = Identifier ":" Expression ;
 Identifier = ( Letter | "_" ) { Letter | Digit | "_" } ;
 IntegerLiteral = DecimalLiteral | HexLiteral | BinaryLiteral ;
 BooleanLiteral = "true" | "false" ;
+StringLiteral  = '"' { Character - ( '"' | "\" ) | EscapeSequence } '"' ;
+EscapeSequence = "\" ( "n" | "r" | "t" | "\" | '"' | "0" ) ;

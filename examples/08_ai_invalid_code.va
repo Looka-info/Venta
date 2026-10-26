@@ -1,0 +1,13 @@
+// Example 08: Deliberate AI failure modes for diagnostic verification
+// Run: `vantac check examples/08_ai_invalid_code.va --diagnostics=json`
+
+pub fn main() -> i64 {
+    // Error 1: Type mismatch on built-in intrinsic with suggestion
+    print_i64("string passed to int printer");
+
+    // Error 2: Attempting to mutate an immutable binding
+    let x: i64 = 10;
+    x = 20;
+
+    0
+}

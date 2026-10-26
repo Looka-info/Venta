@@ -3,7 +3,7 @@
 pub mod ast;
 
 use ast::*;
-use vanta_diagnostics::{Diagnostic, DiagnosticBag};
+use vanta_diagnostics::{codes, Diagnostic, DiagnosticBag};
 use vanta_lexer::{Token, TokenKind};
 use vanta_source::Span;
 
@@ -49,12 +49,18 @@ impl Parser {
         if self.check(&expected) {
             Some(self.bump())
         } else {
+            let code = if self.peek() == &TokenKind::Eof {
+                codes::E0005_UNEXPECTED_EOF
+            } else {
+                codes::E0004_SYNTAX_ERROR
+            };
             diags.emit(
                 Diagnostic::error(format!(
                     "Expected '{:?}', found '{:?}'",
                     expected,
                     self.peek()
                 ))
+                .with_code(code)
                 .with_span(self.current_span()),
             );
             None
@@ -100,6 +106,7 @@ impl Parser {
             other => {
                 diags.emit(
                     Diagnostic::error(format!("Expected item (fn or struct), found {:?}", other))
+                        .with_code(codes::E0004_SYNTAX_ERROR)
                         .with_span(self.current_span()),
                 );
                 None
@@ -215,6 +222,7 @@ impl Parser {
             _ => {
                 diags.emit(
                     Diagnostic::error(format!("Expected identifier, found {:?}", self.peek()))
+                        .with_code(codes::E0004_SYNTAX_ERROR)
                         .with_span(self.current_span()),
                 );
                 None
@@ -344,6 +352,7 @@ impl Parser {
                             Diagnostic::error(
                                 "Array length must be a non-negative integer literal",
                             )
+                            .with_code(codes::E0004_SYNTAX_ERROR)
                             .with_span(self.current_span()),
                         );
                         0
@@ -384,6 +393,7 @@ impl Parser {
             _ => {
                 diags.emit(
                     Diagnostic::error(format!("Expected type, found {:?}", self.peek()))
+                        .with_code(codes::E0004_SYNTAX_ERROR)
                         .with_span(self.current_span()),
                 );
                 None
@@ -457,6 +467,12 @@ impl Parser {
                 } else {
                     diags.emit(
                         Diagnostic::error("Expected ';' after expression")
+                            .with_code(codes::E0004_SYNTAX_ERROR)
+                            .with_suggestion(
+                                "add ';' to terminate statement",
+                                Some(self.current_span()),
+                                ";",
+                            )
                             .with_span(self.current_span()),
                     );
                     break;
@@ -688,6 +704,7 @@ impl Parser {
                         _ => {
                             diags.emit(
                                 Diagnostic::error("Callee must be a function name")
+                                    .with_code(codes::E0004_SYNTAX_ERROR)
                                     .with_span(expr.span),
                             );
                             "<error>".into()
@@ -872,6 +889,7 @@ impl Parser {
             _ => {
                 diags.emit(
                     Diagnostic::error(format!("Expected expression, found {:?}", self.peek()))
+                        .with_code(codes::E0004_SYNTAX_ERROR)
                         .with_span(start_span),
                 );
                 None

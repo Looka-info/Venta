@@ -14,6 +14,13 @@ use vanta_source::SourceMap;
 
 const RUNTIME_C: &str = include_str!("../../../runtime/vanta_rt.c");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiagnosticFormat {
+    #[default]
+    Human,
+    Json,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmitTarget {
     Tokens,
@@ -23,12 +30,27 @@ pub enum EmitTarget {
     Exe,
 }
 
+#[derive(Debug, Clone)]
 pub struct CompilerOptions {
     pub input_file: PathBuf,
     pub output_file: PathBuf,
     pub emit_target: EmitTarget,
     pub opt_level: OptLevel,
     pub verbose: bool,
+    pub diagnostic_format: DiagnosticFormat,
+}
+
+impl CompilerOptions {
+    pub fn new(input_file: PathBuf, output_file: PathBuf) -> Self {
+        Self {
+            input_file,
+            output_file,
+            emit_target: EmitTarget::Exe,
+            opt_level: OptLevel::O1,
+            verbose: false,
+            diagnostic_format: DiagnosticFormat::Human,
+        }
+    }
 }
 
 pub struct CompilerSession {
@@ -50,6 +72,63 @@ impl CompilerSession {
         }
     }
 
+    /// Render collected diagnostics according to the specified format.
+    pub fn render_diagnostics(&self, format: DiagnosticFormat) -> String {
+        match format {
+            DiagnosticFormat::Human => self.diagnostics.render_all(&self.source_map, true),
+            DiagnosticFormat::Json => self.diagnostics.to_json(&self.source_map),
+        }
+    }
+
+    /// Run the compiler pipeline up to MIR optimization and verification without native codegen or linking.
+    pub fn check(&mut self, options: &CompilerOptions) -> Result<(), String> {
+        let src = fs::read_to_string(&options.input_file)
+            .map_err(|e| format!("Failed to read input file {:?}: {}", options.input_file, e))?;
+
+        let file_id = self
+            .source_map
+            .add_file(options.input_file.to_string_lossy().to_string(), src);
+        let file = self.source_map.get_file(file_id).unwrap();
+
+        // 1. Lexing
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            return Err("Lexing failed with errors".into());
+        }
+
+        // 2. Parsing
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            return Err("Parsing failed with errors".into());
+        }
+
+        // 3. Semantic Analysis (Type checking & Borrow checking)
+        let sema = SemanticAnalyzer::new();
+        let sema_ctx = sema.analyze(&program, &mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            return Err("Semantic analysis failed with errors".into());
+        }
+
+        // 4. MIR Lowering & Verification
+        let mut lowerer = MirLowerer::new(&sema_ctx);
+        let mut mir = lowerer.lower_program(&program);
+        MirVerifier::verify_program(&mir, &mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            return Err("MIR verification failed with errors".into());
+        }
+
+        // 5. MIR Optimization Pipeline Verification
+        OptimizationPipeline::optimize_program(&mut mir, options.opt_level, &mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            return Err("Optimized MIR verification failed with errors".into());
+        }
+
+        Ok(())
+    }
+
+    /// Full compilation pipeline from source to requested emit target.
     pub fn compile(&mut self, options: &CompilerOptions) -> Result<Option<Vec<u8>>, String> {
         let src = fs::read_to_string(&options.input_file)
             .map_err(|e| format!("Failed to read input file {:?}: {}", options.input_file, e))?;
@@ -63,7 +142,6 @@ impl CompilerSession {
         let mut lexer = Lexer::new(&file);
         let tokens = lexer.tokenize(&mut self.diagnostics);
         if self.diagnostics.has_errors() {
-            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("Lexing failed with errors".into());
         }
 
@@ -76,7 +154,6 @@ impl CompilerSession {
         let mut parser = Parser::new(tokens);
         let program = parser.parse_program(&mut self.diagnostics);
         if self.diagnostics.has_errors() {
-            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("Parsing failed with errors".into());
         }
 
@@ -89,7 +166,6 @@ impl CompilerSession {
         let sema = SemanticAnalyzer::new();
         let sema_ctx = sema.analyze(&program, &mut self.diagnostics);
         if self.diagnostics.has_errors() {
-            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("Semantic analysis failed with errors".into());
         }
 
@@ -98,14 +174,12 @@ impl CompilerSession {
         let mut mir = lowerer.lower_program(&program);
         MirVerifier::verify_program(&mir, &mut self.diagnostics);
         if self.diagnostics.has_errors() {
-            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("MIR verification failed with errors".into());
         }
 
         // Run MIR optimization pipeline
         OptimizationPipeline::optimize_program(&mut mir, options.opt_level, &mut self.diagnostics);
         if self.diagnostics.has_errors() {
-            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("Optimized MIR verification failed with errors".into());
         }
 

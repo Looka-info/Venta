@@ -1,6 +1,6 @@
 use std::fs;
 use std::process::Command;
-use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, OptLevel};
+use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
 
 /// Helper to compile and run a Vanta snippet under both -O0 and -O1, verifying identical behavior.
 fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
@@ -16,6 +16,7 @@ fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
     let mut session_o0 = CompilerSession::new();
     let res_o0 = session_o0.compile(&opts_o0);
@@ -36,6 +37,7 @@ fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::O1,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
     let mut session_o1 = CompilerSession::new();
     let res_o1 = session_o1.compile(&opts_o1);
@@ -76,6 +78,7 @@ fn run_differential_stdout_test(
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
     let mut session_o0 = CompilerSession::new();
     let res_o0 = session_o0.compile(&opts_o0);
@@ -104,6 +107,7 @@ fn run_differential_stdout_test(
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::O1,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
     let mut session_o1 = CompilerSession::new();
     let res_o1 = session_o1.compile(&opts_o1);
@@ -288,6 +292,7 @@ fn test_compile_fail_borrowcheck_mutation_when_borrowed() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::O1,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -514,6 +519,7 @@ fn test_compile_fail_redefine_intrinsic_print_i64() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -545,6 +551,7 @@ fn test_compile_fail_redefine_intrinsic_print_str() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -578,6 +585,7 @@ fn test_compile_fail_returning_str_slice() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -615,6 +623,7 @@ fn test_compile_fail_type_mismatch_print_i64() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -650,6 +659,7 @@ fn test_compile_fail_type_mismatch_print_str() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -685,6 +695,7 @@ fn test_compile_fail_bare_str() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -718,6 +729,7 @@ fn test_compile_fail_mut_str() {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
     };
 
     let mut session = CompilerSession::new();
@@ -726,4 +738,122 @@ fn test_compile_fail_mut_str() {
     assert!(session.diagnostics.diagnostics().iter().any(|d| d
         .message
         .contains("Mutable string slices '&mut str' are not supported")));
+}
+
+#[test]
+fn test_ai_first_check_clean() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("check_clean.va");
+    fs::write(
+        &src_path,
+        r#"
+        fn compute(a: i64, b: i64) -> i64 {
+            let sum: i64 = a + b;
+            return sum;
+        }
+
+        pub fn main() -> i64 {
+            print_str("Hello AI\n");
+            print_i64(compute(10, 32));
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_ok(), "Check should succeed on valid program");
+    assert!(!session.diagnostics.has_errors());
+
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"version\":\"1.0.0\""));
+    assert!(json_report.contains("\"success\":true"));
+    assert!(json_report.contains("\"error_count\":0"));
+}
+
+#[test]
+fn test_ai_first_check_diagnostics_json_type_mismatch() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("check_mismatch.va");
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            print_i64("error string");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err(), "Check should fail on type mismatch");
+    assert!(session.diagnostics.has_errors());
+
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"version\":\"1.0.0\""));
+    assert!(json_report.contains("\"success\":false"));
+    assert!(json_report.contains("\"error_count\":1"));
+    assert!(json_report.contains("\"code\":\"E0201\""));
+    assert!(json_report.contains("\"expected\":\"i64\""));
+    assert!(json_report.contains("\"actual\":\"&str\""));
+    assert!(json_report.contains("\"replacement_text\":\"print_str\""));
+}
+
+#[test]
+fn test_ai_first_check_borrow_conflict_json() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("check_borrow.va");
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            let mut x: i64 = 100;
+            let r: &i64 = &x;
+            x = 200;
+            return *r;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: temp_dir.path().join("unused.out"),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Json,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.check(&options);
+    assert!(result.is_err(), "Check should fail on borrow conflict");
+    assert!(session.diagnostics.has_errors());
+
+    let json_report = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(json_report.contains("\"version\":\"1.0.0\""));
+    assert!(json_report.contains("\"success\":false"));
+    assert!(json_report.contains("\"code\":\"E0306\""));
+    assert!(json_report.contains("active shared borrow exists"));
 }

@@ -3,7 +3,7 @@
 pub mod token;
 
 pub use token::{Token, TokenKind};
-use vanta_diagnostics::{Diagnostic, DiagnosticBag};
+use vanta_diagnostics::{codes, Diagnostic, DiagnosticBag};
 use vanta_source::{SourceFile, Span};
 
 pub struct Lexer<'a> {
@@ -92,6 +92,7 @@ impl<'a> Lexer<'a> {
                         if depth > 0 {
                             diags.emit(
                                 Diagnostic::error("Unterminated block comment")
+                                    .with_code(codes::E0002_UNTERMINATED_LITERAL)
                                     .with_span(self.span(start, self.current_offset())),
                             );
                         }
@@ -191,6 +192,7 @@ impl<'a> Lexer<'a> {
                             Err(e) => {
                                 diags.emit(
                                     Diagnostic::error(format!("Invalid hex literal: {}", e))
+                                        .with_code(codes::E0003_INVALID_NUMBER)
                                         .with_span(span),
                                 );
                                 Token::new(TokenKind::Error(hex_str), span)
@@ -217,6 +219,7 @@ impl<'a> Lexer<'a> {
                             Err(e) => {
                                 diags.emit(
                                     Diagnostic::error(format!("Invalid binary literal: {}", e))
+                                        .with_code(codes::E0003_INVALID_NUMBER)
                                         .with_span(span),
                                 );
                                 Token::new(TokenKind::Error(bin_str), span)
@@ -263,6 +266,7 @@ impl<'a> Lexer<'a> {
                 Err(e) => {
                     diags.emit(
                         Diagnostic::error(format!("Integer literal out of range: {}", e))
+                            .with_code(codes::E0003_INVALID_NUMBER)
                             .with_span(span),
                     );
                     Token::new(TokenKind::Error(num_str), span)
@@ -289,6 +293,7 @@ impl<'a> Lexer<'a> {
                         Some(other) => {
                             diags.emit(
                                 Diagnostic::error(format!("Unknown escape sequence \\{}", other))
+                                    .with_code(codes::E0002_UNTERMINATED_LITERAL)
                                     .with_span(self.span(start_pos, self.current_offset())),
                             );
                             s.push(other);
@@ -302,7 +307,11 @@ impl<'a> Lexer<'a> {
             let end_pos = self.current_offset();
             let span = self.span(start_pos, end_pos);
             if !closed {
-                diags.emit(Diagnostic::error("Unterminated string literal").with_span(span));
+                diags.emit(
+                    Diagnostic::error("Unterminated string literal")
+                        .with_code(codes::E0002_UNTERMINATED_LITERAL)
+                        .with_span(span),
+                );
             }
             return Token::new(TokenKind::StringLiteral(s), span);
         }
@@ -429,6 +438,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 diags.emit(
                     Diagnostic::error(format!("Unexpected character: '{}'", c))
+                        .with_code(codes::E0001_UNEXPECTED_CHAR)
                         .with_span(self.span(start_pos, end_pos)),
                 );
                 TokenKind::Error(c.to_string())

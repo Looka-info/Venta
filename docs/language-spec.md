@@ -174,3 +174,18 @@ fn print_str(value: &str) -> ()
   - Callee-saved registers: `%rbx`, `%rsp`, `%rbp`, `%r12`, `%r13`, `%r14`, `%r15`.
   - Caller-saved registers: `%rax`, `%rcx`, `%rdx`, `%rsi`, `%rdi`, `%r8`, `%r9`, `%r10`, `%r11`.
   - Stack alignment: `%rsp` must be 16-byte aligned immediately before a `call` instruction.
+
+---
+
+## 8. AI-First Design Guarantees & Machine Diagnostics
+
+### 8.1 Core Principles
+1. **Unambiguous Parsing & Semantic Rules**:
+   - The grammar avoids context-sensitive ambiguities; all constructs are parseable without symbol-table feedback.
+   - Function signatures require explicit parameter and return types to establish firm API contracts.
+   - Local type inference is confined to local `let` bindings with deterministic default types.
+2. **Deterministic Tooling Workflows**:
+   - `vantac check <file>` performs semantic analysis and MIR verification without linking an executable.
+   - Machine-actionable diagnostics (`--diagnostics=json`) provide structured JSON reports matching schema `1.0.0`.
+   - Stable diagnostic codes (`E0001` - `E0401`) enable automated tools to parse errors and execute repairs with exact spans and non-hallucinating suggestions.
+   - For full specifications and architectural rationale, refer to `docs/ai-first-design.md`.

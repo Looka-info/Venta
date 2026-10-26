@@ -149,12 +149,14 @@ impl<'a> MirLowerer<'a> {
             params.push((slot, p_ty.clone()));
         }
 
-        self.lower_block(&f.body);
+        let tail_val = self.lower_block(&f.body);
 
         // Ensure block terminates
         if !self.is_current_terminated() {
             if sig.ret_type == Type::Unit {
                 self.terminate(Terminator::Return(None));
+            } else if let Some(val) = tail_val {
+                self.terminate(Terminator::Return(Some(val)));
             } else {
                 self.terminate(Terminator::Unreachable);
             }

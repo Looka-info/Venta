@@ -1,0 +1,20 @@
+// Example 07: AI-First Diagnostics and Fast Verification
+// Demonstrates clean code verified via: `vantac check examples/07_ai_first_check.va --diagnostics=json`
+
+fn add_clamped(a: i64, b: i64, max_val: i64) -> i64 {
+    let sum: i64 = a + b;
+    if sum > max_val {
+        return max_val;
+    } else {
+        return sum;
+    }
+}
+
+pub fn main() -> i64 {
+    print_str("Testing AI-first verification pipeline:\n");
+    let result: i64 = add_clamped(50, 75, 100);
+    print_str("Clamped sum: ");
+    print_i64(result);
+    print_str("\n");
+    return 0;
+}

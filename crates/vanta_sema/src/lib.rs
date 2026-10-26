@@ -4,7 +4,7 @@ pub mod types;
 
 use std::collections::HashMap;
 pub use types::Type;
-use vanta_diagnostics::{Diagnostic, DiagnosticBag};
+use vanta_diagnostics::{codes, Diagnostic, DiagnosticBag};
 use vanta_parser::ast::*;
 use vanta_source::Span;
 
@@ -145,6 +145,10 @@ impl SemanticContext {
                     "Variable '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
                     name
                 ))
+                .with_code(codes::E0202_UNSIZED_TYPE_VALUE)
+                .with_expected("&str")
+                .with_actual("str")
+                .with_suggestion("use immutable slice '&str'", Some(span), "&str")
                 .with_span(span),
             );
         }
@@ -156,6 +160,7 @@ impl SemanticContext {
                     "Identifier '{}' is already declared in this scope",
                     name
                 ))
+                .with_code(codes::E0101_DUPLICATE_SYMBOL)
                 .with_span(span),
             );
         }
@@ -214,6 +219,10 @@ impl SemanticContext {
                         Diagnostic::error(
                             "Mutable string slices '&mut str' are not supported; string slices must be immutable '&str'",
                         )
+                        .with_code(codes::E0203_MUTABLE_STR_SLICE)
+                        .with_expected("&str")
+                        .with_actual("&mut str")
+                        .with_suggestion("use immutable slice '&str'", Some(ty_expr.span), "&str")
                         .with_span(ty_expr.span),
                     );
                 }
@@ -234,6 +243,7 @@ impl SemanticContext {
                 } else {
                     diags.emit(
                         Diagnostic::error(format!("Unknown type '{}'", name))
+                            .with_code(codes::E0104_UNKNOWN_STRUCT)
                             .with_span(ty_expr.span),
                     );
                     Type::Unit
@@ -290,6 +300,8 @@ impl SemanticAnalyzer {
                             "Cannot redefine built-in intrinsic '{}'",
                             f.name.name
                         ))
+                        .with_code(codes::E0103_REDEFINED_INTRINSIC)
+                        .with_note("built-in standard output intrinsics are globally reserved")
                         .with_span(f.name.span),
                     );
                     continue;
@@ -304,6 +316,10 @@ impl SemanticAnalyzer {
                                 "Parameter '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
                                 p.name.name
                             ))
+                            .with_code(codes::E0202_UNSIZED_TYPE_VALUE)
+                            .with_expected("&str")
+                            .with_actual("str")
+                            .with_suggestion("change parameter type to '&str'", Some(p.ty.span), "&str")
                             .with_span(p.span),
                         );
                     }
@@ -318,6 +334,7 @@ impl SemanticAnalyzer {
                         Diagnostic::error(
                             "Returning '&str' from user-defined functions is not yet supported in Milestone 3",
                         )
+                        .with_code(codes::E0206_INVALID_RETURN_TYPE)
                         .with_span(f.span),
                     );
                 }
@@ -328,6 +345,7 @@ impl SemanticAnalyzer {
                             "Duplicate function definition '{}'",
                             f.name.name
                         ))
+                        .with_code(codes::E0101_DUPLICATE_SYMBOL)
                         .with_span(f.name.span),
                     );
                 } else {
@@ -381,6 +399,9 @@ impl SemanticAnalyzer {
                         "Function '{}' expects return type {:?}, but body produces {:?}",
                         f.name.name, sig.ret_type, body_type
                     ))
+                    .with_code(codes::E0207_RETURN_TYPE_MISMATCH)
+                    .with_expected(format!("{}", sig.ret_type))
+                    .with_actual(format!("{}", body_type))
                     .with_span(f.body.span),
                 );
             }
@@ -391,12 +412,40 @@ impl SemanticAnalyzer {
     }
 
     fn block_has_return(&self, block: &Block) -> bool {
+        if block.expr.is_some() {
+            return true;
+        }
         for stmt in &block.stmts {
             if matches!(stmt, Stmt::Return { .. }) {
                 return true;
             }
+            if let Stmt::Expr(expr) = stmt {
+                if self.expr_has_return(expr) {
+                    return true;
+                }
+            }
         }
         false
+    }
+
+    fn expr_has_return(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                let then_ret = self.block_has_return(then_branch);
+                let else_ret = match else_branch {
+                    Some(ElseBranch::If(else_if)) => self.expr_has_return(else_if),
+                    Some(ElseBranch::Block(else_b)) => self.block_has_return(else_b),
+                    None => false,
+                };
+                then_ret || else_ret
+            }
+            ExprKind::Block(b) => self.block_has_return(b),
+            _ => false,
+        }
     }
 
     fn check_block(&mut self, block: &Block, diags: &mut DiagnosticBag) -> Type {
@@ -435,6 +484,9 @@ impl SemanticAnalyzer {
                                     "Type mismatch in let binding: expected {:?}, found {:?}",
                                     dec_ty, expr_ty
                                 ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", dec_ty))
+                                .with_actual(format!("{}", expr_ty))
                                 .with_span(init_expr.span),
                             );
                         }
@@ -445,6 +497,12 @@ impl SemanticAnalyzer {
                         diags.emit(
                             Diagnostic::error(
                                 "Type annotation required when let binding is not initialized",
+                            )
+                            .with_code(codes::E0201_TYPE_MISMATCH)
+                            .with_suggestion(
+                                "provide an explicit type annotation, e.g. ': i64'",
+                                None,
+                                ": i64",
                             )
                             .with_span(*span),
                         );
@@ -481,6 +539,12 @@ impl SemanticAnalyzer {
                                         "Cannot assign to immutable variable '{}'",
                                         name
                                     ))
+                                    .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                    .with_suggestion(
+                                        "declare variable as mutable with 'let mut'",
+                                        Some(sym.span),
+                                        "let mut",
+                                    )
                                     .with_span(*span),
                                 );
                             }
@@ -494,6 +558,8 @@ impl SemanticAnalyzer {
                                                 "Cannot assign to '{}' because it is borrowed",
                                                 name
                                             ))
+                                            .with_code(codes::E0306_MUTATE_WHILE_BORROWED)
+                                            .with_note("active shared borrow exists")
                                             .with_span(*span),
                                         );
                                     }
@@ -503,6 +569,8 @@ impl SemanticAnalyzer {
                                                 "Cannot assign to '{}' because it is mutably borrowed",
                                                 name
                                             ))
+                                            .with_code(codes::E0306_MUTATE_WHILE_BORROWED)
+                                            .with_note("active exclusive borrow exists")
                                             .with_span(*span),
                                         );
                                     }
@@ -516,6 +584,9 @@ impl SemanticAnalyzer {
                                         "Cannot assign value of type {:?} to variable of type {:?}",
                                         val_ty, sym.ty
                                     ))
+                                    .with_code(codes::E0201_TYPE_MISMATCH)
+                                    .with_expected(format!("{}", sym.ty))
+                                    .with_actual(format!("{}", val_ty))
                                     .with_span(*span),
                                 );
                             }
@@ -527,6 +598,7 @@ impl SemanticAnalyzer {
                         } else {
                             diags.emit(
                                 Diagnostic::error(format!("Undefined variable '{}'", name))
+                                    .with_code(codes::E0102_UNDEFINED_SYMBOL)
                                     .with_span(target.span),
                             );
                         }
@@ -544,6 +616,9 @@ impl SemanticAnalyzer {
                                             "Type mismatch in dereference assignment: expected {:?}, found {:?}",
                                             ref_target_ty, val_ty
                                         ))
+                                        .with_code(codes::E0201_TYPE_MISMATCH)
+                                        .with_expected(format!("{}", ref_target_ty))
+                                        .with_actual(format!("{}", val_ty))
                                         .with_span(*span),
                                     );
                                 }
@@ -551,6 +626,7 @@ impl SemanticAnalyzer {
                             _ => {
                                 diags.emit(
                                     Diagnostic::error("Cannot assign through immutable reference")
+                                        .with_code(codes::E0303_MUTATE_IMMUTABLE)
                                         .with_span(*span),
                                 );
                             }
@@ -564,6 +640,9 @@ impl SemanticAnalyzer {
                                     "Type mismatch in assignment: target {:?}, value {:?}",
                                     target_ty, val_ty
                                 ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", target_ty))
+                                .with_actual(format!("{}", val_ty))
                                 .with_span(*span),
                             );
                         }
@@ -582,6 +661,9 @@ impl SemanticAnalyzer {
                             "While condition must be 'bool', found {:?}",
                             cond_ty
                         ))
+                        .with_code(codes::E0201_TYPE_MISMATCH)
+                        .with_expected("bool")
+                        .with_actual(format!("{}", cond_ty))
                         .with_span(cond.span),
                     );
                 }
@@ -604,6 +686,9 @@ impl SemanticAnalyzer {
                                 "Return type mismatch: expected {:?}, found {:?}",
                                 expected, ret_ty
                             ))
+                            .with_code(codes::E0207_RETURN_TYPE_MISMATCH)
+                            .with_expected(format!("{}", expected))
+                            .with_actual(format!("{}", ret_ty))
                             .with_span(*span),
                         );
                     }
@@ -637,6 +722,7 @@ impl SemanticAnalyzer {
                                         "Use of uninitialized variable '{}'",
                                         name
                                     ))
+                                    .with_code(codes::E0301_UNINITIALIZED_READ)
                                     .with_span(expr.span),
                                 );
                             }
@@ -646,6 +732,7 @@ impl SemanticAnalyzer {
                                         "Use of moved-out variable '{}'",
                                         name
                                     ))
+                                    .with_code(codes::E0302_USE_OF_MOVED_VALUE)
                                     .with_span(expr.span),
                                 );
                             }
@@ -657,6 +744,7 @@ impl SemanticAnalyzer {
                 } else {
                     diags.emit(
                         Diagnostic::error(format!("Undefined identifier '{}'", name))
+                            .with_code(codes::E0102_UNDEFINED_SYMBOL)
                             .with_span(expr.span),
                     );
                     Type::I64
@@ -678,6 +766,7 @@ impl SemanticAnalyzer {
                                     "Arithmetic operator '{:?}' requires matching integer types, found {:?} and {:?}",
                                     op, lhs_ty, rhs_ty
                                 ))
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(expr.span),
                             );
                         }
@@ -690,6 +779,9 @@ impl SemanticAnalyzer {
                                     "Equality comparison requires matching types, found {:?} and {:?}",
                                     lhs_ty, rhs_ty
                                 ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", lhs_ty))
+                                .with_actual(format!("{}", rhs_ty))
                                 .with_span(expr.span),
                             );
                         }
@@ -702,6 +794,7 @@ impl SemanticAnalyzer {
                                     "Relational comparison requires matching integer types, found {:?} and {:?}",
                                     lhs_ty, rhs_ty
                                 ))
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(expr.span),
                             );
                         }
@@ -714,6 +807,8 @@ impl SemanticAnalyzer {
                                     "Logical operator '{:?}' requires 'bool', found {:?} and {:?}",
                                     op, lhs_ty, rhs_ty
                                 ))
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
+                                .with_expected("bool")
                                 .with_span(expr.span),
                             );
                         }
@@ -726,6 +821,7 @@ impl SemanticAnalyzer {
                                     "Bitwise operator '{:?}' requires matching integer types, found {:?} and {:?}",
                                     op, lhs_ty, rhs_ty
                                 ))
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(expr.span),
                             );
                         }
@@ -735,6 +831,7 @@ impl SemanticAnalyzer {
                         if !lhs_ty.is_integer() || !rhs_ty.is_integer() {
                             diags.emit(
                                 Diagnostic::error("Shift operations require integer operands")
+                                    .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                     .with_span(expr.span),
                             );
                         }
@@ -749,6 +846,7 @@ impl SemanticAnalyzer {
                         if !inner_ty.is_signed_integer() {
                             diags.emit(
                                 Diagnostic::error("Negation '-' requires a signed integer type")
+                                    .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                     .with_span(expr.span),
                             );
                         }
@@ -760,6 +858,7 @@ impl SemanticAnalyzer {
                                 Diagnostic::error(
                                     "Logical/Bitwise NOT '!' requires 'bool' or integer type",
                                 )
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(expr.span),
                             );
                         }
@@ -781,6 +880,12 @@ impl SemanticAnalyzer {
                                     "Cannot borrow immutable variable '{}' as mutable",
                                     name
                                 ))
+                                .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                .with_suggestion(
+                                    "declare variable as mutable with 'let mut'",
+                                    Some(sym.span),
+                                    "let mut",
+                                )
                                 .with_span(expr.span),
                             );
                         }
@@ -797,6 +902,7 @@ impl SemanticAnalyzer {
                                                 "Cannot borrow '{}' as mutable more than once at a time",
                                                 name
                                             ))
+                                            .with_code(codes::E0305_MUT_BORROW_CONFLICT_MUT)
                                             .with_span(expr.span),
                                         );
                                     }
@@ -815,6 +921,7 @@ impl SemanticAnalyzer {
                                                 "Cannot borrow '{}' as immutable because it is already borrowed as mutable",
                                                 name
                                             ))
+                                            .with_code(codes::E0304_MUT_BORROW_CONFLICT_SHARED)
                                             .with_span(expr.span),
                                         );
                                     }
@@ -842,6 +949,7 @@ impl SemanticAnalyzer {
                                 "Cannot dereference non-reference type {:?}",
                                 inner_ty
                             ))
+                            .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                             .with_span(expr.span),
                         );
                         Type::I64
@@ -858,6 +966,7 @@ impl SemanticAnalyzer {
                                 sig.params.len(),
                                 args.len()
                             ))
+                            .with_code(codes::E0205_ARGUMENT_MISMATCH)
                             .with_span(expr.span),
                         );
                     }
@@ -866,16 +975,29 @@ impl SemanticAnalyzer {
                         let arg_ty = self.check_expr(arg, diags);
                         if let Some((_, param_ty, _)) = sig.params.get(idx) {
                             if arg_ty != *param_ty {
-                                diags.emit(
-                                    Diagnostic::error(format!(
-                                        "Argument {} to function '{}' expects {}, found {}",
-                                        idx + 1,
-                                        callee,
-                                        param_ty,
-                                        arg_ty
-                                    ))
-                                    .with_span(arg.span),
-                                );
+                                let mut diag = Diagnostic::error(format!(
+                                    "Argument {} to function '{}' expects {}, found {}",
+                                    idx + 1,
+                                    callee,
+                                    param_ty,
+                                    arg_ty
+                                ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", param_ty))
+                                .with_actual(format!("{}", arg_ty))
+                                .with_span(arg.span);
+
+                                if callee == "print_i64" && arg_ty.is_str_slice() {
+                                    diag = diag
+                                        .with_note("function 'print_i64' only accepts 64-bit signed integers")
+                                        .with_suggestion("call 'print_str' to print string slices", None, "print_str");
+                                } else if callee == "print_str" && arg_ty.is_integer() {
+                                    diag = diag
+                                        .with_note("function 'print_str' only accepts string slices '&str'")
+                                        .with_suggestion("call 'print_i64' to print integers", None, "print_i64");
+                                }
+
+                                diags.emit(diag);
                             }
                         }
                     }
@@ -884,6 +1006,7 @@ impl SemanticAnalyzer {
                 } else {
                     diags.emit(
                         Diagnostic::error(format!("Call to undefined function '{}'", callee))
+                            .with_code(codes::E0102_UNDEFINED_SYMBOL)
                             .with_span(expr.span),
                     );
                     Type::I64
@@ -901,6 +1024,9 @@ impl SemanticAnalyzer {
                             "'if' condition must be 'bool', found {:?}",
                             cond_ty
                         ))
+                        .with_code(codes::E0201_TYPE_MISMATCH)
+                        .with_expected("bool")
+                        .with_actual(format!("{}", cond_ty))
                         .with_span(cond.span),
                     );
                 }
@@ -918,6 +1044,9 @@ impl SemanticAnalyzer {
                             "'if' branches have incompatible types: then has {:?}, else has {:?}",
                             then_ty, else_ty
                         ))
+                        .with_code(codes::E0201_TYPE_MISMATCH)
+                        .with_expected(format!("{}", then_ty))
+                        .with_actual(format!("{}", else_ty))
                         .with_span(expr.span),
                     );
                 }
@@ -941,6 +1070,9 @@ impl SemanticAnalyzer {
                                     "Array element {} has type {:?}, expected {:?}",
                                     i, elem_ty, first_ty
                                 ))
+                                .with_code(codes::E0201_TYPE_MISMATCH)
+                                .with_expected(format!("{}", first_ty))
+                                .with_actual(format!("{}", elem_ty))
                                 .with_span(elem.span),
                             );
                         }
@@ -961,6 +1093,9 @@ impl SemanticAnalyzer {
                             "Array index must be integer, found {:?}",
                             idx_ty
                         ))
+                        .with_code(codes::E0201_TYPE_MISMATCH)
+                        .with_expected("integer")
+                        .with_actual(format!("{}", idx_ty))
                         .with_span(index.span),
                     );
                 }
@@ -972,6 +1107,7 @@ impl SemanticAnalyzer {
                         _ => {
                             diags.emit(
                                 Diagnostic::error("Indexing requires an array or array reference")
+                                    .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                     .with_span(array.span),
                             );
                             Type::I64
@@ -980,6 +1116,7 @@ impl SemanticAnalyzer {
                     _ => {
                         diags.emit(
                             Diagnostic::error("Indexing requires an array type")
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(array.span),
                         );
                         Type::I64
@@ -1001,6 +1138,7 @@ impl SemanticAnalyzer {
                                         "Struct '{}' has no field named '{}'",
                                         struct_name, field.name
                                     ))
+                                    .with_code(codes::E0105_UNKNOWN_FIELD)
                                     .with_span(field.span),
                                 );
                                 Type::I64
@@ -1012,6 +1150,7 @@ impl SemanticAnalyzer {
                     _ => {
                         diags.emit(
                             Diagnostic::error("Field access requires struct type")
+                                .with_code(codes::E0204_INVALID_OPERAND_TYPE)
                                 .with_span(target.span),
                         );
                         Type::I64
@@ -1031,6 +1170,9 @@ impl SemanticAnalyzer {
                                         "Field '{}' expects type {:?}, found {:?}",
                                         f_ident.name, expected_ty, val_ty
                                     ))
+                                    .with_code(codes::E0201_TYPE_MISMATCH)
+                                    .with_expected(format!("{}", expected_ty))
+                                    .with_actual(format!("{}", val_ty))
                                     .with_span(f_expr.span),
                                 );
                             }
@@ -1040,6 +1182,7 @@ impl SemanticAnalyzer {
                                     "No field named '{}' in struct '{}'",
                                     f_ident.name, name.name
                                 ))
+                                .with_code(codes::E0105_UNKNOWN_FIELD)
                                 .with_span(f_ident.span),
                             );
                         }
@@ -1048,6 +1191,7 @@ impl SemanticAnalyzer {
                 } else {
                     diags.emit(
                         Diagnostic::error(format!("Undefined struct '{}'", name.name))
+                            .with_code(codes::E0104_UNKNOWN_STRUCT)
                             .with_span(name.span),
                     );
                     Type::I64
