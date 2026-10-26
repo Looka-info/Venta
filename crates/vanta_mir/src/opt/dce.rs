@@ -106,10 +106,16 @@ impl DeadCodeElimination {
                     Instruction::IndexAddr { index, .. } => {
                         used_values.insert(*index);
                     }
+                    Instruction::StoreSlice { ptr, len, .. } => {
+                        used_values.insert(*ptr);
+                        used_values.insert(*len);
+                    }
                     Instruction::ConstInt { .. }
                     | Instruction::ConstBool { .. }
                     | Instruction::SlotAddr { .. }
-                    | Instruction::Load { .. } => {}
+                    | Instruction::Load { .. }
+                    | Instruction::StrSlice { .. }
+                    | Instruction::LoadSlice { .. } => {}
                 }
             }
 
@@ -147,9 +153,16 @@ impl DeadCodeElimination {
                         }
                     }
                     Instruction::IndexAddr { dest, .. } => used_values.contains(dest),
+                    Instruction::StrSlice {
+                        dest_ptr, dest_len, ..
+                    } => used_values.contains(dest_ptr) || used_values.contains(dest_len),
+                    Instruction::LoadSlice {
+                        dest_ptr, dest_len, ..
+                    } => used_values.contains(dest_ptr) || used_values.contains(dest_len),
                     // NEVER remove instructions with side effects:
                     // Stores write memory; Calls may perform I/O or loop; Indirect loads read memory
                     Instruction::Store { .. }
+                    | Instruction::StoreSlice { .. }
                     | Instruction::StoreIndirect { .. }
                     | Instruction::LoadIndirect { .. }
                     | Instruction::Call { .. } => true,

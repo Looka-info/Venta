@@ -30,6 +30,7 @@ pub enum PrimType {
     F32,
     F64,
     Bool,
+    Str,
 }
 
 #[derive(Debug, Clone, PartialEq)]

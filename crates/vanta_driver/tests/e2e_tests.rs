@@ -57,6 +57,87 @@ fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
     );
 }
 
+/// Helper to compile and run a Vanta snippet under both -O0 and -O1, verifying stdout bytes and exit code.
+fn run_differential_stdout_test(
+    name: &str,
+    src: &str,
+    expected_exit_code: i32,
+    expected_stdout: &[u8],
+) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join(format!("{}.va", name));
+    fs::write(&src_path, src).unwrap();
+
+    // 1. Unoptimized build (-O0)
+    let out_o0 = temp_dir.path().join(format!("{}_o0", name));
+    let opts_o0 = CompilerOptions {
+        input_file: src_path.clone(),
+        output_file: out_o0.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+    let mut session_o0 = CompilerSession::new();
+    let res_o0 = session_o0.compile(&opts_o0);
+    assert!(res_o0.is_ok(), "O0 Compilation failed: {:?}", res_o0.err());
+    let output_o0 = Command::new(&out_o0).output().expect("Execute O0 binary");
+    assert_eq!(
+        output_o0.status.code(),
+        Some(expected_exit_code),
+        "O0 exit code mismatch for {}",
+        name
+    );
+    assert_eq!(
+        output_o0.stdout.as_slice(),
+        expected_stdout,
+        "O0 stdout mismatch for {}: got {:?}, expected {:?}",
+        name,
+        String::from_utf8_lossy(&output_o0.stdout),
+        String::from_utf8_lossy(expected_stdout)
+    );
+
+    // 2. Optimized build (-O1)
+    let out_o1 = temp_dir.path().join(format!("{}_o1", name));
+    let opts_o1 = CompilerOptions {
+        input_file: src_path,
+        output_file: out_o1.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+    };
+    let mut session_o1 = CompilerSession::new();
+    let res_o1 = session_o1.compile(&opts_o1);
+    assert!(res_o1.is_ok(), "O1 Compilation failed: {:?}", res_o1.err());
+    let output_o1 = Command::new(&out_o1).output().expect("Execute O1 binary");
+    assert_eq!(
+        output_o1.status.code(),
+        Some(expected_exit_code),
+        "O1 exit code mismatch for {}",
+        name
+    );
+    assert_eq!(
+        output_o1.stdout.as_slice(),
+        expected_stdout,
+        "O1 stdout mismatch for {}: got {:?}, expected {:?}",
+        name,
+        String::from_utf8_lossy(&output_o1.stdout),
+        String::from_utf8_lossy(expected_stdout)
+    );
+
+    // 3. Differential check: both must agree exactly on stdout and exit status
+    assert_eq!(
+        output_o0.stdout, output_o1.stdout,
+        "Differential stdout mismatch between O0 and O1 for {}",
+        name
+    );
+    assert_eq!(
+        output_o0.status.code(),
+        output_o1.status.code(),
+        "Differential exit code mismatch between O0 and O1 for {}",
+        name
+    );
+}
+
 #[test]
 fn test_e2e_return_42() {
     run_differential_test(
@@ -216,4 +297,433 @@ fn test_compile_fail_borrowcheck_mutation_when_borrowed() {
     assert!(session.diagnostics.diagnostics().iter().any(|d| d
         .message
         .contains("Cannot assign to 'x' because it is borrowed")));
+}
+
+// ============================================================================
+// Milestone 3: Standard Output Intrinsics & String Slices Tests
+// ============================================================================
+
+#[test]
+fn test_e2e_print_i64_zero() {
+    run_differential_stdout_test(
+        "print_i64_zero",
+        r#"
+        pub fn main() -> i64 {
+            print_i64(0);
+            return 0;
+        }
+        "#,
+        0,
+        b"0",
+    );
+}
+
+#[test]
+fn test_e2e_print_i64_positive_and_negative() {
+    run_differential_stdout_test(
+        "print_i64_pos_neg",
+        r#"
+        pub fn main() -> i64 {
+            print_i64(42);
+            print_i64(-17);
+            print_i64(1);
+            print_i64(-999);
+            return 0;
+        }
+        "#,
+        0,
+        b"42-171-999",
+    );
+}
+
+#[test]
+fn test_e2e_print_i64_min_and_max() {
+    run_differential_stdout_test(
+        "print_i64_min_max",
+        r#"
+        pub fn main() -> i64 {
+            let max_val: i64 = 9223372036854775807;
+            let min_val: i64 = -9223372036854775807 - 1;
+            print_i64(max_val);
+            print_i64(min_val);
+            return 0;
+        }
+        "#,
+        0,
+        b"9223372036854775807-9223372036854775808",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_literals() {
+    run_differential_stdout_test(
+        "print_str_literals",
+        r#"
+        pub fn main() -> i64 {
+            print_str("Hello, Vanta!");
+            return 0;
+        }
+        "#,
+        0,
+        b"Hello, Vanta!",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_empty() {
+    run_differential_stdout_test(
+        "print_str_empty",
+        r#"
+        pub fn main() -> i64 {
+            print_str("");
+            return 0;
+        }
+        "#,
+        0,
+        b"",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_escapes() {
+    run_differential_stdout_test(
+        "print_str_escapes",
+        r#"
+        pub fn main() -> i64 {
+            print_str("Line 1\nLine 2\t\"Quoted\" \\ Backslash\n");
+            return 0;
+        }
+        "#,
+        0,
+        b"Line 1\nLine 2\t\"Quoted\" \\ Backslash\n",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_utf8() {
+    run_differential_stdout_test(
+        "print_str_utf8",
+        r#"
+        pub fn main() -> i64 {
+            print_str("Привет, мир! 🚀 🦀\n");
+            return 0;
+        }
+        "#,
+        0,
+        "Привет, мир! 🚀 🦀\n".as_bytes(),
+    );
+}
+
+#[test]
+fn test_e2e_print_str_embedded_null() {
+    run_differential_stdout_test(
+        "print_str_embedded_null",
+        r#"
+        pub fn main() -> i64 {
+            print_str("Hello\0World");
+            return 0;
+        }
+        "#,
+        0,
+        b"Hello\0World",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_variable_and_reassignment() {
+    run_differential_stdout_test(
+        "print_str_var",
+        r#"
+        pub fn main() -> i64 {
+            let mut msg: &str = "first message\n";
+            print_str(msg);
+            msg = "second message\n";
+            print_str(msg);
+            return 0;
+        }
+        "#,
+        0,
+        b"first message\nsecond message\n",
+    );
+}
+
+#[test]
+fn test_e2e_print_str_helper_function() {
+    run_differential_stdout_test(
+        "print_str_helper",
+        r#"
+        fn log_info(s: &str) {
+            print_str("[INFO] ");
+            print_str(s);
+        }
+
+        pub fn main() -> i64 {
+            log_info("Execution started\n");
+            log_info("Execution finished\n");
+            return 0;
+        }
+        "#,
+        0,
+        b"[INFO] Execution started\n[INFO] Execution finished\n",
+    );
+}
+
+#[test]
+fn test_e2e_print_loops_and_branches() {
+    run_differential_stdout_test(
+        "print_loops_branches",
+        r#"
+        pub fn main() -> i64 {
+            let mut i: i64 = 0;
+            while i < 4 {
+                if i % 2 == 0 {
+                    print_str("even:");
+                } else {
+                    print_str("odd:");
+                }
+                print_i64(i);
+                print_str(" ");
+                i += 1;
+            }
+            return 0;
+        }
+        "#,
+        0,
+        b"even:0 odd:1 even:2 odd:3 ",
+    );
+}
+
+#[test]
+fn test_compile_fail_redefine_intrinsic_print_i64() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("redefine_print_i64.va");
+    let out_exe = temp_dir.path().join("redefine_print_i64");
+
+    fs::write(
+        &src_path,
+        r#"
+        fn print_i64(val: i64) {}
+        pub fn main() -> i64 { return 0; }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session.diagnostics.diagnostics().iter().any(|d| d
+        .message
+        .contains("Cannot redefine built-in intrinsic 'print_i64'")));
+}
+
+#[test]
+fn test_compile_fail_redefine_intrinsic_print_str() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("redefine_print_str.va");
+    let out_exe = temp_dir.path().join("redefine_print_str");
+
+    fs::write(
+        &src_path,
+        r#"
+        fn print_str(val: &str) {}
+        pub fn main() -> i64 { return 0; }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session.diagnostics.diagnostics().iter().any(|d| d
+        .message
+        .contains("Cannot redefine built-in intrinsic 'print_str'")));
+}
+
+#[test]
+fn test_compile_fail_returning_str_slice() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("return_str_fail.va");
+    let out_exe = temp_dir.path().join("return_str_fail");
+
+    fs::write(
+        &src_path,
+        r#"
+        fn get_msg() -> &str {
+            return "msg";
+        }
+        pub fn main() -> i64 { return 0; }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session
+        .diagnostics
+        .diagnostics()
+        .iter()
+        .any(|d| d.message.contains(
+            "Returning '&str' from user-defined functions is not yet supported in Milestone 3"
+        )));
+}
+
+#[test]
+fn test_compile_fail_type_mismatch_print_i64() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("type_mismatch_print_i64.va");
+    let out_exe = temp_dir.path().join("type_mismatch_print_i64");
+
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            print_i64("not an int");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session
+        .diagnostics
+        .diagnostics()
+        .iter()
+        .any(|d| d.message.contains("expects i64, found &str")));
+}
+
+#[test]
+fn test_compile_fail_type_mismatch_print_str() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("type_mismatch_print_str.va");
+    let out_exe = temp_dir.path().join("type_mismatch_print_str");
+
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            print_str(12345);
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session
+        .diagnostics
+        .diagnostics()
+        .iter()
+        .any(|d| d.message.contains("expects &str, found i64")));
+}
+
+#[test]
+fn test_compile_fail_bare_str() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("bare_str.va");
+    let out_exe = temp_dir.path().join("bare_str");
+
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            let x: str;
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session.diagnostics.diagnostics().iter().any(|d| d
+        .message
+        .contains("cannot be used directly as a sized value")));
+}
+
+#[test]
+fn test_compile_fail_mut_str() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("mut_str.va");
+    let out_exe = temp_dir.path().join("mut_str");
+
+    fs::write(
+        &src_path,
+        r#"
+        pub fn main() -> i64 {
+            let x: &mut str;
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_exe,
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::None,
+        verbose: false,
+    };
+
+    let mut session = CompilerSession::new();
+    let result = session.compile(&options);
+    assert!(result.is_err());
+    assert!(session.diagnostics.diagnostics().iter().any(|d| d
+        .message
+        .contains("Mutable string slices '&mut str' are not supported")));
 }

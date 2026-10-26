@@ -104,6 +104,22 @@ pub enum Instruction {
         addr: ValueId,
         val: ValueId,
     },
+    StrSlice {
+        dest_ptr: ValueId,
+        dest_len: ValueId,
+        symbol: String,
+        len: usize,
+    },
+    StoreSlice {
+        slot: SlotId,
+        ptr: ValueId,
+        len: ValueId,
+    },
+    LoadSlice {
+        dest_ptr: ValueId,
+        dest_len: ValueId,
+        slot: SlotId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,7 +151,14 @@ pub struct MirFunction {
     pub blocks: Vec<BasicBlock>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StringLiteral {
+    pub symbol: String,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MirProgram {
     pub functions: Vec<MirFunction>,
+    pub string_literals: Vec<StringLiteral>,
 }

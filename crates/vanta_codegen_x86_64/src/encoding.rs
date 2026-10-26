@@ -9,6 +9,7 @@ pub struct Relocation {
     pub offset: usize,
     pub symbol: String,
     pub addend: i64,
+    pub r_type: u32,
 }
 
 pub struct CodeEmitter {
@@ -405,6 +406,22 @@ impl CodeEmitter {
                 }
                 _ => panic!("Lea source must be memory: {:?}", src),
             },
+            MachineInst::LeaRip { dest, symbol } => {
+                let rex = Self::rex(true, dest.is_extended(), false, false);
+                self.emit_u8(rex);
+                self.emit_u8(0x8D); // LEA opcode
+                                    // ModRM: mod=00, reg=dest, rm=101 (RIP-relative)
+                let mod_rm = Self::mod_rm(0b00, dest.hw_encoding(), 0b101);
+                self.emit_u8(mod_rm);
+                let rel_offset = self.bytes.len();
+                self.emit_i32(-4); // Standard displacement / addend for R_X86_64_PC32
+                self.relocations.push(Relocation {
+                    offset: rel_offset,
+                    symbol: symbol.clone(),
+                    addend: -4,
+                    r_type: 2, // R_X86_64_PC32
+                });
+            }
             MachineInst::Jmp(target) => {
                 self.emit_u8(0xE9);
                 let fixup_pos = self.bytes.len();
@@ -434,6 +451,7 @@ impl CodeEmitter {
                     offset: rel_offset,
                     symbol: symbol.clone(),
                     addend: -4,
+                    r_type: 4, // R_X86_64_PLT32
                 });
             }
         }

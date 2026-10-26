@@ -7,7 +7,7 @@ pub mod instruction_select;
 pub mod machine_ir;
 pub mod register;
 
-pub use elf_writer::{Elf64Writer, FunctionSymbol};
+pub use elf_writer::{Elf64Writer, FunctionSymbol, RodataSymbol};
 pub use encoding::CodeEmitter;
 pub use frame::FrameLayout;
 pub use instruction_select::InstructionSelector;
@@ -50,8 +50,33 @@ impl X86_64Backend {
         // Patch local jumps
         emitter.resolve_fixups();
 
+        // Construct rodata section from string literals
+        let mut rodata_section = Vec::new();
+        let mut rodata_symbols = Vec::new();
+
+        for lit in &program.string_literals {
+            let offset = rodata_section.len();
+            rodata_section.extend_from_slice(&lit.bytes);
+            rodata_section.push(0); // NUL terminator byte for standard C/ELF convention
+            rodata_symbols.push(RodataSymbol {
+                name: lit.symbol.clone(),
+                offset,
+                size: lit.bytes.len(),
+            });
+        }
+
+        while !rodata_section.len().is_multiple_of(16) {
+            rodata_section.push(0);
+        }
+
         // Write complete ELF64 object file
-        let writer = Elf64Writer::new(emitter.bytes, emitter.relocations, functions);
+        let writer = Elf64Writer::new(
+            emitter.bytes,
+            rodata_section,
+            emitter.relocations,
+            functions,
+            rodata_symbols,
+        );
         writer.write()
     }
 }

@@ -304,6 +304,13 @@ impl Parser {
                     span: start_span,
                 })
             }
+            TokenKind::Str => {
+                self.bump();
+                Some(TypeExpr {
+                    kind: TypeExprKind::Primitive(PrimType::Str),
+                    span: start_span,
+                })
+            }
             TokenKind::Ampersand => {
                 self.bump();
                 let is_mut = if self.check(&TokenKind::Mut) {
@@ -362,10 +369,17 @@ impl Parser {
             TokenKind::Ident(name) => {
                 let name = name.clone();
                 self.bump();
-                Some(TypeExpr {
-                    kind: TypeExprKind::Named(name),
-                    span: start_span,
-                })
+                if name == "str" {
+                    Some(TypeExpr {
+                        kind: TypeExprKind::Primitive(PrimType::Str),
+                        span: start_span,
+                    })
+                } else {
+                    Some(TypeExpr {
+                        kind: TypeExprKind::Named(name),
+                        span: start_span,
+                    })
+                }
             }
             _ => {
                 diags.emit(

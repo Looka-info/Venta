@@ -33,6 +33,7 @@ pub enum TokenKind {
     F32,
     F64,
     BoolType,
+    Str,
 
     // Literals
     IntLiteral(i64),

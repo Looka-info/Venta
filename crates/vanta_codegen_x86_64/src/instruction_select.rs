@@ -427,6 +427,90 @@ impl<'a> InstructionSelector<'a> {
                     src: Operand::Reg(Reg::R11),
                 });
             }
+            Instruction::StrSlice {
+                dest_ptr,
+                dest_len,
+                symbol,
+                len,
+            } => {
+                let dest_ptr_op = self.frame.get_value_op(*dest_ptr);
+                let dest_len_op = self.frame.get_value_op(*dest_len);
+
+                out.push(MachineInst::LeaRip {
+                    dest: Reg::Rax,
+                    symbol: symbol.clone(),
+                });
+                out.push(MachineInst::Mov {
+                    dest: dest_ptr_op,
+                    src: Operand::Reg(Reg::Rax),
+                });
+                out.push(MachineInst::Mov {
+                    dest: dest_len_op,
+                    src: Operand::Imm(*len as i64),
+                });
+            }
+            Instruction::StoreSlice { slot, ptr, len } => {
+                let ptr_op = self.frame.get_value_op(*ptr);
+                let len_op = self.frame.get_value_op(*len);
+                let slot_offset = self.frame.slot_offsets.get(slot).copied().unwrap_or(16);
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R10),
+                    src: ptr_op,
+                });
+                out.push(MachineInst::Mov {
+                    dest: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -slot_offset,
+                    },
+                    src: Operand::Reg(Reg::R10),
+                });
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R11),
+                    src: len_op,
+                });
+                out.push(MachineInst::Mov {
+                    dest: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -slot_offset + 8,
+                    },
+                    src: Operand::Reg(Reg::R11),
+                });
+            }
+            Instruction::LoadSlice {
+                dest_ptr,
+                dest_len,
+                slot,
+            } => {
+                let dest_ptr_op = self.frame.get_value_op(*dest_ptr);
+                let dest_len_op = self.frame.get_value_op(*dest_len);
+                let slot_offset = self.frame.slot_offsets.get(slot).copied().unwrap_or(16);
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R10),
+                    src: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -slot_offset,
+                    },
+                });
+                out.push(MachineInst::Mov {
+                    dest: dest_ptr_op,
+                    src: Operand::Reg(Reg::R10),
+                });
+
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R11),
+                    src: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -slot_offset + 8,
+                    },
+                });
+                out.push(MachineInst::Mov {
+                    dest: dest_len_op,
+                    src: Operand::Reg(Reg::R11),
+                });
+            }
         }
     }
 

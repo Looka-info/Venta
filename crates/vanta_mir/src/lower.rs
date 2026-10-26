@@ -16,6 +16,7 @@ pub struct MirLowerer<'a> {
     var_map: Vec<HashMap<String, SlotId>>,
     loop_exit_blocks: Vec<BlockId>,
     loop_cond_blocks: Vec<BlockId>,
+    string_literals: Vec<StringLiteral>,
 }
 
 impl<'a> MirLowerer<'a> {
@@ -31,7 +32,23 @@ impl<'a> MirLowerer<'a> {
             var_map: vec![HashMap::new()],
             loop_exit_blocks: Vec::new(),
             loop_cond_blocks: Vec::new(),
+            string_literals: Vec::new(),
         }
+    }
+
+    fn intern_string(&mut self, s: &str) -> String {
+        let bytes = s.as_bytes().to_vec();
+        for lit in &self.string_literals {
+            if lit.bytes == bytes {
+                return lit.symbol.clone();
+            }
+        }
+        let symbol = format!(".Lstr_{}", self.string_literals.len());
+        self.string_literals.push(StringLiteral {
+            symbol: symbol.clone(),
+            bytes,
+        });
+        symbol
     }
 
     fn new_value(&mut self) -> ValueId {
@@ -107,6 +124,7 @@ impl<'a> MirLowerer<'a> {
                 mir_prog.functions.push(self.lower_function(f));
             }
         }
+        mir_prog.string_literals = std::mem::take(&mut self.string_literals);
         mir_prog
     }
 
@@ -175,20 +193,42 @@ impl<'a> MirLowerer<'a> {
         match stmt {
             Stmt::Let {
                 name,
-                ty: _,
+                ty,
                 init,
                 span: _,
                 ..
             } => {
-                let init_val = init.as_ref().map(|e| self.lower_expr(e));
-                let ty = if let Some(_v) = init_val {
-                    Type::I64
+                let ty = if let Some(t) = ty {
+                    let mut diags = vanta_diagnostics::DiagnosticBag::new();
+                    self.sema.type_from_ast(t, &mut diags)
+                } else if let Some(sym) = self.sema.symbols.values().find(|s| s.span == name.span) {
+                    sym.ty.clone()
+                } else if let Some(init_expr) = init {
+                    if let ExprKind::String(_) = &init_expr.kind {
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Str),
+                        }
+                    } else {
+                        Type::I64
+                    }
                 } else {
                     Type::I64
                 };
-                let slot = self.new_slot(name.name.clone(), ty);
-                if let Some(v) = init_val {
-                    self.emit(Instruction::Store { slot, val: v });
+
+                let slot = self.new_slot(name.name.clone(), ty.clone());
+                if let Some(init_expr) = init {
+                    if ty.is_str_slice() {
+                        let (ptr_v, len_v) = self.lower_slice_expr(init_expr);
+                        self.emit(Instruction::StoreSlice {
+                            slot,
+                            ptr: ptr_v,
+                            len: len_v,
+                        });
+                    } else {
+                        let v = self.lower_expr(init_expr);
+                        self.emit(Instruction::Store { slot, val: v });
+                    }
                 }
             }
             Stmt::Assign {
@@ -197,6 +237,27 @@ impl<'a> MirLowerer<'a> {
                 value,
                 span: _,
             } => {
+                if let ExprKind::Ident(name) = &target.kind {
+                    if let Some(slot) = self.lookup_slot(name) {
+                        let slot_ty = self
+                            .current_slots
+                            .iter()
+                            .find(|s| s.id == slot)
+                            .map(|s| s.ty.clone());
+                        if let Some(ty) = slot_ty {
+                            if ty.is_str_slice() && *op == AssignOp::Eq {
+                                let (ptr_v, len_v) = self.lower_slice_expr(value);
+                                self.emit(Instruction::StoreSlice {
+                                    slot,
+                                    ptr: ptr_v,
+                                    len: len_v,
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 let val_v = self.lower_expr(value);
                 let final_val = match op {
                     AssignOp::Eq => val_v,
@@ -443,16 +504,58 @@ impl<'a> MirLowerer<'a> {
             ExprKind::Call { callee, args } => {
                 let mut arg_vals = Vec::new();
                 for arg in args {
-                    arg_vals.push(self.lower_expr(arg));
+                    let mut is_slice = false;
+                    if let ExprKind::String(_) = &arg.kind {
+                        is_slice = true;
+                    } else if let ExprKind::Ident(name) = &arg.kind {
+                        if let Some(slot) = self.lookup_slot(name) {
+                            if let Some(s) = self.current_slots.iter().find(|s| s.id == slot) {
+                                if s.ty.is_str_slice() {
+                                    is_slice = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if is_slice {
+                        let (ptr_v, len_v) = self.lower_slice_expr(arg);
+                        arg_vals.push(ptr_v);
+                        arg_vals.push(len_v);
+                    } else {
+                        arg_vals.push(self.lower_expr(arg));
+                    }
                 }
-                let dest = self.new_value();
+
+                let ret_type = if callee == "print_i64" || callee == "print_str" {
+                    Type::Unit
+                } else if let Some(sig) = self.sema.functions.get(callee) {
+                    sig.ret_type.clone()
+                } else {
+                    Type::I64
+                };
+
+                let dest = if ret_type == Type::Unit {
+                    None
+                } else {
+                    Some(self.new_value())
+                };
+
                 self.emit(Instruction::Call {
-                    dest: Some(dest),
+                    dest,
                     callee: callee.clone(),
                     args: arg_vals,
-                    ret_type: Type::I64,
+                    ret_type,
                 });
-                dest
+
+                dest.unwrap_or_else(|| {
+                    let dummy = self.new_value();
+                    self.emit(Instruction::ConstInt {
+                        dest: dummy,
+                        val: 0,
+                        ty: Type::I64,
+                    });
+                    dummy
+                })
             }
             ExprKind::If {
                 cond,
@@ -571,6 +674,10 @@ impl<'a> MirLowerer<'a> {
                 });
                 dest
             }
+            ExprKind::String(_) => {
+                let (ptr_v, _len_v) = self.lower_slice_expr(expr);
+                ptr_v
+            }
             _ => {
                 let dest = self.new_value();
                 self.emit(Instruction::ConstInt {
@@ -579,6 +686,51 @@ impl<'a> MirLowerer<'a> {
                     ty: Type::I64,
                 });
                 dest
+            }
+        }
+    }
+
+    fn lower_slice_expr(&mut self, expr: &Expr) -> (ValueId, ValueId) {
+        match &expr.kind {
+            ExprKind::String(s) => {
+                let symbol = self.intern_string(s);
+                let dest_ptr = self.new_value();
+                let dest_len = self.new_value();
+                self.emit(Instruction::StrSlice {
+                    dest_ptr,
+                    dest_len,
+                    symbol,
+                    len: s.len(),
+                });
+                (dest_ptr, dest_len)
+            }
+            ExprKind::Ident(name) => {
+                let slot = self
+                    .lookup_slot(name)
+                    .unwrap_or_else(|| panic!("Undefined slot for slice identifier {}", name));
+                let dest_ptr = self.new_value();
+                let dest_len = self.new_value();
+                self.emit(Instruction::LoadSlice {
+                    dest_ptr,
+                    dest_len,
+                    slot,
+                });
+                (dest_ptr, dest_len)
+            }
+            _ => {
+                let dest_ptr = self.new_value();
+                let dest_len = self.new_value();
+                self.emit(Instruction::ConstInt {
+                    dest: dest_ptr,
+                    val: 0,
+                    ty: Type::I64,
+                });
+                self.emit(Instruction::ConstInt {
+                    dest: dest_len,
+                    val: 0,
+                    ty: Type::I64,
+                });
+                (dest_ptr, dest_len)
             }
         }
     }

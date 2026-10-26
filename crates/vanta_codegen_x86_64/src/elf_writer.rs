@@ -10,22 +10,34 @@ pub struct FunctionSymbol {
     pub is_global: bool,
 }
 
+pub struct RodataSymbol {
+    pub name: String,
+    pub offset: usize,
+    pub size: usize,
+}
+
 pub struct Elf64Writer {
     text_section: Vec<u8>,
+    rodata_section: Vec<u8>,
     relocations: Vec<Relocation>,
     functions: Vec<FunctionSymbol>,
+    rodata_symbols: Vec<RodataSymbol>,
 }
 
 impl Elf64Writer {
     pub fn new(
         text_section: Vec<u8>,
+        rodata_section: Vec<u8>,
         relocations: Vec<Relocation>,
         functions: Vec<FunctionSymbol>,
+        rodata_symbols: Vec<RodataSymbol>,
     ) -> Self {
         Self {
             text_section,
+            rodata_section,
             relocations,
             functions,
+            rodata_symbols,
         }
     }
 
@@ -43,6 +55,7 @@ impl Elf64Writer {
 
         let sh_null_name = 0;
         let sh_text_name = add_shstr(".text");
+        let sh_rodata_name = add_shstr(".rodata");
         let sh_rela_text_name = add_shstr(".rela.text");
         let sh_symtab_name = add_shstr(".symtab");
         let sh_strtab_name = add_shstr(".strtab");
@@ -58,8 +71,10 @@ impl Elf64Writer {
         };
 
         // Construct symbols (.symtab)
-        // Symbol 0 is always undefined NULL symbol
         let mut symtab_entries = Vec::new();
+        let mut sym_indices: HashMap<String, u32> = HashMap::new();
+
+        // Symbol 0: always undefined NULL symbol (STB_LOCAL)
         symtab_entries.push(ElfSym {
             st_name: 0,
             st_info: 0,
@@ -70,7 +85,6 @@ impl Elf64Writer {
         });
 
         // Symbol 1: section symbol for .text (STT_SECTION, STB_LOCAL)
-        let _text_sec_sym_idx = symtab_entries.len() as u32;
         symtab_entries.push(ElfSym {
             st_name: 0,
             st_info: 0x03, // (STB_LOCAL << 4) | STT_SECTION
@@ -80,29 +94,69 @@ impl Elf64Writer {
             st_size: 0,
         });
 
-        let mut sym_indices: HashMap<String, u32> = HashMap::new();
+        // Symbol 2: section symbol for .rodata (STT_SECTION, STB_LOCAL)
+        symtab_entries.push(ElfSym {
+            st_name: 0,
+            st_info: 0x03, // (STB_LOCAL << 4) | STT_SECTION
+            st_other: 0,
+            st_shndx: 2, // .rodata section index
+            st_value: 0,
+            st_size: 0,
+        });
 
-        // Defined function symbols (STB_GLOBAL, STT_FUNC)
-        for func in &self.functions {
-            let st_name = add_str(&func.name);
-            let info = if func.is_global {
-                0x12 // (STB_GLOBAL << 4) | STT_FUNC
-            } else {
-                0x02 // (STB_LOCAL << 4) | STT_FUNC
-            };
+        // Local symbols for .rodata string literals (STB_LOCAL, STT_OBJECT)
+        for sym in &self.rodata_symbols {
+            let st_name = add_str(&sym.name);
             let sym_idx = symtab_entries.len() as u32;
             symtab_entries.push(ElfSym {
                 st_name,
-                st_info: info,
+                st_info: 0x01, // (STB_LOCAL << 4) | STT_OBJECT
                 st_other: 0,
-                st_shndx: 1, // .text section index
-                st_value: func.offset as u64,
-                st_size: func.size as u64,
+                st_shndx: 2, // .rodata section index
+                st_value: sym.offset as u64,
+                st_size: sym.size as u64,
             });
-            sym_indices.insert(func.name.clone(), sym_idx);
+            sym_indices.insert(sym.name.clone(), sym_idx);
         }
 
-        // Undefined / external symbols referenced in relocations
+        // Local function symbols (if any)
+        for func in &self.functions {
+            if !func.is_global {
+                let st_name = add_str(&func.name);
+                let sym_idx = symtab_entries.len() as u32;
+                symtab_entries.push(ElfSym {
+                    st_name,
+                    st_info: 0x02, // (STB_LOCAL << 4) | STT_FUNC
+                    st_other: 0,
+                    st_shndx: 1, // .text section index
+                    st_value: func.offset as u64,
+                    st_size: func.size as u64,
+                });
+                sym_indices.insert(func.name.clone(), sym_idx);
+            }
+        }
+
+        // Index of the first global / non-local symbol for sh_info of .symtab
+        let first_non_local_sym_idx = symtab_entries.len() as u32;
+
+        // Global function symbols (STB_GLOBAL, STT_FUNC)
+        for func in &self.functions {
+            if func.is_global {
+                let st_name = add_str(&func.name);
+                let sym_idx = symtab_entries.len() as u32;
+                symtab_entries.push(ElfSym {
+                    st_name,
+                    st_info: 0x12, // (STB_GLOBAL << 4) | STT_FUNC
+                    st_other: 0,
+                    st_shndx: 1, // .text section index
+                    st_value: func.offset as u64,
+                    st_size: func.size as u64,
+                });
+                sym_indices.insert(func.name.clone(), sym_idx);
+            }
+        }
+
+        // Undefined / external symbols referenced in relocations (STB_GLOBAL, STT_NOTYPE)
         for rel in &self.relocations {
             if !sym_indices.contains_key(&rel.symbol) {
                 let st_name = add_str(&rel.symbol);
@@ -122,9 +176,13 @@ impl Elf64Writer {
         // Relocations (.rela.text)
         let mut rela_entries = Vec::new();
         for rel in &self.relocations {
-            let sym_idx = *sym_indices.get(&rel.symbol).expect("Symbol exists");
-            // R_X86_64_PLT32 is 4
-            let r_info = ((sym_idx as u64) << 32) | 4u64;
+            let sym_idx = *sym_indices.get(&rel.symbol).unwrap_or_else(|| {
+                panic!(
+                    "Relocation symbol '{}' must exist in symbol table",
+                    rel.symbol
+                );
+            });
+            let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
             rela_entries.push(ElfRela {
                 r_offset: rel.offset as u64,
                 r_info,
@@ -135,14 +193,16 @@ impl Elf64Writer {
         // Layout the ELF file sections:
         // 0: Header (64 bytes)
         // 1: .text
-        // 2: .rela.text (if any relocations)
-        // 3: .symtab
-        // 4: .strtab
-        // 5: .shstrtab
-        // 6: Section Header Table
+        // 2: .rodata
+        // 3: .rela.text (if any relocations)
+        // 4: .symtab
+        // 5: .strtab
+        // 6: .shstrtab
+        // 7: Section Header Table
 
         let has_rela = !rela_entries.is_empty();
-        let num_sections = if has_rela { 6 } else { 5 };
+        let num_sections = if has_rela { 7 } else { 6 };
+        let shstr_idx = if has_rela { 6u16 } else { 5u16 };
 
         let header_size = 64usize;
         let mut current_offset = header_size;
@@ -152,6 +212,12 @@ impl Elf64Writer {
         let text_offset = current_offset;
         let text_size = self.text_section.len();
         current_offset += text_size;
+
+        // .rodata section (align 16)
+        current_offset = (current_offset + 15) & !15;
+        let rodata_offset = current_offset;
+        let rodata_size = self.rodata_section.len();
+        current_offset += rodata_size;
 
         // .rela.text section (align 8)
         let (rela_offset, rela_size) = if has_rela {
@@ -205,7 +271,6 @@ impl Elf64Writer {
         out.extend_from_slice(&0u16.to_le_bytes()); // e_phnum = 0
         out.extend_from_slice(&64u16.to_le_bytes()); // e_shentsize = 64
         out.extend_from_slice(&(num_sections as u16).to_le_bytes()); // e_shnum
-        let shstr_idx = if has_rela { 5u16 } else { 4u16 };
         out.extend_from_slice(&shstr_idx.to_le_bytes()); // e_shstrndx
 
         // Pad to .text
@@ -213,6 +278,12 @@ impl Elf64Writer {
             out.push(0);
         }
         out.extend_from_slice(&self.text_section);
+
+        // Pad to .rodata
+        while out.len() < rodata_offset {
+            out.push(0);
+        }
+        out.extend_from_slice(&self.rodata_section);
 
         // .rela.text
         if has_rela {
@@ -293,7 +364,20 @@ impl Elf64Writer {
             0,
         );
 
-        // 2: .rela.text section (if present) (SHT_RELA = 4, SHF_INFO_LINK = 0x40)
+        // 2: .rodata section (SHT_PROGBITS = 1, SHF_ALLOC = 2)
+        write_shdr(
+            sh_rodata_name,
+            1,
+            0x02,
+            rodata_offset as u64,
+            rodata_size as u64,
+            0,
+            0,
+            16,
+            0,
+        );
+
+        // 3: .rela.text section (if present) (SHT_RELA = 4, SHF_INFO_LINK = 0x40)
         let (_symtab_sec_idx, strtab_sec_idx) = if has_rela {
             write_shdr(
                 sh_rela_text_name,
@@ -301,14 +385,14 @@ impl Elf64Writer {
                 0x40,
                 rela_offset as u64,
                 rela_size as u64,
-                3, // sh_link: symbol table index (.symtab is 3)
+                4, // sh_link: symbol table index (.symtab is 4)
                 1, // sh_info: target section index (.text is 1)
                 8,
                 24,
             );
-            (3, 4)
+            (4, 5)
         } else {
-            (2, 3)
+            (3, 4)
         };
 
         // .symtab (SHT_SYMTAB = 2)
@@ -318,8 +402,8 @@ impl Elf64Writer {
             0,
             symtab_offset as u64,
             symtab_size as u64,
-            strtab_sec_idx, // sh_link: .strtab index
-            2,              // sh_info: first non-local symbol index
+            strtab_sec_idx,          // sh_link: .strtab index
+            first_non_local_sym_idx, // sh_info: first non-local symbol index
             8,
             24,
         );

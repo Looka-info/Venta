@@ -68,6 +68,8 @@ pub enum MachineInst {
     Movzx { dest: Reg, src: Reg },
     /// lea dest, [base + offset]
     Lea { dest: Reg, src: Operand },
+    /// lea dest, [rip + symbol]
+    LeaRip { dest: Reg, symbol: String },
     /// push reg
     Push(Reg),
     /// pop reg

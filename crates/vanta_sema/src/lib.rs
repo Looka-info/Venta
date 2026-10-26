@@ -77,8 +77,35 @@ impl Default for SemanticContext {
 
 impl SemanticContext {
     pub fn new() -> Self {
+        let mut functions = HashMap::new();
+        functions.insert(
+            "print_i64".into(),
+            FnSignature {
+                name: "print_i64".into(),
+                params: vec![("value".into(), Type::I64, false)],
+                ret_type: Type::Unit,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "print_str".into(),
+            FnSignature {
+                name: "print_str".into(),
+                params: vec![(
+                    "value".into(),
+                    Type::Ref {
+                        is_mut: false,
+                        inner: Box::new(Type::Str),
+                    },
+                    false,
+                )],
+                ret_type: Type::Unit,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+
         Self {
-            functions: HashMap::new(),
+            functions,
             structs: HashMap::new(),
             symbols: HashMap::new(),
             expr_types: HashMap::new(),
@@ -112,6 +139,16 @@ impl SemanticContext {
         init: InitState,
         diags: &mut DiagnosticBag,
     ) -> SymbolId {
+        if ty == Type::Str {
+            diags.emit(
+                Diagnostic::error(format!(
+                    "Variable '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
+                    name
+                ))
+                .with_span(span),
+            );
+        }
+
         let current_scope = self.scopes.last_mut().expect("At least one scope exists");
         if current_scope.contains_key(&name) {
             diags.emit(
@@ -145,7 +182,7 @@ impl SemanticContext {
         id
     }
 
-    fn lookup_symbol(&self, name: &str) -> Option<SymbolId> {
+    pub fn lookup_symbol(&self, name: &str) -> Option<SymbolId> {
         for scope in self.scopes.iter().rev() {
             if let Some(&id) = scope.get(name) {
                 return Some(id);
@@ -168,17 +205,31 @@ impl SemanticContext {
                 PrimType::F32 => Type::F32,
                 PrimType::F64 => Type::F64,
                 PrimType::Bool => Type::Bool,
+                PrimType::Str => Type::Str,
             },
-            TypeExprKind::Reference { is_mut, inner } => Type::Ref {
-                is_mut: *is_mut,
-                inner: Box::new(self.type_from_ast(inner, diags)),
-            },
+            TypeExprKind::Reference { is_mut, inner } => {
+                let inner_ty = self.type_from_ast(inner, diags);
+                if *is_mut && inner_ty == Type::Str {
+                    diags.emit(
+                        Diagnostic::error(
+                            "Mutable string slices '&mut str' are not supported; string slices must be immutable '&str'",
+                        )
+                        .with_span(ty_expr.span),
+                    );
+                }
+                Type::Ref {
+                    is_mut: *is_mut,
+                    inner: Box::new(inner_ty),
+                }
+            }
             TypeExprKind::Array { inner, len } => Type::Array {
                 inner: Box::new(self.type_from_ast(inner, diags)),
                 len: *len,
             },
             TypeExprKind::Named(name) => {
-                if self.structs.contains_key(name) {
+                if name == "str" {
+                    Type::Str
+                } else if self.structs.contains_key(name) {
                     Type::Struct(name.clone())
                 } else {
                     diags.emit(
@@ -233,15 +284,44 @@ impl SemanticAnalyzer {
         // Pass 2: Collect function signatures
         for item in &program.items {
             if let Item::Function(f) = item {
+                if f.name.name == "print_i64" || f.name.name == "print_str" {
+                    diags.emit(
+                        Diagnostic::error(format!(
+                            "Cannot redefine built-in intrinsic '{}'",
+                            f.name.name
+                        ))
+                        .with_span(f.name.span),
+                    );
+                    continue;
+                }
+
                 let mut params = Vec::new();
                 for p in &f.params {
                     let p_ty = self.ctx.type_from_ast(&p.ty, diags);
+                    if p_ty == Type::Str {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Parameter '{}' has type 'str'; 'str' cannot be used directly as a sized value, use '&str'",
+                                p.name.name
+                            ))
+                            .with_span(p.span),
+                        );
+                    }
                     params.push((p.name.name.clone(), p_ty, p.is_mut));
                 }
                 let ret_type = match &f.ret_type {
                     Some(t) => self.ctx.type_from_ast(t, diags),
                     None => Type::Unit,
                 };
+                if ret_type.is_str_slice() {
+                    diags.emit(
+                        Diagnostic::error(
+                            "Returning '&str' from user-defined functions is not yet supported in Milestone 3",
+                        )
+                        .with_span(f.span),
+                    );
+                }
+
                 if self.ctx.functions.contains_key(&f.name.name) {
                     diags.emit(
                         Diagnostic::error(format!(
@@ -542,7 +622,7 @@ impl SemanticAnalyzer {
             ExprKind::Bool(_) => Type::Bool,
             ExprKind::String(_) => Type::Ref {
                 is_mut: false,
-                inner: Box::new(Type::U8),
+                inner: Box::new(Type::Str),
             },
             ExprKind::Ident(name) => {
                 if let Some(sym_id) = self.ctx.lookup_symbol(name) {
@@ -788,7 +868,7 @@ impl SemanticAnalyzer {
                             if arg_ty != *param_ty {
                                 diags.emit(
                                     Diagnostic::error(format!(
-                                        "Argument {} to function '{}' expects {:?}, found {:?}",
+                                        "Argument {} to function '{}' expects {}, found {}",
                                         idx + 1,
                                         callee,
                                         param_ty,

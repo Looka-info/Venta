@@ -136,6 +136,32 @@ impl MirVerifier {
                             )));
                         }
                     }
+                    Instruction::StrSlice {
+                        dest_ptr, dest_len, ..
+                    } => {
+                        defined_values.insert(*dest_ptr);
+                        defined_values.insert(*dest_len);
+                    }
+                    Instruction::StoreSlice { ptr, len, .. } => {
+                        if !defined_values.contains(ptr) {
+                            diags.emit(Diagnostic::error(format!(
+                                "Value {:?} used before definition in store slice ptr in '{}'",
+                                ptr, func.name
+                            )));
+                        }
+                        if !defined_values.contains(len) {
+                            diags.emit(Diagnostic::error(format!(
+                                "Value {:?} used before definition in store slice len in '{}'",
+                                len, func.name
+                            )));
+                        }
+                    }
+                    Instruction::LoadSlice {
+                        dest_ptr, dest_len, ..
+                    } => {
+                        defined_values.insert(*dest_ptr);
+                        defined_values.insert(*dest_len);
+                    }
                 }
             }
 

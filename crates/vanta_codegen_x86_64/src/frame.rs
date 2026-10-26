@@ -37,6 +37,12 @@ impl FrameLayout {
                     | vanta_mir::Instruction::Unary { dest, .. }
                     | vanta_mir::Instruction::IndexAddr { dest, .. }
                     | vanta_mir::Instruction::LoadIndirect { dest, .. } => vec![*dest],
+                    vanta_mir::Instruction::StrSlice {
+                        dest_ptr, dest_len, ..
+                    }
+                    | vanta_mir::Instruction::LoadSlice {
+                        dest_ptr, dest_len, ..
+                    } => vec![*dest_ptr, *dest_len],
                     vanta_mir::Instruction::Call { dest: Some(d), .. } => vec![*d],
                     _ => vec![],
                 };
@@ -94,9 +100,32 @@ impl FrameLayout {
         }
 
         // Spill incoming register arguments into their allocated stack slots
-        for (idx, (slot, _ty)) in func.params.iter().enumerate() {
-            if idx < Reg::ARG_REGS.len() {
-                let arg_reg = Reg::ARG_REGS[idx];
+        let mut arg_reg_idx = 0;
+        for (slot, ty) in &func.params {
+            if ty.is_str_slice() {
+                if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
+                    let ptr_reg = Reg::ARG_REGS[arg_reg_idx];
+                    let len_reg = Reg::ARG_REGS[arg_reg_idx + 1];
+                    arg_reg_idx += 2;
+                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset,
+                        },
+                        src: Operand::Reg(ptr_reg),
+                    });
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset + 8,
+                        },
+                        src: Operand::Reg(len_reg),
+                    });
+                }
+            } else if arg_reg_idx < Reg::ARG_REGS.len() {
+                let arg_reg = Reg::ARG_REGS[arg_reg_idx];
+                arg_reg_idx += 1;
                 let slot_op = self.get_slot_op(*slot);
                 insts.push(MachineInst::Mov {
                     dest: slot_op,

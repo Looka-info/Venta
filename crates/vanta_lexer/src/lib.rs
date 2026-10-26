@@ -156,6 +156,7 @@ impl<'a> Lexer<'a> {
                 "f32" => TokenKind::F32,
                 "f64" => TokenKind::F64,
                 "bool" => TokenKind::BoolType,
+                "str" => TokenKind::Str,
                 _ => TokenKind::Ident(s),
             };
 

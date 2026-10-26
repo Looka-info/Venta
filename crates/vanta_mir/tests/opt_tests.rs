@@ -63,10 +63,9 @@ fn test_1_folding_constant_arithmetic_expression() {
     let func = &mir.functions[0];
     // Verify that x was folded to 42
     let has_42 = func.blocks.iter().any(|b| {
-        b.instructions.iter().any(|inst| match inst {
-            Instruction::ConstInt { val: 42, .. } => true,
-            _ => false,
-        })
+        b.instructions
+            .iter()
+            .any(|inst| matches!(inst, Instruction::ConstInt { val: 42, .. }))
     });
     assert!(has_42, "Expected folded constant 42 in MIR: {:#?}", func);
 }
@@ -90,10 +89,9 @@ fn test_2_propagating_constant_through_multiple_assignments() {
 
     let func = &mir.functions[0];
     let has_15 = func.blocks.iter().any(|b| {
-        b.instructions.iter().any(|inst| match inst {
-            Instruction::ConstInt { val: 15, .. } => true,
-            _ => false,
-        })
+        b.instructions
+            .iter()
+            .any(|inst| matches!(inst, Instruction::ConstInt { val: 15, .. }))
     });
     assert!(
         has_15,
@@ -125,10 +123,9 @@ fn test_3_folding_constant_comparison_and_conditional_branch() {
     let func = &mir.functions[0];
     // The conditional branch should be folded and the else branch eliminated
     let has_200 = func.blocks.iter().any(|b| {
-        b.instructions.iter().any(|inst| match inst {
-            Instruction::ConstInt { val: 200, .. } => true,
-            _ => false,
-        })
+        b.instructions
+            .iter()
+            .any(|inst| matches!(inst, Instruction::ConstInt { val: 200, .. }))
     });
     assert!(
         !has_200,
@@ -326,10 +323,10 @@ fn test_9_correctly_handling_differing_values_at_merge_points() {
     let func = &mir.functions[0];
     // Return value cannot be a constant folded 10 or 20 at compile time
     let return_is_constant = func.blocks.iter().any(|b| match b.terminator {
-        Some(Terminator::Return(Some(val_id))) => b.instructions.iter().any(|inst| match inst {
-            Instruction::ConstInt { dest, .. } if *dest == val_id => true,
-            _ => false,
-        }),
+        Some(Terminator::Return(Some(val_id))) => b
+            .instructions
+            .iter()
+            .any(|inst| matches!(inst, Instruction::ConstInt { dest, .. } if *dest == val_id)),
         _ => false,
     });
     assert!(

@@ -36,14 +36,14 @@ mut, pub, return, struct, true, type, unsafe, while
 
 ### 2.5 Primitive Type Keywords
 ```
-bool, i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, unit (or ())
+bool, i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, str, unit (or ())
 ```
 
 ### 2.6 Literals
 - **Integer Literals**: Decimal (`1234`), Hexadecimal (`0x1F`), Binary (`0b1010`), Octal (`0o77`). Optional type suffixes: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`.
 - **Boolean Literals**: `true`, `false`.
 - **Character Literals**: `'a'`, `'\n'`, `'\x7F'`.
-- **String Literals**: `"hello, world"`.
+- **String Literals**: `"hello, world"`. Decoded UTF-8 byte sequences with escape sequences `\n`, `\r`, `\t`, `\\`, `\"`, `\0`. String literals evaluate to the immutable string slice type `&str`. The length equals the decoded byte length. Embedded NUL bytes (`\0`) are preserved.
 
 ### 2.7 Operators and Punctuation
 - Arithmetic: `+`, `-`, `*`, `/`, `%`
@@ -70,14 +70,15 @@ Vanta is strictly and statically typed. Type inference is local to variable decl
 ### 3.2 Compound Types
 1. **Fixed-Size Arrays**: `[T; N]` where `T` is a type and `N` is an integer constant expression greater than or equal to 0.
 2. **Slices**: `&[T]` and `&mut [T]` representing a contiguous sequence `(pointer, length)`.
-3. **Structs**: Nominal product types with named fields:
+3. **String Slices (`&str`)**: First-class immutable string slice consisting of a two-word descriptor `(data_pointer: *const u8, byte_length: u64)` (16 bytes, 8-byte aligned). The referent type `str` is an unsized UTF-8 sequence that cannot be passed or stored by value. `&str` implements `Copy`. `&mut str` is disallowed.
+4. **Structs**: Nominal product types with named fields:
    ```vanta
    struct Point {
        x: i64,
        y: i64,
    }
    ```
-4. **References**:
+5. **References**:
    - Immutable Reference: `&T` (shared, read-only).
    - Mutable Reference: `&mut T` (exclusive, read-write).
 
@@ -136,7 +137,34 @@ fn square(x: i64) -> i64 {
 
 ---
 
-## 6. ABI & Target Platform
+## 6. Built-in Standard Output Intrinsics
+
+Vanta provides fundamental built-in intrinsics available globally without import declarations:
+
+### 6.1 `print_i64`
+```vanta
+fn print_i64(value: i64) -> ()
+```
+- Prints a signed 64-bit integer in base-10 ASCII representation to standard output (file descriptor 1).
+- Supports negative numbers, zero, and positive numbers across the full `i64` range (`i64::MIN` to `i64::MAX`).
+- Emits no implicit newline or surrounding whitespace.
+- Allocates no heap memory; uses a stack-allocated buffer.
+- Correctly retries interrupted writes (`EINTR`) and handles partial writes.
+
+### 6.2 `print_str`
+```vanta
+fn print_str(value: &str) -> ()
+```
+- Writes the exact bytes of the string slice to standard output (file descriptor 1).
+- Does not append a newline, quotation marks, or delimiters.
+- Does not assume null-termination; uses the slice descriptor's `byte_length`.
+- Handles empty strings (`""`) without issuing write calls.
+- Preserves embedded NUL bytes (`\0`) and arbitrary UTF-8 multibyte sequences.
+- Retries on `EINTR` and handles partial writes.
+
+---
+
+## 7. ABI & Target Platform
 
 - **Architecture**: x86-64
 - **Operating System**: Linux

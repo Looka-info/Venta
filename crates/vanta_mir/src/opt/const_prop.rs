@@ -113,6 +113,9 @@ impl ConstantPropagation {
                     Instruction::ConstBool { dest, val } => {
                         temp_values.insert(*dest, ConstValue::Bool(*val));
                     }
+                    Instruction::StrSlice { dest_len, len, .. } => {
+                        temp_values.insert(*dest_len, ConstValue::Int(*len as i64));
+                    }
                     Instruction::Store { slot, val } => {
                         if !escaped_slots.contains(slot) {
                             if let Some(&c) = temp_values.get(val) {
@@ -198,6 +201,9 @@ impl ConstantPropagation {
                     }
                     Instruction::ConstBool { dest, val } => {
                         known_values.insert(*dest, ConstValue::Bool(*val));
+                    }
+                    Instruction::StrSlice { dest_len, len, .. } => {
+                        known_values.insert(*dest_len, ConstValue::Int(*len as i64));
                     }
                     Instruction::Store { slot, val } => {
                         if !escaped_slots.contains(slot) {

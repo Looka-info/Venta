@@ -12,6 +12,8 @@ use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
 
+const RUNTIME_C: &str = include_str!("../../../runtime/vanta_rt.c");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmitTarget {
     Tokens,
@@ -136,14 +138,23 @@ impl CompilerSession {
     }
 
     fn invoke_system_linker(obj_path: &Path, out_path: &Path) -> Result<(), String> {
-        // Use gcc as linker driver to link standard runtime startup and libc
+        // Prepare temporary runtime C source file for standard I/O intrinsics
+        let temp_rt_path = obj_path.with_extension("rt.c");
+        fs::write(&temp_rt_path, RUNTIME_C)
+            .map_err(|e| format!("Failed to write runtime helper source: {}", e))?;
+
+        // Use gcc as linker driver to link standard runtime startup, libc, and vanta_rt
         let status = Command::new("gcc")
             .arg("-no-pie") // Produce standard executable layout
             .arg(obj_path)
+            .arg(&temp_rt_path)
             .arg("-o")
             .arg(out_path)
-            .status()
-            .map_err(|e| format!("Could not invoke gcc linker: {}", e))?;
+            .status();
+
+        let _ = fs::remove_file(&temp_rt_path);
+
+        let status = status.map_err(|e| format!("Could not invoke gcc linker: {}", e))?;
 
         if status.success() {
             Ok(())

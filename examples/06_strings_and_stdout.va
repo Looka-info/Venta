@@ -1,0 +1,22 @@
+// Example 06: String Slices and Standard Output Intrinsics
+
+fn greet(name: &str, count: i64) {
+    print_str("Hello, ");
+    print_str(name);
+    print_str("! Visit count: ");
+    print_i64(count);
+    print_str("\n");
+}
+
+pub fn main() -> i64 {
+    let mut msg: &str = "Welcome to Vanta Systems Language!\n";
+    print_str(msg);
+
+    msg = "UTF-8 support: Привет, мир! 🚀 🦀\n";
+    print_str(msg);
+
+    greet("Explorer", 42);
+
+    print_str("All tests finished.\n");
+    return 0;
+}

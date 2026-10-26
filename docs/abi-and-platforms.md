@@ -36,10 +36,10 @@
 
 ---
 
-## 3. C ABI Interoperability
+## 3. C ABI Interoperability and Aggregate Argument Passing
 
 Vanta functions marked with standard export symbols follow the C ABI:
-- Integer arguments up to 64 bits are passed in the 6 designated argument registers.
-- Structs up to 16 bytes are flattened across two registers if all fields fit in INTEGER class registers.
+- Integer and single-word pointer arguments up to 64 bits are passed in the designated argument registers (`%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9`).
+- String slice descriptors (`&str`, 16 bytes: `(data_pointer: *const u8, byte_length: u64)`) are classified as `INTEGER` class according to System V AMD64 ABI Section 3.2.3 and passed across two consecutive registers (e.g. `%rdi` for data pointer and `%rsi` for byte length).
 - Return values of primitive integers and pointers are returned in `%rax`.
-- Standard C library functions (e.g. `write`, `exit`, `printf`, `malloc`, `free`) can be linked and invoked directly.
+- Standard C runtime functions (e.g. `write`, `exit`, `print_i64`, `print_str`) can be linked and invoked directly.
