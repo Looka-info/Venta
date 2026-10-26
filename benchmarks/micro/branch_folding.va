@@ -1,0 +1,14 @@
+// Benchmark: Branch folding and dead block elimination
+pub fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        if 100 > 50 {
+            sum += 1;
+        } else {
+            sum += 999;
+        }
+        i += 1;
+    }
+    return sum % 100;
+}

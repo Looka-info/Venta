@@ -6,7 +6,8 @@ use std::process::Command;
 use vanta_codegen_x86_64::X86_64Backend;
 use vanta_diagnostics::DiagnosticBag;
 use vanta_lexer::Lexer;
-use vanta_mir::{MirLowerer, MirVerifier};
+pub use vanta_mir::opt::OptLevel;
+use vanta_mir::{MirLowerer, MirVerifier, OptimizationPipeline};
 use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
@@ -24,12 +25,19 @@ pub struct CompilerOptions {
     pub input_file: PathBuf,
     pub output_file: PathBuf,
     pub emit_target: EmitTarget,
+    pub opt_level: OptLevel,
     pub verbose: bool,
 }
 
 pub struct CompilerSession {
     pub source_map: SourceMap,
     pub diagnostics: DiagnosticBag,
+}
+
+impl Default for CompilerSession {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CompilerSession {
@@ -85,11 +93,18 @@ impl CompilerSession {
 
         // 4. MIR Lowering & Verification
         let mut lowerer = MirLowerer::new(&sema_ctx);
-        let mir = lowerer.lower_program(&program);
+        let mut mir = lowerer.lower_program(&program);
         MirVerifier::verify_program(&mir, &mut self.diagnostics);
         if self.diagnostics.has_errors() {
             eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
             return Err("MIR verification failed with errors".into());
+        }
+
+        // Run MIR optimization pipeline
+        OptimizationPipeline::optimize_program(&mut mir, options.opt_level, &mut self.diagnostics);
+        if self.diagnostics.has_errors() {
+            eprintln!("{}", self.diagnostics.render_all(&self.source_map, true));
+            return Err("Optimized MIR verification failed with errors".into());
         }
 
         if options.emit_target == EmitTarget::Mir {

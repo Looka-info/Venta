@@ -3,7 +3,7 @@
 use std::env;
 use std::path::PathBuf;
 use std::process;
-use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget};
+use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, OptLevel};
 
 fn print_usage() {
     eprintln!(
@@ -14,6 +14,8 @@ USAGE:
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
+    -O0, --no-opt         Disable all optimizations
+    -O1, -O, --opt        Enable standard optimizations (default)
     --emit=<target>       Emit intermediate target:
                             tokens   - Token stream
                             ast      - Abstract Syntax Tree
@@ -36,6 +38,7 @@ fn main() {
     let mut input_file: Option<PathBuf> = None;
     let mut output_file: Option<PathBuf> = None;
     let mut emit_target = EmitTarget::Exe;
+    let mut opt_level = OptLevel::O1;
     let mut verbose = false;
 
     let mut idx = 1;
@@ -48,6 +51,12 @@ fn main() {
             }
             "-v" | "--verbose" => {
                 verbose = true;
+            }
+            "-O0" | "--no-opt" => {
+                opt_level = OptLevel::None;
+            }
+            "-O1" | "-O" | "--opt" => {
+                opt_level = OptLevel::O1;
             }
             "-o" => {
                 idx += 1;
@@ -94,25 +103,27 @@ fn main() {
         }
     };
 
-    let out_path = output_file.unwrap_or_else(|| {
-        match emit_target {
-            EmitTarget::Obj => PathBuf::from("a.o"),
-            EmitTarget::Exe => PathBuf::from("a.out"),
-            _ => PathBuf::from("out.txt"),
-        }
+    let out_path = output_file.unwrap_or_else(|| match emit_target {
+        EmitTarget::Obj => PathBuf::from("a.o"),
+        EmitTarget::Exe => PathBuf::from("a.out"),
+        _ => PathBuf::from("out.txt"),
     });
 
     let options = CompilerOptions {
         input_file: input_path,
         output_file: out_path,
         emit_target,
+        opt_level,
         verbose,
     };
 
     let mut session = CompilerSession::new();
     match session.compile(&options) {
         Ok(Some(bytes)) => {
-            if matches!(emit_target, EmitTarget::Tokens | EmitTarget::Ast | EmitTarget::Mir) {
+            if matches!(
+                emit_target,
+                EmitTarget::Tokens | EmitTarget::Ast | EmitTarget::Mir
+            ) {
                 println!("{}", String::from_utf8_lossy(&bytes));
             }
         }

@@ -1,0 +1,13 @@
+// Benchmark: Dead code elimination
+pub fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        let dead1: i64 = i * 2;
+        let dead2: i64 = dead1 + 100;
+        let dead3: i64 = dead2 * 5;
+        sum += 1;
+        i += 1;
+    }
+    return sum % 100;
+}

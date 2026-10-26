@@ -2,10 +2,12 @@
 
 pub mod ir;
 pub mod lower;
+pub mod opt;
 pub mod verify;
 
 pub use ir::*;
 pub use lower::MirLowerer;
+pub use opt::{ConstantPropagation, DeadCodeElimination, OptLevel, OptimizationPipeline};
 pub use verify::MirVerifier;
 
 #[cfg(test)]

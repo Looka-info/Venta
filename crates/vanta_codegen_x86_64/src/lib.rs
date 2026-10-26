@@ -25,7 +25,7 @@ impl X86_64Backend {
 
         for func in &program.functions {
             // Align function entry to 16 bytes
-            while emitter.bytes.len() % 16 != 0 {
+            while !emitter.bytes.len().is_multiple_of(16) {
                 emitter.emit_u8(0x90); // nop
             }
 

@@ -1,0 +1,11 @@
+// Benchmark: Constant arithmetic folding
+pub fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        let folded: i64 = 10 + 20 + 30 + 40;
+        sum += folded;
+        i += 1;
+    }
+    return sum % 100;
+}

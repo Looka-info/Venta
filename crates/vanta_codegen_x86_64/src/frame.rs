@@ -1,8 +1,8 @@
 //! Stack frame layout and System V AMD64 ABI alignment.
 
-use std::collections::HashMap;
 use crate::machine_ir::{MachineInst, Operand};
 use crate::register::Reg;
+use std::collections::HashMap;
 use vanta_mir::{MirFunction, SlotId, ValueId};
 
 #[derive(Debug)]
@@ -41,10 +41,10 @@ impl FrameLayout {
                     _ => vec![],
                 };
                 for v in val_ids {
-                    if !value_offsets.contains_key(&v) {
+                    value_offsets.entry(v).or_insert_with(|| {
                         current_offset += 8;
-                        value_offsets.insert(v, current_offset);
-                    }
+                        current_offset
+                    });
                 }
             }
         }

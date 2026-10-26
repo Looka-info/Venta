@@ -1,0 +1,10 @@
+// Benchmark: Loop iteration and accumulator computation
+pub fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        sum += i;
+        i += 1;
+    }
+    return sum % 100;
+}

@@ -79,7 +79,8 @@ impl<'a> Lexer<'a> {
                                 self.bump();
                                 self.bump();
                                 depth -= 1;
-                            } else if self.peek_char() == Some('/') && self.peek_char2() == Some('*')
+                            } else if self.peek_char() == Some('/')
+                                && self.peek_char2() == Some('*')
                             {
                                 self.bump();
                                 self.bump();

@@ -35,14 +35,8 @@ pub enum PrimType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExprKind {
     Primitive(PrimType),
-    Reference {
-        is_mut: bool,
-        inner: Box<TypeExpr>,
-    },
-    Array {
-        inner: Box<TypeExpr>,
-        len: usize,
-    },
+    Reference { is_mut: bool, inner: Box<TypeExpr> },
+    Array { inner: Box<TypeExpr>, len: usize },
     Named(String),
     Unit,
 }

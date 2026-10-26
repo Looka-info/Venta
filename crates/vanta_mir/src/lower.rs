@@ -1,7 +1,7 @@
 //! Lowering from typed AST to Vanta MIR.
 
-use std::collections::HashMap;
 use crate::ir::*;
+use std::collections::HashMap;
 use vanta_parser::ast::*;
 use vanta_sema::{SemanticContext, Type};
 
@@ -162,11 +162,7 @@ impl<'a> MirLowerer<'a> {
         }
 
         let result = if !self.is_current_terminated() {
-            if let Some(tail) = &block.expr {
-                Some(self.lower_expr(tail))
-            } else {
-                None
-            }
+            block.expr.as_ref().map(|tail| self.lower_expr(tail))
         } else {
             None
         };
@@ -263,7 +259,11 @@ impl<'a> MirLowerer<'a> {
                     _ => {}
                 }
             }
-            Stmt::While { cond, body, span: _ } => {
+            Stmt::While {
+                cond,
+                body,
+                span: _,
+            } => {
                 let cond_block = self.new_block("while.cond");
                 let body_block = self.new_block("while.body");
                 let exit_block = self.new_block("while.exit");

@@ -1,7 +1,7 @@
 //! Verification passes for Vanta MIR.
 
-use std::collections::HashSet;
 use crate::ir::*;
+use std::collections::HashSet;
 use vanta_diagnostics::{Diagnostic, DiagnosticBag};
 
 pub struct MirVerifier;

@@ -105,13 +105,15 @@ impl Diagnostic {
             if let Some(file) = sm.get_file(span.file_id) {
                 let (line, col) = file.line_col(span.start);
                 out.push_str(&format!(
-                    "{}{}{}{}: {}{}: {}{}\n",
+                    "{}{}:{}:{}{}: {}{}{}: {}{}\n",
                     bold,
                     file.path,
-                    format!(":{}:{}", line, col),
+                    line,
+                    col,
                     reset,
                     color,
-                    format!("{}{}", sev_str, code_str),
+                    sev_str,
+                    code_str,
                     self.message,
                     reset
                 ));

@@ -1,8 +1,8 @@
 //! Pure Rust x86-64 machine code instruction encoder.
 
-use std::collections::HashMap;
 use crate::machine_ir::{ConditionCode, MachineInst, Operand};
 use crate::register::Reg;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Relocation {
@@ -16,6 +16,12 @@ pub struct CodeEmitter {
     pub label_offsets: HashMap<String, usize>,
     pub label_fixups: Vec<(usize, String)>, // (offset_of_rel32, target_label)
     pub relocations: Vec<Relocation>,
+}
+
+impl Default for CodeEmitter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CodeEmitter {
@@ -145,7 +151,12 @@ impl CodeEmitter {
                         self.emit_mem_operand(s.hw_encoding(), *base, *offset);
                     }
                     (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
+                        self.emit_u8(Self::rex(
+                            true,
+                            dst.is_extended(),
+                            false,
+                            base.is_extended(),
+                        ));
                         self.emit_u8(0x8B);
                         self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                     }
@@ -158,153 +169,172 @@ impl CodeEmitter {
                     _ => panic!("Unsupported Mov combination: {:?} -> {:?}", src, dest),
                 }
             }
-            MachineInst::Add { dest, src } => {
-                match (dest, src) {
-                    (Operand::Reg(dst), Operand::Reg(s)) => {
-                        self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
-                        self.emit_u8(0x01);
-                        self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
-                    }
-                    (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x03);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
-                    }
-                    (Operand::Reg(dst), Operand::Imm(val)) => {
-                        self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
-                        self.emit_u8(0x81);
-                        self.emit_u8(Self::mod_rm(0b11, 0, dst.hw_encoding()));
-                        self.emit_i32(*val as i32);
-                    }
-                    _ => panic!("Unsupported Add operands: {:?}", inst),
+            MachineInst::Add { dest, src } => match (dest, src) {
+                (Operand::Reg(dst), Operand::Reg(s)) => {
+                    self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
+                    self.emit_u8(0x01);
+                    self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
                 }
-            }
-            MachineInst::Sub { dest, src } => {
-                match (dest, src) {
-                    (Operand::Reg(dst), Operand::Reg(s)) => {
-                        self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
-                        self.emit_u8(0x29);
-                        self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
-                    }
-                    (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x2B);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
-                    }
-                    (Operand::Reg(dst), Operand::Imm(val)) => {
-                        self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
-                        self.emit_u8(0x81);
-                        self.emit_u8(Self::mod_rm(0b11, 5, dst.hw_encoding()));
-                        self.emit_i32(*val as i32);
-                    }
-                    _ => panic!("Unsupported Sub operands: {:?}", inst),
+                (Operand::Reg(dst), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dst.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x03);
+                    self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                 }
-            }
-            MachineInst::Imul { dest, src } => {
-                match src {
-                    Operand::Reg(s) => {
-                        self.emit_u8(Self::rex(true, dest.is_extended(), false, s.is_extended()));
-                        self.emit_u8(0x0F);
-                        self.emit_u8(0xAF);
-                        self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), s.hw_encoding()));
-                    }
-                    Operand::Mem { base, offset } => {
-                        self.emit_u8(Self::rex(true, dest.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x0F);
-                        self.emit_u8(0xAF);
-                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
-                    }
-                    Operand::Imm(val) => {
-                        self.emit_u8(Self::rex(true, dest.is_extended(), false, dest.is_extended()));
-                        self.emit_u8(0x69);
-                        self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), dest.hw_encoding()));
-                        self.emit_i32(*val as i32);
-                    }
-                    _ => panic!("Unsupported Imul operand: {:?}", src),
+                (Operand::Reg(dst), Operand::Imm(val)) => {
+                    self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
+                    self.emit_u8(0x81);
+                    self.emit_u8(Self::mod_rm(0b11, 0, dst.hw_encoding()));
+                    self.emit_i32(*val as i32);
                 }
-            }
+                _ => panic!("Unsupported Add operands: {:?}", inst),
+            },
+            MachineInst::Sub { dest, src } => match (dest, src) {
+                (Operand::Reg(dst), Operand::Reg(s)) => {
+                    self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
+                    self.emit_u8(0x29);
+                    self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
+                }
+                (Operand::Reg(dst), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dst.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x2B);
+                    self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
+                }
+                (Operand::Reg(dst), Operand::Imm(val)) => {
+                    self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
+                    self.emit_u8(0x81);
+                    self.emit_u8(Self::mod_rm(0b11, 5, dst.hw_encoding()));
+                    self.emit_i32(*val as i32);
+                }
+                _ => panic!("Unsupported Sub operands: {:?}", inst),
+            },
+            MachineInst::Imul { dest, src } => match src {
+                Operand::Reg(s) => {
+                    self.emit_u8(Self::rex(true, dest.is_extended(), false, s.is_extended()));
+                    self.emit_u8(0x0F);
+                    self.emit_u8(0xAF);
+                    self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), s.hw_encoding()));
+                }
+                Operand::Mem { base, offset } => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dest.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x0F);
+                    self.emit_u8(0xAF);
+                    self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
+                }
+                Operand::Imm(val) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dest.is_extended(),
+                        false,
+                        dest.is_extended(),
+                    ));
+                    self.emit_u8(0x69);
+                    self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), dest.hw_encoding()));
+                    self.emit_i32(*val as i32);
+                }
+                _ => panic!("Unsupported Imul operand: {:?}", src),
+            },
             MachineInst::Idiv(reg) => {
                 self.emit_u8(Self::rex(true, false, false, reg.is_extended()));
                 self.emit_u8(0xF7);
                 self.emit_u8(Self::mod_rm(0b11, 7, reg.hw_encoding()));
             }
-            MachineInst::And { dest, src } => {
-                match (dest, src) {
-                    (Operand::Reg(dst), Operand::Reg(s)) => {
-                        self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
-                        self.emit_u8(0x21);
-                        self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
-                    }
-                    (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x23);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
-                    }
-                    _ => panic!("Unsupported And operands: {:?}", inst),
+            MachineInst::And { dest, src } => match (dest, src) {
+                (Operand::Reg(dst), Operand::Reg(s)) => {
+                    self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
+                    self.emit_u8(0x21);
+                    self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
                 }
-            }
-            MachineInst::Or { dest, src } => {
-                match (dest, src) {
-                    (Operand::Reg(dst), Operand::Reg(s)) => {
-                        self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
-                        self.emit_u8(0x09);
-                        self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
-                    }
-                    (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x0B);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
-                    }
-                    _ => panic!("Unsupported Or operands: {:?}", inst),
+                (Operand::Reg(dst), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dst.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x23);
+                    self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                 }
-            }
-            MachineInst::Xor { dest, src } => {
-                match (dest, src) {
-                    (Operand::Reg(dst), Operand::Reg(s)) => {
-                        self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
-                        self.emit_u8(0x31);
-                        self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
-                    }
-                    (Operand::Reg(dst), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, dst.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x33);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
-                    }
-                    _ => panic!("Unsupported Xor operands: {:?}", inst),
+                _ => panic!("Unsupported And operands: {:?}", inst),
+            },
+            MachineInst::Or { dest, src } => match (dest, src) {
+                (Operand::Reg(dst), Operand::Reg(s)) => {
+                    self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
+                    self.emit_u8(0x09);
+                    self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
                 }
-            }
-            MachineInst::Shl { dest, count } => {
-                match count {
-                    Operand::Reg(Reg::Rcx) => {
-                        self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
-                        self.emit_u8(0xD3);
-                        self.emit_u8(Self::mod_rm(0b11, 4, dest.hw_encoding()));
-                    }
-                    Operand::Imm(val) => {
-                        self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
-                        self.emit_u8(0xC1);
-                        self.emit_u8(Self::mod_rm(0b11, 4, dest.hw_encoding()));
-                        self.emit_u8(*val as u8);
-                    }
-                    _ => panic!("Unsupported Shl count: {:?}", count),
+                (Operand::Reg(dst), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dst.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x0B);
+                    self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                 }
-            }
-            MachineInst::Shr { dest, count } => {
-                match count {
-                    Operand::Reg(Reg::Rcx) => {
-                        self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
-                        self.emit_u8(0xD3);
-                        self.emit_u8(Self::mod_rm(0b11, 5, dest.hw_encoding()));
-                    }
-                    Operand::Imm(val) => {
-                        self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
-                        self.emit_u8(0xC1);
-                        self.emit_u8(Self::mod_rm(0b11, 5, dest.hw_encoding()));
-                        self.emit_u8(*val as u8);
-                    }
-                    _ => panic!("Unsupported Shr count: {:?}", count),
+                _ => panic!("Unsupported Or operands: {:?}", inst),
+            },
+            MachineInst::Xor { dest, src } => match (dest, src) {
+                (Operand::Reg(dst), Operand::Reg(s)) => {
+                    self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
+                    self.emit_u8(0x31);
+                    self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
                 }
-            }
+                (Operand::Reg(dst), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dst.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x33);
+                    self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
+                }
+                _ => panic!("Unsupported Xor operands: {:?}", inst),
+            },
+            MachineInst::Shl { dest, count } => match count {
+                Operand::Reg(Reg::Rcx) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xD3);
+                    self.emit_u8(Self::mod_rm(0b11, 4, dest.hw_encoding()));
+                }
+                Operand::Imm(val) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xC1);
+                    self.emit_u8(Self::mod_rm(0b11, 4, dest.hw_encoding()));
+                    self.emit_u8(*val as u8);
+                }
+                _ => panic!("Unsupported Shl count: {:?}", count),
+            },
+            MachineInst::Shr { dest, count } => match count {
+                Operand::Reg(Reg::Rcx) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xD3);
+                    self.emit_u8(Self::mod_rm(0b11, 5, dest.hw_encoding()));
+                }
+                Operand::Imm(val) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xC1);
+                    self.emit_u8(Self::mod_rm(0b11, 5, dest.hw_encoding()));
+                    self.emit_u8(*val as u8);
+                }
+                _ => panic!("Unsupported Shr count: {:?}", count),
+            },
             MachineInst::Neg(reg) => {
                 self.emit_u8(Self::rex(true, false, false, reg.is_extended()));
                 self.emit_u8(0xF7);
@@ -315,27 +345,25 @@ impl CodeEmitter {
                 self.emit_u8(0xF7);
                 self.emit_u8(Self::mod_rm(0b11, 2, reg.hw_encoding()));
             }
-            MachineInst::Cmp { lhs, rhs } => {
-                match (lhs, rhs) {
-                    (Operand::Reg(l), Operand::Reg(r)) => {
-                        self.emit_u8(Self::rex(true, r.is_extended(), false, l.is_extended()));
-                        self.emit_u8(0x39);
-                        self.emit_u8(Self::mod_rm(0b11, r.hw_encoding(), l.hw_encoding()));
-                    }
-                    (Operand::Reg(l), Operand::Mem { base, offset }) => {
-                        self.emit_u8(Self::rex(true, l.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x3B);
-                        self.emit_mem_operand(l.hw_encoding(), *base, *offset);
-                    }
-                    (Operand::Reg(l), Operand::Imm(val)) => {
-                        self.emit_u8(Self::rex(true, false, false, l.is_extended()));
-                        self.emit_u8(0x81);
-                        self.emit_u8(Self::mod_rm(0b11, 7, l.hw_encoding()));
-                        self.emit_i32(*val as i32);
-                    }
-                    _ => panic!("Unsupported Cmp operands: {:?}", inst),
+            MachineInst::Cmp { lhs, rhs } => match (lhs, rhs) {
+                (Operand::Reg(l), Operand::Reg(r)) => {
+                    self.emit_u8(Self::rex(true, r.is_extended(), false, l.is_extended()));
+                    self.emit_u8(0x39);
+                    self.emit_u8(Self::mod_rm(0b11, r.hw_encoding(), l.hw_encoding()));
                 }
-            }
+                (Operand::Reg(l), Operand::Mem { base, offset }) => {
+                    self.emit_u8(Self::rex(true, l.is_extended(), false, base.is_extended()));
+                    self.emit_u8(0x3B);
+                    self.emit_mem_operand(l.hw_encoding(), *base, *offset);
+                }
+                (Operand::Reg(l), Operand::Imm(val)) => {
+                    self.emit_u8(Self::rex(true, false, false, l.is_extended()));
+                    self.emit_u8(0x81);
+                    self.emit_u8(Self::mod_rm(0b11, 7, l.hw_encoding()));
+                    self.emit_i32(*val as i32);
+                }
+                _ => panic!("Unsupported Cmp operands: {:?}", inst),
+            },
             MachineInst::Test { lhs, rhs } => {
                 self.emit_u8(Self::rex(true, rhs.is_extended(), false, lhs.is_extended()));
                 self.emit_u8(0x85);
@@ -364,16 +392,19 @@ impl CodeEmitter {
                 self.emit_u8(0xB6);
                 self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), src.hw_encoding()));
             }
-            MachineInst::Lea { dest, src } => {
-                match src {
-                    Operand::Mem { base, offset } => {
-                        self.emit_u8(Self::rex(true, dest.is_extended(), false, base.is_extended()));
-                        self.emit_u8(0x8D);
-                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
-                    }
-                    _ => panic!("Lea source must be memory: {:?}", src),
+            MachineInst::Lea { dest, src } => match src {
+                Operand::Mem { base, offset } => {
+                    self.emit_u8(Self::rex(
+                        true,
+                        dest.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                    self.emit_u8(0x8D);
+                    self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
                 }
-            }
+                _ => panic!("Lea source must be memory: {:?}", src),
+            },
             MachineInst::Jmp(target) => {
                 self.emit_u8(0xE9);
                 let fixup_pos = self.bytes.len();
@@ -415,8 +446,7 @@ impl CodeEmitter {
                 // rel32 is relative to the address immediately following the 4-byte immediate
                 let next_ip = (fixup_offset + 4) as i32;
                 let rel32 = (target_offset as i32) - next_ip;
-                self.bytes[*fixup_offset..*fixup_offset + 4]
-                    .copy_from_slice(&rel32.to_le_bytes());
+                self.bytes[*fixup_offset..*fixup_offset + 4].copy_from_slice(&rel32.to_le_bytes());
             } else {
                 panic!("Unresolved local jump label: {}", target_label);
             }

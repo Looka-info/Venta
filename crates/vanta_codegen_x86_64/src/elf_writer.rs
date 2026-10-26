@@ -1,7 +1,7 @@
 //! Pure Rust ELF64 relocatable object file writer for Linux x86-64.
 
-use std::collections::HashMap;
 use crate::encoding::Relocation;
+use std::collections::HashMap;
 
 pub struct FunctionSymbol {
     pub name: String,
@@ -17,7 +17,11 @@ pub struct Elf64Writer {
 }
 
 impl Elf64Writer {
-    pub fn new(text_section: Vec<u8>, relocations: Vec<Relocation>, functions: Vec<FunctionSymbol>) -> Self {
+    pub fn new(
+        text_section: Vec<u8>,
+        relocations: Vec<Relocation>,
+        functions: Vec<FunctionSymbol>,
+    ) -> Self {
         Self {
             text_section,
             relocations,
@@ -252,7 +256,15 @@ impl Elf64Writer {
             out.push(0);
         }
 
-        let mut write_shdr = |name: u32, ty: u32, flags: u64, off: u64, size: u64, link: u32, info: u32, align: u64, entsize: u64| {
+        let mut write_shdr = |name: u32,
+                              ty: u32,
+                              flags: u64,
+                              off: u64,
+                              size: u64,
+                              link: u32,
+                              info: u32,
+                              align: u64,
+                              entsize: u64| {
             out.extend_from_slice(&name.to_le_bytes());
             out.extend_from_slice(&ty.to_le_bytes());
             out.extend_from_slice(&flags.to_le_bytes());
@@ -269,7 +281,17 @@ impl Elf64Writer {
         write_shdr(sh_null_name, 0, 0, 0, 0, 0, 0, 0, 0);
 
         // 1: .text section (SHT_PROGBITS = 1, SHF_ALLOC | SHF_EXECINSTR = 6)
-        write_shdr(sh_text_name, 1, 0x06, text_offset as u64, text_size as u64, 0, 0, 16, 0);
+        write_shdr(
+            sh_text_name,
+            1,
+            0x06,
+            text_offset as u64,
+            text_size as u64,
+            0,
+            0,
+            16,
+            0,
+        );
 
         // 2: .rela.text section (if present) (SHT_RELA = 4, SHF_INFO_LINK = 0x40)
         let (_symtab_sec_idx, strtab_sec_idx) = if has_rela {
@@ -303,10 +325,30 @@ impl Elf64Writer {
         );
 
         // .strtab (SHT_STRTAB = 3)
-        write_shdr(sh_strtab_name, 3, 0, strtab_offset as u64, strtab_size as u64, 0, 0, 1, 0);
+        write_shdr(
+            sh_strtab_name,
+            3,
+            0,
+            strtab_offset as u64,
+            strtab_size as u64,
+            0,
+            0,
+            1,
+            0,
+        );
 
         // .shstrtab (SHT_STRTAB = 3)
-        write_shdr(sh_shstrtab_name, 3, 0, shstrtab_offset as u64, shstrtab_size as u64, 0, 0, 1, 0);
+        write_shdr(
+            sh_shstrtab_name,
+            3,
+            0,
+            shstrtab_offset as u64,
+            shstrtab_size as u64,
+            0,
+            0,
+            1,
+            0,
+        );
 
         out
     }

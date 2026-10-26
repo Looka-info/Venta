@@ -69,6 +69,12 @@ pub struct SemanticContext {
     current_fn_ret_type: Option<Type>,
 }
 
+impl Default for SemanticContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticContext {
     pub fn new() -> Self {
         Self {
@@ -191,6 +197,12 @@ pub struct SemanticAnalyzer {
     ctx: SemanticContext,
 }
 
+impl Default for SemanticAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
@@ -232,8 +244,11 @@ impl SemanticAnalyzer {
                 };
                 if self.ctx.functions.contains_key(&f.name.name) {
                     diags.emit(
-                        Diagnostic::error(format!("Duplicate function definition '{}'", f.name.name))
-                            .with_span(f.name.span),
+                        Diagnostic::error(format!(
+                            "Duplicate function definition '{}'",
+                            f.name.name
+                        ))
+                        .with_span(f.name.span),
                     );
                 } else {
                     self.ctx.functions.insert(
@@ -358,8 +373,14 @@ impl SemanticAnalyzer {
                     (ty, InitState::Uninitialized)
                 };
 
-                self.ctx
-                    .declare_symbol(name.name.clone(), inferred_ty, *is_mut, *span, init_state, diags);
+                self.ctx.declare_symbol(
+                    name.name.clone(),
+                    inferred_ty,
+                    *is_mut,
+                    *span,
+                    init_state,
+                    diags,
+                );
             }
             Stmt::Assign {
                 target,
@@ -433,7 +454,10 @@ impl SemanticAnalyzer {
                     ExprKind::Deref(inner) => {
                         let inner_ty = self.check_expr(inner, diags);
                         match inner_ty {
-                            Type::Ref { is_mut: true, inner: ref_target_ty } => {
+                            Type::Ref {
+                                is_mut: true,
+                                inner: ref_target_ty,
+                            } => {
                                 if *ref_target_ty != val_ty {
                                     diags.emit(
                                         Diagnostic::error(format!(
@@ -466,7 +490,11 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Stmt::While { cond, body, span: _ } => {
+            Stmt::While {
+                cond,
+                body,
+                span: _,
+            } => {
                 let cond_ty = self.check_expr(cond, diags);
                 if cond_ty != Type::Bool {
                     diags.emit(
@@ -659,7 +687,10 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            ExprKind::Ref { is_mut, expr: inner } => {
+            ExprKind::Ref {
+                is_mut,
+                expr: inner,
+            } => {
                 // Borrow Checker: Borrowing an identifier
                 if let ExprKind::Ident(name) = &inner.kind {
                     if let Some(sym_id) = self.ctx.lookup_symbol(name) {
@@ -722,7 +753,9 @@ impl SemanticAnalyzer {
             ExprKind::Deref(inner) => {
                 let inner_ty = self.check_expr(inner, diags);
                 match inner_ty {
-                    Type::Ref { inner: target_ty, .. } => *target_ty,
+                    Type::Ref {
+                        inner: target_ty, ..
+                    } => *target_ty,
                     _ => {
                         diags.emit(
                             Diagnostic::error(format!(
@@ -784,8 +817,11 @@ impl SemanticAnalyzer {
                 let cond_ty = self.check_expr(cond, diags);
                 if cond_ty != Type::Bool {
                     diags.emit(
-                        Diagnostic::error(format!("'if' condition must be 'bool', found {:?}", cond_ty))
-                            .with_span(cond.span),
+                        Diagnostic::error(format!(
+                            "'if' condition must be 'bool', found {:?}",
+                            cond_ty
+                        ))
+                        .with_span(cond.span),
                     );
                 }
 
@@ -841,8 +877,11 @@ impl SemanticAnalyzer {
 
                 if !idx_ty.is_integer() {
                     diags.emit(
-                        Diagnostic::error(format!("Array index must be integer, found {:?}", idx_ty))
-                            .with_span(index.span),
+                        Diagnostic::error(format!(
+                            "Array index must be integer, found {:?}",
+                            idx_ty
+                        ))
+                        .with_span(index.span),
                     );
                 }
 
@@ -999,9 +1038,8 @@ mod tests {
         let analyzer = SemanticAnalyzer::new();
         let _ctx = analyzer.analyze(&program, &mut diags);
         assert!(diags.has_errors());
-        assert!(diags
-            .diagnostics()
-            .iter()
-            .any(|d| d.message.contains("Cannot borrow immutable variable 'x' as mutable")));
+        assert!(diags.diagnostics().iter().any(|d| d
+            .message
+            .contains("Cannot borrow immutable variable 'x' as mutable")));
     }
 }

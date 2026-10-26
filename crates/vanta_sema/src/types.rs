@@ -14,14 +14,8 @@ pub enum Type {
     F64,
     Bool,
     Unit,
-    Ref {
-        is_mut: bool,
-        inner: Box<Type>,
-    },
-    Array {
-        inner: Box<Type>,
-        len: usize,
-    },
+    Ref { is_mut: bool, inner: Box<Type> },
+    Array { inner: Box<Type>, len: usize },
     Struct(String),
 }
 

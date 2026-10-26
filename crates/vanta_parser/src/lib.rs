@@ -50,8 +50,12 @@ impl Parser {
             Some(self.bump())
         } else {
             diags.emit(
-                Diagnostic::error(format!("Expected '{:?}', found '{:?}'", expected, self.peek()))
-                    .with_span(self.current_span()),
+                Diagnostic::error(format!(
+                    "Expected '{:?}', found '{:?}'",
+                    expected,
+                    self.peek()
+                ))
+                .with_span(self.current_span()),
             );
             None
         }
@@ -330,8 +334,10 @@ impl Parser {
                     }
                     _ => {
                         diags.emit(
-                            Diagnostic::error("Array length must be a non-negative integer literal")
-                                .with_span(self.current_span()),
+                            Diagnostic::error(
+                                "Array length must be a non-negative integer literal",
+                            )
+                            .with_span(self.current_span()),
                         );
                         0
                     }
@@ -420,6 +426,16 @@ impl Parser {
                 } else if self.check(&TokenKind::Semicolon) {
                     self.bump();
                     stmts.push(Stmt::Expr(expr));
+                } else if matches!(expr.kind, ExprKind::If { .. } | ExprKind::Block { .. }) {
+                    if self.check(&TokenKind::Semicolon) {
+                        self.bump();
+                        stmts.push(Stmt::Expr(expr));
+                    } else if self.check(&TokenKind::RBrace) {
+                        tail_expr = Some(Box::new(expr));
+                        break;
+                    } else {
+                        stmts.push(Stmt::Expr(expr));
+                    }
                 } else if self.check(&TokenKind::RBrace) {
                     // Tail expression of the block
                     tail_expr = Some(Box::new(expr));
@@ -555,19 +571,10 @@ impl Parser {
         }
     }
 
-    fn parse_expr_precedence(
-        &mut self,
-        min_bp: u8,
-        diags: &mut DiagnosticBag,
-    ) -> Option<Expr> {
+    fn parse_expr_precedence(&mut self, min_bp: u8, diags: &mut DiagnosticBag) -> Option<Expr> {
         let mut lhs = self.parse_prefix_expr(diags)?;
 
-        loop {
-            let (l_bp, r_bp, bin_op) = match Self::get_infix_binding_power(self.peek()) {
-                Some(triple) => triple,
-                None => break,
-            };
-
+        while let Some((l_bp, r_bp, bin_op)) = Self::get_infix_binding_power(self.peek()) {
             if l_bp < min_bp {
                 break;
             }
@@ -672,7 +679,13 @@ impl Parser {
                             "<error>".into()
                         }
                     };
-                    expr = Expr::new(ExprKind::Call { callee: callee_name, args }, span);
+                    expr = Expr::new(
+                        ExprKind::Call {
+                            callee: callee_name,
+                            args,
+                        },
+                        span,
+                    );
                 }
                 TokenKind::Dot => {
                     // Field Access
@@ -731,12 +744,13 @@ impl Parser {
                 self.bump();
 
                 // Check if this is a struct literal: Name { field: expr, ... }
-                let is_capitalized = name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                let is_capitalized = name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
                 let looks_like_struct_init = if is_capitalized && self.check(&TokenKind::LBrace) {
                     let next1 = self.tokens.get(self.cursor + 1).map(|t| &t.kind);
                     let next2 = self.tokens.get(self.cursor + 2).map(|t| &t.kind);
                     matches!(next1, Some(TokenKind::RBrace))
-                        || (matches!(next1, Some(TokenKind::Ident(_))) && matches!(next2, Some(TokenKind::Colon)))
+                        || (matches!(next1, Some(TokenKind::Ident(_)))
+                            && matches!(next2, Some(TokenKind::Colon)))
                 } else {
                     false
                 };

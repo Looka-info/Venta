@@ -112,11 +112,7 @@ impl<'a> InstructionSelector<'a> {
                 });
             }
             Instruction::Binary {
-                dest,
-                op,
-                lhs,
-                rhs,
-                ..
+                dest, op, lhs, rhs, ..
             } => {
                 let lhs_op = self.frame.get_value_op(*lhs);
                 let rhs_op = self.frame.get_value_op(*rhs);
@@ -314,10 +310,7 @@ impl<'a> InstructionSelector<'a> {
                 }
             }
             Instruction::Unary {
-                dest,
-                op,
-                operand,
-                ..
+                dest, op, operand, ..
             } => {
                 let op_val = self.frame.get_value_op(*operand);
                 let dest_op = self.frame.get_value_op(*dest);
@@ -339,10 +332,7 @@ impl<'a> InstructionSelector<'a> {
                 });
             }
             Instruction::Call {
-                dest,
-                callee,
-                args,
-                ..
+                dest, callee, args, ..
             } => {
                 // Pass first 6 args in registers
                 for (idx, arg) in args.iter().enumerate() {
