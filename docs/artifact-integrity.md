@@ -6,7 +6,7 @@ For **Vanta v1.0-RC1 (Linux x86-64)**, the official release artifacts and their 
 
 | File Name | File Size | SHA-256 Checksum | Purpose |
 |:---|:---:|:---|:---|
-| `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `1574a6769d377246e55b24ae425e3719c9f28172112132258289c8137710bee4` | Primary release tarball (binaries, runtime, std, examples, scripts) |
+| `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `6268c37ad04b0013fa3879464315b634e83726b740b3c45941201c62ab860199` | Primary release tarball (binaries, runtime, std, examples, scripts) |
 | `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256` | 113 B | N/A (Contains hash line) | Standard SHA-256 hash manifest |
 
 ---
