@@ -2,23 +2,48 @@
 
 Program = { Item } ;
 
-Item = FunctionDecl | StructDecl | ImplBlock ;
+Item = ModDecl | ImportDecl | FunctionDecl | StructDecl | EnumDecl | TraitDecl | ImplBlock ;
 
-FunctionDecl = [ "pub" ] "fn" Identifier "(" [ ParameterList ] ")" [ "->" Type ] Block ;
+ModDecl    = [ "pub" ] "mod" Identifier ";" ;
+ImportDecl = [ "pub" ] "import" ModulePath "::" ( "{" ImportItemList "}" | Identifier ) ";" ;
+
+ModulePath     = Identifier { "::" Identifier } ;
+ImportItemList = Identifier { "," Identifier } [ "," ] ;
+
+FunctionDecl = [ "pub" ] "fn" Identifier [ "<" GenericParamList ">" ] "(" [ ParameterList ] ")" [ "->" Type ] Block ;
+
+GenericParamList = GenericParam { "," GenericParam } [ "," ] ;
+GenericParam     = Lifetime | TypeParam ;
+Lifetime         = "'" Identifier ;
+TypeParam        = Identifier [ ":" TypePath ] ;
+TypeArgList      = TypeArg { "," TypeArg } [ "," ] ;
+TypeArg          = Lifetime | Type ;
+TypePath         = Identifier { "::" Identifier } ;
 
 ParameterList = Parameter { "," Parameter } [ "," ] ;
 Parameter     = [ "mut" ] Identifier ":" Type ;
 
-StructDecl    = [ "pub" ] "struct" Identifier "{" [ StructFields ] "}" ;
+StructDecl    = [ "pub" ] "struct" Identifier [ "<" GenericParamList ">" ] "{" [ StructFields ] "}" ;
 StructFields  = StructField { "," StructField } [ "," ] ;
 StructField   = [ "pub" ] Identifier ":" Type ;
 
-ImplBlock     = "impl" Identifier "{" { FunctionDecl } "}" ;
+EnumDecl      = [ "pub" ] "enum" Identifier [ "<" GenericParamList ">" ] "{" [ VariantList ] "}" ;
+VariantList   = Variant { "," Variant } [ "," ] ;
+Variant       = Identifier [ "(" TypeList ")" ] ;
+TypeList      = Type { "," Type } [ "," ] ;
+
+TraitDecl     = [ "pub" ] "trait" Identifier [ "<" GenericParamList ">" ] "{" { TraitMethodDecl } "}" ;
+TraitMethodDecl = "fn" Identifier [ "<" GenericParamList ">" ] "(" [ ParameterList ] ")" [ "->" Type ] ";" ;
+
+ImplBlock     = "impl" [ "<" GenericParamList ">" ] [ TraitPath "for" ] TypeRef "{" { FunctionDecl } "}" ;
+TraitPath     = Identifier [ "<" TypeArgList ">" ] ;
+TypeRef       = Identifier [ "<" TypeArgList ">" ] ;
 
 Type = PrimitiveType
      | ReferenceType
      | ArrayType
      | SliceType
+     | GenericType
      | StructType
      | TupleType ;
 
@@ -28,9 +53,10 @@ PrimitiveType = "i8" | "i16" | "i32" | "i64"
               | "bool"
               | "str" ;
 
-ReferenceType = "&" [ "mut" ] Type ;
+ReferenceType = "&" [ Lifetime ] [ "mut" ] Type ;
 ArrayType     = "[" Type ";" IntegerLiteral "]" ;
-SliceType     = "[" Type "]" ;
+SliceType     = [ Lifetime ] "[" Type "]" ;
+GenericType   = Identifier "<" TypeArgList ">" ;
 StructType    = Identifier ;
 TupleType     = "(" [ Type { "," Type } ] ")" ;
 
@@ -40,6 +66,7 @@ Statement = LetStmt
           | AssignmentStmt
           | WhileStmt
           | LoopStmt
+          | ForStmt
           | ReturnStmt
           | BreakStmt
           | ContinueStmt
@@ -49,6 +76,7 @@ LetStmt        = "let" [ "mut" ] Identifier [ ":" Type ] [ "=" Expression ] ";" 
 AssignmentStmt = LValue ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) Expression ";" ;
 WhileStmt      = "while" Expression Block ;
 LoopStmt       = "loop" Block ;
+ForStmt        = "for" Identifier "in" Expression Block ;
 ReturnStmt     = "return" [ Expression ] ";" ;
 BreakStmt      = "break" ";" ;
 ContinueStmt   = "continue" ";" ;
@@ -75,11 +103,13 @@ MultiplicativeExpr = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
 UnaryExpr = ( "-" | "!" | "*" | "&" | "&" "mut" ) UnaryExpr
           | PostfixExpr ;
 
-PostfixExpr = PrimaryExpr { CallSuffix | MethodCallSuffix | MemberSuffix | IndexSuffix } ;
-CallSuffix       = "(" [ ArgumentList ] ")" ;
+PostfixExpr = PrimaryExpr { CallSuffix | MethodCallSuffix | MemberSuffix | IndexSuffix | TrySuffix } ;
+CallSuffix       = [ "<" TypeArgList ">" ] "(" [ ArgumentList ] ")"
+                 | [ "<" TypeArgList ">" ] "::" Identifier "(" [ ArgumentList ] ")" ;
 MethodCallSuffix = "." Identifier "(" [ ArgumentList ] ")" ;
 MemberSuffix     = "." Identifier ;
 IndexSuffix      = "[" Expression "]" ;
+TrySuffix        = "?" ;
 
 ArgumentList = Expression { "," Expression } [ "," ] ;
 
@@ -88,14 +118,26 @@ PrimaryExpr = IntegerLiteral
             | StringLiteral
             | Identifier
             | IfExpr
+            | MatchExpr
             | Block
             | ArrayLiteral
             | StructLiteral
             | "(" Expression ")" ;
 
 IfExpr = "if" Expression Block [ "else" ( IfExpr | Block ) ] ;
+
+MatchExpr = "match" Expression "{" [ MatchArmList ] "}" ;
+MatchArmList = MatchArm { "," MatchArm } [ "," ] ;
+MatchArm = Pattern "=>" Expression ;
+
+Pattern = "_"
+        | BooleanLiteral
+        | IntegerLiteral
+        | [ Identifier "::" ] Identifier [ "(" [ PatternList ] ")" ] ;
+PatternList = Pattern { "," Pattern } [ "," ] ;
+
 ArrayLiteral = "[" [ Expression { "," Expression } [ "," ] ] "]" ;
-StructLiteral = Identifier "{" [ StructFieldInits ] "}" ;
+StructLiteral = Identifier [ "<" TypeArgList ">" ] "{" [ StructFieldInits ] "}" ;
 StructFieldInits = StructFieldInit { "," StructFieldInit } [ "," ] ;
 StructFieldInit = Identifier ":" Expression ;
 

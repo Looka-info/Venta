@@ -53,7 +53,22 @@ fn test_1_folding_constant_arithmetic_expression() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(
         !diags.has_errors(),
         "Verification error: {}",
@@ -84,7 +99,22 @@ fn test_2_propagating_constant_through_multiple_assignments() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -117,7 +147,22 @@ fn test_3_folding_constant_comparison_and_conditional_branch() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -154,7 +199,22 @@ fn test_4_removing_unused_pure_computation() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -187,7 +247,22 @@ fn test_5_removing_chain_of_computations_that_becomes_dead() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -217,7 +292,22 @@ fn test_6_preserving_computations_whose_results_are_used() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -249,7 +339,22 @@ fn test_7_preserving_function_calls_with_possible_side_effects() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let main_fn = mir.functions.iter().find(|f| f.name == "main").unwrap();
@@ -281,7 +386,22 @@ fn test_8_preserving_stores_and_pointer_memory_effects() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let mutate_fn = mir
@@ -317,7 +437,22 @@ fn test_9_correctly_handling_differing_values_at_merge_points() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -350,7 +485,22 @@ fn test_10_correctly_handling_loops_and_loop_carried_values() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
     let func = &mir.functions[0];
@@ -374,7 +524,22 @@ fn test_11_preserving_division_by_zero_and_overflow() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     // Verifier should still succeed (MIR is valid)
     assert!(!diags.has_errors(), "{}", diags.render_all(&sm, false));
 
@@ -420,7 +585,22 @@ fn test_12_verifying_that_optimized_mir_satisfies_all_invariants() {
     );
 
     let mut diags = DiagnosticBag::new();
-    OptimizationPipeline::optimize_program(&mut mir, OptLevel::O1, &mut diags);
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,
+        true,
+        false, // inlining disabled to verify DCE call preservation
+        false,
+        false, // licm disabled for opt_tests
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        false, // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
     assert!(
         !diags.has_errors(),
         "Optimization pipeline verification: {}",

@@ -68,6 +68,10 @@ pub enum MachineInst {
     Movzx { dest: Reg, src: Reg },
     /// movzx dest, byte ptr [base + offset] (zero-extend 8-bit memory to 64-bit)
     MovzxMem { dest: Reg, base: Reg, offset: i32 },
+    /// mov dest_32, dword ptr [base + offset] (zero-extend 32-bit memory to 64-bit)
+    Mov32Mem { dest: Reg, base: Reg, offset: i32 },
+    /// mov dword ptr [base + offset], src_32 (store 32-bit register to memory)
+    MovMem32 { base: Reg, offset: i32, src: Reg },
     /// lea dest, [base + offset]
     Lea { dest: Reg, src: Operand },
     /// lea dest, [rip + symbol]
@@ -82,6 +86,8 @@ pub enum MachineInst {
     Jcc { cond: ConditionCode, target: String },
     /// call function_name
     Call(String),
+    /// Direct sibling tail call jump to external/symbolic callee: jmp symbol
+    TailJmp(String),
     /// ret
     Ret,
     /// Local label

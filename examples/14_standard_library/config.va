@@ -1,0 +1,37 @@
+import std::option::Option;
+import std::result::Result;
+
+pub struct ServerConfig {
+    pub port: i64,
+    pub timeout: i64,
+}
+
+pub fn parse_port(raw: i64) -> Result<i64, i64> {
+    if raw >= 1024 {
+        if raw <= 65535 {
+            Result::Ok(raw)
+        } else {
+            Result::Err(400)
+        }
+    } else {
+        Result::Err(403)
+    }
+}
+
+pub fn read_timeout(flag: i64) -> Option<i64> {
+    if flag > 0 {
+        Option::Some(flag *1000)
+    } else {
+        Option::None
+    }
+}
+
+pub fn load_config(raw_port: i64, timeout_flag: i64) -> Result<ServerConfig, i64> {
+    let port = parse_port(raw_port)?;
+    let timeout = read_timeout(timeout_flag).unwrap_or(5000);
+
+    let cfg = ServerConfig {
+        port: port, timeout: timeout,
+    };
+    Result::Ok(cfg)
+}

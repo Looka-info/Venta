@@ -1,0 +1,64 @@
+import std::iter::range_i64;
+import std::iter::Iterator;
+import std::option::Option;
+
+struct Fibonacci {
+    curr: i64,
+    next: i64,
+    remaining: i64,
+}
+
+fn fibonacci(n: i64) -> Fibonacci {
+    Fibonacci {
+        curr: 0, next: 1, remaining: n,
+    }
+}
+
+impl Iterator<i64> for Fibonacci {
+    fn next(self: &mut Fibonacci) -> Option<i64> {
+        if self.remaining > 0 {
+            let res = self.curr;
+            let new_next = self.curr + self.next;
+            self.curr = self.next;
+            self.next = new_next;
+            self.remaining = self.remaining -1;
+            Option::Some(res)
+        } else {
+            Option::None
+        }
+    }
+}
+
+fn main() -> i64 {
+    print_str("=== Vanta Milestone 12: Iterators & For Loops ===\n");
+
+    print_str("1. Half-open range_i64(0, 5):\n");
+    for i in range_i64(0, 5) {
+        print_str("  item: ");
+        print_i64(i);
+        print_str("\n");
+    }
+
+    print_str("2. Break & Continue filtering on range_i64(1, 10):\n");
+    for n in range_i64(1, 10) {
+        if n == 3 {
+            continue;
+        }
+        if n == 7 {
+            break;
+        }
+        print_str("  kept: ");
+        print_i64(n);
+        print_str("\n");
+    }
+
+    print_str("3. User-defined Fibonacci generator:\n");
+    for fib in fibonacci(8) {
+        print_str("  fib: ");
+        print_i64(fib);
+        print_str("\n");
+    }
+
+    print_str("Done.\n");
+    0
+}

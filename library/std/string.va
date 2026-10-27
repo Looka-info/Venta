@@ -1,0 +1,13 @@
+pub struct String {
+    pub data_ptr: i64,
+    pub len: i64,
+    pub cap: i64,
+}
+
+pub fn new() -> String {
+    String_new()
+}
+
+pub fn from_str(value: &str) -> String {
+    String_from_str(value)
+}

@@ -1,0 +1,46 @@
+import std::option::Option;
+
+pub trait Iterator<T> {
+    fn next(self: &mut Self) -> Option<T>;
+}
+
+pub struct RangeI64 {
+    pub current: i64,
+    pub end: i64,
+}
+
+pub fn range_i64(start: i64, end: i64) -> RangeI64 {
+    RangeI64 {
+        current: start,
+        end: end,
+    }
+}
+
+impl Iterator<i64> for RangeI64 {
+    pub fn next(self: &mut RangeI64) -> Option<i64> {
+        if self.current < self.end {
+            let val = self.current;
+            self.current = self.current + 1;
+            Option::Some(val)
+        } else {
+            Option::None
+        }
+    }
+}
+
+pub struct Iter<'a, T> {
+    pub vec: &'a Vec<T>,
+    pub index: i64,
+}
+
+impl<'a, T> Iterator<&'a T> for Iter<'a, T> {
+    pub fn next(self: &mut Iter<'a, T>) -> Option<&'a T> {
+        if self.index < self.vec.len() {
+            let item = &self.vec[self.index];
+            self.index = self.index + 1;
+            Option::Some(item)
+        } else {
+            Option::None
+        }
+    }
+}

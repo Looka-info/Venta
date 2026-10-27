@@ -1,0 +1,17 @@
+fn compute_lsr(scale: i64, iters: i64) -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < iters {
+        let term = i * 9;
+        sum = sum + term;
+        i = i + 1;
+    }
+    return sum;
+}
+
+fn main() -> i64 {
+    let res = compute_lsr(9, 50000000);
+    print_i64(res);
+    print_str("\n");
+    return 0;
+}

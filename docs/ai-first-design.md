@@ -177,6 +177,39 @@ All compiler diagnostics must emit a stable alphanumeric identifier following th
 | **`E0401` - `E0499`** | **IR & Backend** | Verification and machine code constraints |
 | `E0401` | MIR | MIR verification invariant failure |
 | `E0402` | Backend | Unsupported ABI target or machine relocation overflow |
+| **`E0501` - `E0599`** | **Enums & Patterns** | Enums, variants, and pattern matching |
+| `E0501` | Enum | Non-exhaustive pattern match |
+| `E0502` | Enum | Unreachable match arm pattern |
+| `E0503` | Enum | Unknown enum type name |
+| `E0504` | Enum | Unknown or mismatched enum variant |
+| `E0505` | Enum | Invalid payload type for enum variant |
+| `E0506` | Enum | Variant arity mismatch |
+| `E0507` | Enum | Recursive enum by value rejected |
+| **`E0601` - `E0699`** | **Module System** | Modules, files, imports, and visibility |
+| `E0601` | Module | Module file not found on disk |
+| `E0602` | Module | Circular module dependency detected |
+| `E0603` | Module | Private item access from outside module |
+| `E0604` | Module | Unresolved import target |
+| **`E0701` - `E0799`** | **Traits & Dispatch** | Traits, contracts, and static dispatch |
+| `E0701` | Trait | Unknown trait in implementation or generic bound |
+| `E0702` | Trait | Duplicate trait implementation for a type (coherence violation) |
+| `E0703` | Trait | Missing required trait method implementation |
+| `E0704` | Trait | Unknown trait method in implementation block |
+| `E0705` | Trait | Trait method signature mismatch |
+| `E0706` | Trait | Ambiguous trait method call |
+| `E0707` | Trait | Generic trait bound not satisfied |
+| `E0708` | Trait | Duplicate trait declaration |
+| `E0709` | Trait | Invalid trait receiver mode |
+| **`E0801` - `E0899`** | **Error Propagation** | Standard library and try operator |
+| `E0801` | Try | Invalid try operand (not `Option` or `Result`) |
+| `E0802` | Try | Incompatible function return type for `?` propagation |
+| `E0803` | Try | Mismatched Result error types during propagation |
+| `E0804` | Try | Postfix `?` operator used outside function |
+| `E0805` | Try | Mixed Option/Result propagation without conversion |
+| `E0806` | Try | Unsafe payload move during error propagation |
+| **`E0901` - `E0999`** | **Iterators & Loops** | Iteration protocols and for loops |
+| `E0901` | Iter | Type is not iterable (does not implement `Iterator<T>`) |
+| `E0902` | Iter | Cannot infer iterator element type for loop |
 
 ---
 
@@ -332,11 +365,20 @@ invalid_borrow.va:4:5: error[E0306]: Cannot mutate variable 'x' while active bor
 2. **Intrinsic Call Verification**: Clear diagnostic suggestions when passing strings to `print_i64` and vice versa.
 3. **CLI Determinism**: Strict exit code compliance (`0` for success, `1` for compile error, `2` for CLI flags).
 
-### Category C: Future Roadmap
-1. **Automated Code Formatter (`vantac fmt`)**: Canonical, deterministic AST-based formatter to prevent agent diff-churn.
-2. **Array Bounds Checking**: Runtime safety checks or compile-time range verification for slice and array index operations.
-3. **Module & Import System**: Explicit symbol scoping and visibility (`pub use`, `import module::symbol`).
-4. **Interactive Documentation & Signature Inspection**: `vantac doc --json` emitting machine-readable API contracts and verified code examples.
+### Category C: Completed in Milestones 9 through 14
+1. **Automated Code Formatter (`vantac fmt`)**: Canonical, deterministic AST-based formatter to prevent agent diff-churn (Completed in M7).
+2. **Algebraic Sum Types & Pattern Matching**: Enums, exhaustive pattern matching, and variant constructors (Completed in M8).
+3. **Module & Import System**: Explicit symbol scoping, file-based hierarchy (`mod name;`), selected imports (`import path::{name};`), visibility (`pub`), re-exports, and error codes `E0601`-`E0608` (Completed in M9).
+4. **Traits, Interfaces, Generic Bounds & Static Dispatch**: Explicit trait contracts, static dispatch without vtables, inherent precedence, coherence enforcement, and error codes `E0701`-`E0709` (Completed in M10).
+5. **Early-Return Error Propagation (`?`)**: Predictable `?` operator on `Option` and `Result` with deterministic LIFO cleanup and error codes `E0801`-`E0806` (Completed in M11).
+6. **Iterator Protocols & `for` Loops**: Generic `Iterator<T>` trait, non-allocating `range_i64`, and error codes `E0901`-`E0902` (Completed in M12).
+7. **Lifetime Parameters, Reference Safety, and Immutable Vector Iteration**: Named lifetime parameters (`'a`, `'b`, `'static`), compile-time provenance tracking, deterministic elision rules, immutable vector iteration (`vec.iter()`), and error codes `E0310`-`E0316` (Completed in M13).
+8. **Owned Strings, UTF-8 Operations, and Safe Slicing**: First-class `String` type, 3-word descriptor layout, geometric growth with overflow and self-aliasing protection, safe UTF-8 character boundary slicing (`slice_bytes`), automatic destruction, and borrow checker integration (Completed in M14).
+
+### Category D: Future Roadmap
+1. **Interactive Documentation & Signature Inspection**: `vantac doc --json` emitting machine-readable API contracts and verified code examples.
+2. **Optimization Pass Enhancements**: Inter-procedural constant propagation and loop invariant code motion.
+3. **Consuming and Mutable Vector Iteration**: Dynamic partial drop flags and mutable disjoint element borrows.
 
 ---
 

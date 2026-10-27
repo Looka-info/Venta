@@ -152,6 +152,20 @@ impl ConstantPropagation {
                             }
                         }
                     }
+                    Instruction::Copy { dest, src, .. } => {
+                        if let Some(&c) = temp_values.get(src) {
+                            temp_values.insert(*dest, c);
+                        }
+                    }
+                    Instruction::Phi { dest, inputs, .. } => {
+                        if !inputs.is_empty() {
+                            if let Some(&first_c) = temp_values.get(&inputs[0].1) {
+                                if inputs.iter().all(|(_, v)| temp_values.get(v) == Some(&first_c)) {
+                                    temp_values.insert(*dest, first_c);
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -278,6 +292,40 @@ impl ConstantPropagation {
                                     }
                                 };
                                 replacement = Some((new_inst, d, c_res));
+                            }
+                        }
+                    }
+                    Instruction::Copy { dest, src, ty } => {
+                        if let Some(&c) = known_values.get(src) {
+                            let d = *dest;
+                            let new_inst = match c {
+                                ConstValue::Int(v) => Instruction::ConstInt {
+                                    dest: d,
+                                    val: v,
+                                    ty: ty.clone(),
+                                },
+                                ConstValue::Bool(b) => Instruction::ConstBool { dest: d, val: b },
+                            };
+                            replacement = Some((new_inst, d, c));
+                        }
+                    }
+                    Instruction::Phi { dest, inputs, ty } => {
+                        if !inputs.is_empty() {
+                            if let Some(&first_c) = known_values.get(&inputs[0].1) {
+                                if inputs.iter().all(|(_, v)| known_values.get(v) == Some(&first_c)) {
+                                    let d = *dest;
+                                    let new_inst = match first_c {
+                                        ConstValue::Int(v) => Instruction::ConstInt {
+                                            dest: d,
+                                            val: v,
+                                            ty: ty.clone(),
+                                        },
+                                        ConstValue::Bool(b) => {
+                                            Instruction::ConstBool { dest: d, val: b }
+                                        }
+                                    };
+                                    replacement = Some((new_inst, d, first_c));
+                                }
                             }
                         }
                     }

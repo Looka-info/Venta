@@ -1,0 +1,40 @@
+// Models submodule exporting public struct with methods and enum with pattern matching.
+
+pub struct Point {
+    pub x: i64,
+    pub y: i64,
+}
+
+impl Point {
+    pub fn translate(self: &mut Self, dx: i64, dy: i64) {
+        self.x = self.x + dx;
+        self.y = self.y + dy;
+    }
+
+    pub fn sum(self: &Self) -> i64 {
+        return self.x + self.y;
+    }
+}
+
+pub enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+pub fn describe_color(c: Color) -> i64 {
+    match c {
+        Color::Red => {
+            print_str("Selected: Red\n");
+            return 1;
+        },
+        Color::Green => {
+            print_str("Selected: Green\n");
+            return 2;
+        },
+        Color::Blue => {
+            print_str("Selected: Blue\n");
+            return 3;
+        },
+    }
+}

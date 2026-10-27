@@ -1,0 +1,21 @@
+fn cse_kernel(x: i64, y: i64) -> i64 {
+    let t1 = x * 13 + y * 17;
+    let t2 = y * 17 + x * 13;
+    let t3 = (x * 13 + y * 17) ^ (x * 13);
+    let t4 = t1 + t2 + t3;
+    let t5 = (x * 13 + y * 17) * 3;
+    let t6 = (y * 17 + x * 13) - 5;
+    return t4 + t5 + t6;
+}
+
+fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        sum = sum + cse_kernel(i % 50, (i + 7) % 50);
+        i = i + 1;
+    }
+    print_i64(sum);
+    print_str("\n");
+    return 0;
+}

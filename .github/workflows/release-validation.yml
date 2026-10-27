@@ -1,0 +1,91 @@
+name: Vanta Release Validation & Packaging
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      publish_candidate:
+        description: 'Prepare Release Candidate artifacts for manual review'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-package:
+    name: Build, Test & Package (Linux x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc build-essential
+
+      - name: Set Up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+
+      - name: Rust Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Verify Version Consistency
+        run: |
+          CARGO_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "Cargo workspace version: ${CARGO_VER}"
+          if [[ "${CARGO_VER}" != "1.0.0-rc.1" ]]; then
+            echo "Error: Unexpected workspace version: ${CARGO_VER}"
+            exit 1
+          fi
+
+      - name: Run Full Workspace Tests
+        run: cargo test --workspace --verbose
+
+      - name: Run Specialized ABI & Differential Tests
+        run: |
+          cargo test --test abi_tests
+          cargo test --test differential_tests
+          cargo test --test fuzz_tests
+
+      - name: Build Release Package Archive
+        run: bash scripts/package_release.sh
+
+      - name: Run Clean-Prefix Packaging Tests
+        run: cargo test --test packaging_tests
+
+      - name: Verify Cryptographic Checksum
+        run: |
+          cd dist
+          sha256sum -c vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+      - name: Upload Release Candidate Artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanta-v1.0-RC1-x86_64-unknown-linux-gnu
+          path: |
+            dist/vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz
+            dist/vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256
+          retention-days: 14

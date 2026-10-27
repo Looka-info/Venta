@@ -1,0 +1,19 @@
+import std::string::String;
+import std::result::Result;
+
+pub fn read_to_string(path: &str) -> Result<String, i64> {
+    let mut s = String::new();
+    let res = vanta_fs_read_to_string(path, &mut s);
+    if res < 0 {
+        return Result::Err(res);
+    }
+    Result::Ok(s)
+}
+
+pub fn write(path: &str, contents: &str) -> Result<i64, i64> {
+    let res = vanta_fs_write(path, contents);
+    if res < 0 {
+        return Result::Err(res);
+    }
+    Result::Ok(res)
+}

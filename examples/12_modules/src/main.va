@@ -1,0 +1,51 @@
+// Vanta Milestone 9: Multi-File Module System Example
+//
+// Root module demonstrating `mod` declarations, selected `import` statements,
+// and cross-module function, struct, and enum usage.
+
+mod math;
+mod models;
+
+import math::{add, multiply, clamp_add};
+import models::{Point, Color, describe_color};
+
+pub fn main() -> i64 {
+    print_str("--- Vanta Milestone 9: Modules & Namespaces ---\n");
+
+    // 1. Cross-module arithmetic calls
+    let a: i64 = 15;
+    let b: i64 = 25;
+    let sum: i64 = add(a, b);
+    let prod: i64 = multiply(sum, 2);
+
+    print_str("Sum: ");
+    print_i64(sum);
+    print_str(", Prod: ");
+    print_i64(prod);
+    print_str("\n");
+
+    // 2. Private helper usage within submodule
+    let clamped: i64 = clamp_add(50, 60, 100);
+    print_str("Clamped addition (50 + 60, max 100): ");
+    print_i64(clamped);
+    print_str("\n");
+
+    // 3. Cross-module struct instantiation & method call
+    let mut pt: Point = Point {
+        x: 10, y: 32
+    };
+    pt.translate(2, 5);
+    let pt_sum: i64 = pt.sum();
+    print_str("Point sum after translation: ");
+    print_i64(pt_sum);
+    print_str("\n");
+
+    // 4. Cross-module enum and pattern matching
+    let c: Color = Color::Green;
+    let color_id: i64 = describe_color(c);
+    print_str("Color ID: ");
+    print_i64(color_id);
+    print_str("\n");
+
+    return 0;
+}

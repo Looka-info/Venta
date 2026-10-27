@@ -1,0 +1,19 @@
+import std::string::String;
+import std::result::Result;
+
+pub fn write_stdout(s: &str) {
+    vanta_io_write_stdout(s);
+}
+
+pub fn write_stderr(s: &str) {
+    vanta_io_write_stderr(s);
+}
+
+pub fn read_to_string() -> Result<String, i64> {
+    let mut s = String::new();
+    let res = vanta_io_read_stdin(&mut s);
+    if res < 0 {
+        return Result::Err(res);
+    }
+    Result::Ok(s)
+}

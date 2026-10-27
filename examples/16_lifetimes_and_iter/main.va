@@ -1,0 +1,87 @@
+import std::iter::Iterator;
+import std::option::Option;
+
+fn choose<'a>(a: &'a i64, b: &'a i64, pick_first: bool) -> &'a i64 {
+    if pick_first {
+        a
+    } else {
+        b
+    }
+}
+
+fn identity(val: &i64) -> &i64 {
+    val
+}
+
+struct View<'a, T> {
+    item: &'a T,
+}
+
+fn main() -> i64 {
+    print_str("=== Vanta Milestone 13: Lifetimes & Immutable Vector Iteration ===\n");
+
+    // 1. Explicit lifetime parameter function
+    let x = 100;
+    let y = 200;
+    let chosen = choose(&x, &y, true);
+    print_str("1. Function with explicit lifetime 'a choose(&x, &y, true): ");
+    print_i64(*chosen);
+    print_str("\n");
+
+    // 2. Lifetime elision for single reference input
+    let number = 42;
+    let borrowed = identity(&number);
+    print_str("2. Lifetime elision on single borrowed parameter identity(&number): ");
+    print_i64(*borrowed);
+    print_str("\n");
+
+    // 3. Vector initialization and growth
+    let mut numbers: Vec<i64> = Vec_new();
+    let mut i = 1;
+    while i <= 6 {
+        numbers.push(i *10);
+        i = i + 1;
+    }
+
+    // 4. Immutable borrowed iteration via for-in loop
+    print_str("3. Immutable borrowed vector iteration via numbers.iter():\n");
+    for elem in numbers.iter() {
+        print_str("  element: ");
+        print_i64(*elem);
+        print_str("\n");
+    }
+
+    // 5. Break and continue during vector iteration
+    print_str("4. Vector iteration with continue (skip 20) and break (at 50):\n");
+    for elem in numbers.iter() {
+        if *elem == 20 {
+            continue;
+        }
+        if *elem == 50 {
+            break;
+        }
+        print_str("  item: ");
+        print_i64(*elem);
+        print_str("\n");
+    }
+
+    // 6. Vector mutation permitted after iteration ends
+    numbers.push(70);
+    numbers.push(80);
+    print_str("5. Vector mutation after iteration completes (new length): ");
+    print_i64(numbers.len());
+    print_str("\n");
+
+    // 7. Second iteration verifying modified vector
+    print_str("6. Second iteration over updated vector:\n");
+    let mut sum = 0;
+    for elem in numbers.iter() {
+        sum = sum + *elem;
+    }
+    print_str("  sum of all elements: ");
+    print_i64(sum);
+    print_str("\n");
+
+    print_str("=== Milestone 13 Lifetimes and Iteration Verification Complete ===\n");
+    0
+}

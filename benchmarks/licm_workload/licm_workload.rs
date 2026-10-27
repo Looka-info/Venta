@@ -1,0 +1,18 @@
+fn compute(factor_a: i64, factor_b: i64, iters: i64) -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < iters {
+        let inv1 = factor_a * 17 + 31;
+        let inv2 = factor_b * 13 - 19;
+        let inv3 = (inv1 ^ inv2) + (factor_a * 5);
+        let inv4 = (inv3 & 65535) * 7;
+        sum = (sum + i) ^ inv4;
+        i = i + 1;
+    }
+    sum
+}
+
+fn main() {
+    let res = compute(100, 200, 100000000);
+    println!("{}", res);
+}

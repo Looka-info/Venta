@@ -3,29 +3,52 @@
 use std::env;
 use std::path::PathBuf;
 use std::process;
-use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
+use vanta_driver::{
+    run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
+    OptLevel,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandMode {
     Compile,
     Check,
+    Fmt,
 }
 
-fn print_usage() {
-    eprintln!(
-        r#"Vanta Compiler (vantac) v0.1.0
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn get_usage_text() -> String {
+    format!(
+        r#"Vanta Compiler (vantac) v{version}
 
 USAGE:
-    vantac [COMMAND] [OPTIONS] <input.va>
+    vantac [COMMAND] [OPTIONS] <input.va...>
 
 COMMANDS:
     compile               Compile the input file (default)
     check                 Quickly verify syntax, types, borrows, and MIR without linking
+    fmt                   Format Vanta source files canonically
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
     -O0, --no-opt         Disable all optimizations
     -O1, -O, --opt        Enable standard optimizations (default)
+    --no-inline           Disable function inlining
+    --no-ipa-constprop    Disable interprocedural constant propagation
+    --no-licm             Disable Loop Invariant Code Motion (LICM)
+    --no-indvar           Disable Induction Variable Optimization (IVO)
+    --no-strength-reduction Disable Loop Strength Reduction (LSR)
+    --no-sroa             Disable Scalar Replacement of Aggregates (SROA)
+    --no-loop-peel        Disable Loop Peeling
+    --no-loop-unroll      Disable Loop Unrolling
+    --no-instruction-schedule Disable Instruction Scheduling
+    --no-global-dce       Disable Global Dead Code Elimination
+    --no-tail-calls       Disable Safe Tail-Call Optimization
+    --no-block-layout     Disable Branch-Aware Machine-Code Layout
+    --no-code-align       Disable loop code alignment
+    --no-gvn              Disable Global Value Numbering & CSE
+    --no-mem2reg          Disable Memory-to-Register (SSA) promotion
+    --no-regalloc         Disable physical register allocation (spill all values)
     --emit=<target>       Emit intermediate target:
                             tokens   - Token stream
                             ast      - Abstract Syntax Tree
@@ -34,26 +57,61 @@ OPTIONS:
                             exe      - Linked native executable (default)
     --diagnostics=<fmt>   Diagnostics format: human (default) or json
     --format=<fmt>        Alias for --diagnostics
+    --std-path=<path>     Path to standard library root
+    --runtime-path=<path> Path to precompiled libvanta_rt.a archive
+    --check               Check formatting without modifying files (fmt mode)
+    --stdout              Write formatted file to stdout (fmt mode)
     -v, --verbose         Enable verbose diagnostic output
+    -V, --version         Print version information
     -h, --help            Print help information
-"#
-    );
+"#,
+        version = VERSION
+    )
+}
+
+fn print_help() {
+    print!("{}", get_usage_text());
+}
+
+fn print_usage_stderr() {
+    eprint!("{}", get_usage_text());
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        print_usage();
+        print_usage_stderr();
         process::exit(2);
     }
 
     let mut mode = CommandMode::Compile;
     let mut input_file: Option<PathBuf> = None;
+    let mut fmt_files: Vec<PathBuf> = Vec::new();
     let mut output_file: Option<PathBuf> = None;
     let mut emit_target = EmitTarget::Exe;
     let mut opt_level = OptLevel::O1;
     let mut verbose = false;
     let mut diagnostic_format = DiagnosticFormat::Human;
+    let mut fmt_check = false;
+    let mut fmt_stdout = false;
+    let mut std_path: Option<PathBuf> = None;
+    let mut runtime_path: Option<PathBuf> = None;
+    let mut enable_reg_alloc = true;
+    let mut enable_mem2reg = true;
+    let mut enable_gvn = true;
+    let mut enable_inline = true;
+    let mut enable_ipa_constprop = true;
+    let mut enable_licm = true;
+    let mut enable_indvar = true;
+    let mut enable_strength_reduction = true;
+    let mut enable_sroa = true;
+    let mut enable_loop_peel = true;
+    let mut enable_loop_unroll = true;
+    let mut enable_instruction_schedule = true;
+    let mut enable_global_dce = true;
+    let mut enable_tail_calls = true;
+    let mut enable_block_layout = true;
+    let mut enable_code_align = true;
 
     let mut idx = 1;
 
@@ -68,6 +126,18 @@ fn main() {
                 mode = CommandMode::Compile;
                 idx += 1;
             }
+            "fmt" => {
+                mode = CommandMode::Fmt;
+                idx += 1;
+            }
+            "-V" | "--version" => {
+                println!("vantac {}", VERSION);
+                process::exit(0);
+            }
+            "-h" | "--help" => {
+                print_help();
+                process::exit(0);
+            }
             _ => {}
         }
     }
@@ -75,18 +145,76 @@ fn main() {
     while idx < args.len() {
         let arg = &args[idx];
         match arg.as_str() {
+            "-V" | "--version" => {
+                println!("vantac {}", VERSION);
+                process::exit(0);
+            }
             "-h" | "--help" => {
-                print_usage();
+                print_help();
                 process::exit(0);
             }
             "-v" | "--verbose" => {
                 verbose = true;
+            }
+            "--check" => {
+                fmt_check = true;
+            }
+            "--stdout" => {
+                fmt_stdout = true;
             }
             "-O0" | "--no-opt" => {
                 opt_level = OptLevel::None;
             }
             "-O1" | "-O" | "--opt" => {
                 opt_level = OptLevel::O1;
+            }
+            "--no-regalloc" => {
+                enable_reg_alloc = false;
+            }
+            "--no-mem2reg" => {
+                enable_mem2reg = false;
+            }
+            "--no-gvn" => {
+                enable_gvn = false;
+            }
+            "--no-inline" => {
+                enable_inline = false;
+            }
+            "--no-ipa-constprop" => {
+                enable_ipa_constprop = false;
+            }
+            "--no-licm" => {
+                enable_licm = false;
+            }
+            "--no-indvar" => {
+                enable_indvar = false;
+            }
+            "--no-strength-reduction" => {
+                enable_strength_reduction = false;
+            }
+            "--no-sroa" => {
+                enable_sroa = false;
+            }
+            "--no-loop-peel" | "--no-peel" => {
+                enable_loop_peel = false;
+            }
+            "--no-loop-unroll" | "--no-unroll" => {
+                enable_loop_unroll = false;
+            }
+            "--no-instruction-schedule" | "--no-sched" => {
+                enable_instruction_schedule = false;
+            }
+            "--no-global-dce" => {
+                enable_global_dce = false;
+            }
+            "--no-tail-calls" | "--no-tco" => {
+                enable_tail_calls = false;
+            }
+            "--no-block-layout" | "--no-layout" => {
+                enable_block_layout = false;
+            }
+            "--no-code-align" | "--no-align" => {
+                enable_code_align = false;
             }
             "-o" => {
                 idx += 1;
@@ -127,19 +255,79 @@ fn main() {
                     }
                 };
             }
+            s if s.starts_with("--std-path=") => {
+                let p = s.split_once('=').unwrap().1;
+                std_path = Some(PathBuf::from(p));
+            }
+            "--std-path" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --std-path requires an argument");
+                    process::exit(2);
+                }
+                std_path = Some(PathBuf::from(&args[idx]));
+            }
+            s if s.starts_with("--runtime-path=") => {
+                let p = s.split_once('=').unwrap().1;
+                runtime_path = Some(PathBuf::from(p));
+            }
+            "--runtime-path" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --runtime-path requires an argument");
+                    process::exit(2);
+                }
+                runtime_path = Some(PathBuf::from(&args[idx]));
+            }
             s if s.starts_with('-') => {
                 eprintln!("Error: Unknown option '{}'", s);
                 process::exit(2);
             }
             _ => {
-                if input_file.is_some() {
-                    eprintln!("Error: Multiple input files not supported");
-                    process::exit(2);
+                if mode == CommandMode::Fmt {
+                    fmt_files.push(PathBuf::from(arg));
+                } else {
+                    if input_file.is_some() {
+                        eprintln!("Error: Multiple input files not supported");
+                        process::exit(2);
+                    }
+                    input_file = Some(PathBuf::from(arg));
                 }
-                input_file = Some(PathBuf::from(arg));
             }
         }
         idx += 1;
+    }
+
+    if mode == CommandMode::Fmt {
+        let fmt_options = FmtOptions {
+            files: fmt_files,
+            check: fmt_check,
+            stdout: fmt_stdout,
+            verbose,
+            diagnostic_format,
+        };
+
+        let (res, stdout_str, stderr_str) = run_fmt(&fmt_options);
+        if !stdout_str.is_empty() {
+            print!("{}", stdout_str);
+        }
+        if !stderr_str.is_empty() {
+            eprint!("{}", stderr_str);
+        }
+
+        let code = match res {
+            FmtResult::Success => 0,
+            FmtResult::NeedsFormatting => 1,
+            FmtResult::SyntaxError => {
+                if fmt_check {
+                    2
+                } else {
+                    1
+                }
+            }
+            FmtResult::IoError => 2,
+        };
+        process::exit(code);
     }
 
     let input_path = match input_file {
@@ -163,11 +351,30 @@ fn main() {
         opt_level,
         verbose,
         diagnostic_format,
+        std_path,
+        runtime_path,
+        enable_reg_alloc,
+        enable_mem2reg,
+        enable_gvn,
+        enable_inline,
+        enable_ipa_constprop,
+        enable_licm,
+        enable_indvar,
+        enable_strength_reduction,
+        enable_sroa,
+        enable_loop_peel,
+        enable_loop_unroll,
+        enable_instruction_schedule,
+        enable_global_dce,
+        enable_tail_calls,
+        enable_block_layout,
+        enable_code_align,
     };
 
     let mut session = CompilerSession::new();
 
     match mode {
+        CommandMode::Fmt => unreachable!(),
         CommandMode::Check => match session.check(&options) {
             Ok(()) => {
                 if diagnostic_format == DiagnosticFormat::Json {

@@ -1,0 +1,66 @@
+//! Vanta Milestone 16 Example: Standard I/O, Filesystem, and Command-Line Arguments.
+
+import std::io;
+import std::fs;
+import std::env;
+import std::result::Result;
+
+fn main() -> i64 {
+    io::write_stdout("=== Vanta System Utilities ===\n");
+
+    // 1. Inspect command-line arguments
+    let args_res = env::args();
+    match args_res {
+        Result::Ok(args) => {
+            io::write_stdout("Command-line argument count: ");
+            print_i64(args.len());
+            io::write_stdout("\n");
+            let mut i = 0;
+            while i < args.len() {
+                io::write_stdout("  [");
+                print_i64(i);
+                io::write_stdout("]: ");
+                io::write_stdout(args[i].as_str());
+                io::write_stdout("\n");
+                i = i + 1;
+            }
+        }
+        Result::Err(err) => {
+            io::write_stderr("Failed to retrieve command-line arguments\n");
+            return 1;
+        }
+,    }
+
+    // 2. Write content to a local file
+    let path = "output_demo.txt";
+    let message = "Written by Vanta standard library filesystem module!\n";
+    let w_res = fs::write(path, message);
+    match w_res {
+        Result::Ok(bytes) => {
+            io::write_stdout("Successfully wrote ");
+            print_i64(bytes);
+            io::write_stdout(" bytes to '");
+            io::write_stdout(path);
+            io::write_stdout("'\n");
+        }
+        Result::Err(err) => {
+            io::write_stderr("File write operation failed\n");
+            return 2;
+        }
+,    }
+
+    // 3. Read content back from the file
+    let r_res = fs::read_to_string(path);
+    match r_res {
+        Result::Ok(content) => {
+            io::write_stdout("File content verification: ");
+            io::write_stdout(content.as_str());
+        }
+        Result::Err(err) => {
+            io::write_stderr("File read operation failed\n");
+            return 3;
+        }
+,    }
+
+    return 0;
+}

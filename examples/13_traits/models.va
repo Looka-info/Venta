@@ -1,0 +1,31 @@
+import printable::Printable;
+
+pub struct Server {
+    pub id: i64,
+    pub port: i64,
+}
+
+pub enum Health {
+    Healthy,
+    Degraded(i64),
+}
+
+impl Printable for Server {
+    fn print_summary(self: &Server) {
+        print_i64(self.id);
+        print_i64(self.port);
+    }
+}
+
+impl Printable for Health {
+    fn print_summary(self: &Health) {
+        match *self {
+            Health::Healthy => {
+                print_i64(200);
+            }
+            Health::Degraded(code) => {
+                print_i64(code);
+            },
+        }
+    }
+}

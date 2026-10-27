@@ -9,6 +9,10 @@ license.workspace = true
 name = "vantac"
 path = "src/main.rs"
 
+[[bin]]
+name = "vanta"
+path = "src/vanta_cli.rs"
+
 [dependencies]
 vanta_source = { workspace = true }
 vanta_diagnostics = { workspace = true }
@@ -17,6 +21,7 @@ vanta_parser = { workspace = true }
 vanta_sema = { workspace = true }
 vanta_mir = { workspace = true }
 vanta_codegen_x86_64 = { workspace = true }
+vanta_fmt = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

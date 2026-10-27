@@ -1,0 +1,23 @@
+import std::string::String;
+
+fn append_chunks(s: &mut String, n: i64) {
+    let mut i: i64 = 0;
+    while i < n {
+        s.push_str("chunk_");
+        i = i + 1;
+    }
+}
+
+fn main() -> i64 {
+    let mut total_len: i64 = 0;
+    let mut iter: i64 = 0;
+    while iter < 2000 {
+        let mut s = String::from_str("base_");
+        append_chunks(&mut s, 10);
+        total_len = total_len + s.len_bytes();
+        iter = iter + 1;
+    }
+    print_i64(total_len);
+    print_str("\n");
+    return 0;
+}

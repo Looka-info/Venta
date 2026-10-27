@@ -21,6 +21,13 @@ pub enum TokenKind {
     As,
     Const,
     Unsafe,
+    Enum,
+    Match,
+    Mod,
+    Import,
+    Trait,
+    For,
+    In,
 
     // Primitive Type names
     I8,
@@ -42,6 +49,7 @@ pub enum TokenKind {
     BoolLiteral(bool),
     StringLiteral(String),
     Ident(String),
+    Lifetime(String),
 
     // Arithmetic
     Plus,
@@ -90,10 +98,26 @@ pub enum TokenKind {
     Comma,
     Dot,
     Arrow,
+    FatArrow,
+    Underscore,
+    Question,
 
     // Special
     Eof,
     Error(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentKind {
+    Line,
+    Block,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    pub kind: CommentKind,
+    pub span: Span,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,21 @@
+mod printable;
+mod models;
+
+import printable::Printable;
+import models::{Server, Health};
+
+fn inspect<T: Printable>(item: &T) {
+    item.print_summary();
+}
+
+fn main() {
+    let s = Server {
+        id: 101, port: 8080
+    };
+    inspect(&s);
+
+    let h1 = Health::Healthy;
+    let h2 = Health::Degraded(503);
+    inspect(&h1);
+    inspect(&h2);
+}

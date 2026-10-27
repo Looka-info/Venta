@@ -1,0 +1,25 @@
+pub enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+pub fn is_ok<T, E>(res: &Result<T, E>) -> bool {
+    match *res {
+        Result::Ok(_) => true,
+        Result::Err(_) => false,
+    }
+}
+
+pub fn is_err<T, E>(res: &Result<T, E>) -> bool {
+    match *res {
+        Result::Ok(_) => false,
+        Result::Err(_) => true,
+    }
+}
+
+pub fn unwrap_or<T, E>(res: Result<T, E>, default_val: T) -> T {
+    match res {
+        Result::Ok(val) => val,
+        Result::Err(_) => default_val,
+    }
+}

@@ -23,6 +23,10 @@ pub mod codes {
     pub const E0206_INVALID_RETURN_TYPE: &str = "E0206";
     pub const E0207_RETURN_TYPE_MISMATCH: &str = "E0207";
     pub const E0208_RECURSIVE_STRUCT: &str = "E0208";
+    pub const E0209_GENERIC_ARITY_MISMATCH: &str = "E0209";
+    pub const E0210_UNKNOWN_TYPE_PARAM: &str = "E0210";
+    pub const E0211_RECURSIVE_GENERIC_INSTANTIATION: &str = "E0211";
+    pub const E0212_CANNOT_INFER_TYPE_PARAM: &str = "E0212";
     pub const E0301_UNINITIALIZED_READ: &str = "E0301";
     pub const E0302_USE_OF_MOVED_VALUE: &str = "E0302";
     pub const E0303_MUTATE_IMMUTABLE: &str = "E0303";
@@ -31,6 +35,58 @@ pub mod codes {
     pub const E0306_MUTATE_WHILE_BORROWED: &str = "E0306";
     pub const E0401_MIR_VERIFICATION_FAILED: &str = "E0401";
     pub const E0402_BACKEND_FAILED: &str = "E0402";
+
+    // Milestone 8: Sum Types, Enums, Pattern Matching, and Exhaustiveness
+    pub const E0501_NON_EXHAUSTIVE_MATCH: &str = "E0501";
+    pub const E0502_UNREACHABLE_PATTERN: &str = "E0502";
+    pub const E0503_UNKNOWN_ENUM: &str = "E0503";
+    pub const E0504_UNKNOWN_VARIANT: &str = "E0504";
+    pub const E0505_DUPLICATE_VARIANT: &str = "E0505";
+    pub const E0506_VARIANT_ARITY_MISMATCH: &str = "E0506";
+    pub const E0507_RECURSIVE_ENUM: &str = "E0507";
+    pub const E0508_INVALID_PATTERN: &str = "E0508";
+
+    // Milestone 9: Modules, Imports, Namespaces, and Visibility
+    pub const E0601_MODULE_NOT_FOUND: &str = "E0601";
+    pub const E0602_MODULE_CYCLE: &str = "E0602";
+    pub const E0603_UNKNOWN_IMPORT: &str = "E0603";
+    pub const E0604_PRIVATE_ITEM: &str = "E0604";
+    pub const E0605_DUPLICATE_MODULE: &str = "E0605";
+    pub const E0606_PRIVATE_FIELD: &str = "E0606";
+    pub const E0607_AMBIGUOUS_MODULE_FILE: &str = "E0607";
+    pub const E0608_UNREADABLE_MODULE: &str = "E0608";
+
+    // Milestone 10: Traits, Interfaces, Generic Constraints, and Static Dispatch
+    pub const E0701_UNKNOWN_TRAIT: &str = "E0701";
+    pub const E0702_DUPLICATE_IMPLEMENTATION: &str = "E0702";
+    pub const E0703_MISSING_TRAIT_METHOD: &str = "E0703";
+    pub const E0704_UNKNOWN_TRAIT_METHOD: &str = "E0704";
+    pub const E0705_TRAIT_METHOD_SIGNATURE_MISMATCH: &str = "E0705";
+    pub const E0706_AMBIGUOUS_TRAIT_METHOD: &str = "E0706";
+    pub const E0707_TRAIT_BOUND_NOT_SATISFIED: &str = "E0707";
+    pub const E0708_DUPLICATE_TRAIT: &str = "E0708";
+    pub const E0709_INVALID_TRAIT_RECEIVER: &str = "E0709";
+
+    // Milestone 11: Standard Library Foundation, Option, Result, and Error Propagation
+    pub const E0801_INVALID_TRY_OPERAND: &str = "E0801";
+    pub const E0802_INCOMPATIBLE_PROPAGATION_RETURN: &str = "E0802";
+    pub const E0803_INCOMPATIBLE_ERROR_TYPE: &str = "E0803";
+    pub const E0804_TRY_OUTSIDE_FUNCTION: &str = "E0804";
+    pub const E0805_MIXED_PROPAGATION_TYPE: &str = "E0805";
+    pub const E0806_UNSAFE_PAYLOAD_MOVE: &str = "E0806";
+
+    // Milestone 12: Iterator Protocols, for Loops, Range Iteration, and Collection Integration
+    pub const E0901_TYPE_NOT_ITERABLE: &str = "E0901";
+    pub const E0902_CANNOT_INFER_ITER_TYPE: &str = "E0902";
+
+    // Milestone 13: Lifetime Parameters, Reference Safety, and Immutable Collection Iteration
+    pub const E0310_DUPLICATE_LIFETIME: &str = "E0310";
+    pub const E0311_UNDECLARED_LIFETIME: &str = "E0311";
+    pub const E0312_LIFETIME_OUTLIVES_ORIGIN: &str = "E0312";
+    pub const E0313_AMBIGUOUS_LIFETIME_ELISION: &str = "E0313";
+    pub const E0314_RETURNING_LOCAL_REFERENCE: &str = "E0314";
+    pub const E0315_INVALID_LIFETIME_ARG: &str = "E0315";
+    pub const E0316_MUTATE_DURING_ITERATION: &str = "E0316";
 }
 
 use vanta_source::{SourceMap, Span};

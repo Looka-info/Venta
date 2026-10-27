@@ -1,25 +1,47 @@
 //! Custom x86-64 native code generator and ELF64 object writer for Vanta.
 
+pub mod abi;
 pub mod elf_writer;
 pub mod encoding;
 pub mod frame;
 pub mod instruction_select;
 pub mod machine_ir;
+pub mod reg_alloc;
 pub mod register;
 
+pub use abi::{classify_type, AbiClass};
 pub use elf_writer::{Elf64Writer, FunctionSymbol, RodataSymbol};
 pub use encoding::CodeEmitter;
 pub use frame::FrameLayout;
 pub use instruction_select::InstructionSelector;
 pub use machine_ir::MachineInst;
+pub use reg_alloc::{AllocationResult, Location, RegisterAllocator};
 pub use register::Reg;
 use vanta_mir::MirProgram;
 
 pub struct X86_64Backend;
 
 impl X86_64Backend {
-    /// Compiles a MIR program into a valid Linux ELF64 relocatable object file (.o) byte buffer.
+    /// Compiles a MIR program into a valid Linux ELF64 relocatable object file (.o) byte buffer,
+    /// with physical register allocation enabled by default.
     pub fn compile_to_elf(program: &MirProgram) -> Vec<u8> {
+        Self::compile_to_elf_with_options(program, true)
+    }
+
+    /// Compiles a MIR program into an ELF64 object with an explicit register allocation flag.
+    pub fn compile_to_elf_with_options(program: &MirProgram, enable_reg_alloc: bool) -> Vec<u8> {
+        Self::compile_to_elf_full(program, enable_reg_alloc, true, true, true)
+    }
+
+    /// Compiles a MIR program into an ELF64 object with fine-grained backend controls:
+    /// register allocation, sibling tail-calls, branch-aware code layout, and loop code alignment.
+    pub fn compile_to_elf_full(
+        program: &MirProgram,
+        enable_reg_alloc: bool,
+        enable_tail_calls: bool,
+        enable_block_layout: bool,
+        enable_code_align: bool,
+    ) -> Vec<u8> {
         let mut emitter = CodeEmitter::new();
         let mut functions = Vec::new();
 
@@ -30,11 +52,38 @@ impl X86_64Backend {
             }
 
             let func_start = emitter.bytes.len();
-            let frame = FrameLayout::compute(func);
-            let selector = InstructionSelector::new(func, &frame);
+            let alloc_res = if enable_reg_alloc {
+                Some(RegisterAllocator::allocate(func))
+            } else {
+                None
+            };
+            let frame = FrameLayout::compute(
+                func,
+                &program.structs,
+                &program.enums,
+                alloc_res.as_ref(),
+            );
+            let selector = InstructionSelector::with_options(
+                func,
+                &frame,
+                &program.structs,
+                &program.enums,
+                alloc_res.as_ref(),
+                enable_tail_calls,
+                enable_block_layout,
+            );
             let insts = selector.select_instructions();
 
             for inst in &insts {
+                if enable_code_align {
+                    if let MachineInst::Label(lbl) = inst {
+                        if lbl.contains("loop_header") {
+                            while !emitter.bytes.len().is_multiple_of(16) {
+                                emitter.emit_u8(0x90);
+                            }
+                        }
+                    }
+                }
                 emitter.encode_instruction(inst);
             }
 

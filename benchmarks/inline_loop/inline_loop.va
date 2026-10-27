@@ -1,0 +1,21 @@
+fn inner_accum(base: i64, limit: i64) -> i64 {
+    let mut sum: i64 = 0;
+    let mut j: i64 = 0;
+    while j < limit {
+        sum = sum + (base * 2 + j);
+        j = j + 1;
+    }
+    return sum;
+}
+
+fn main() -> i64 {
+    let mut total: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 100000 {
+        total = total + (inner_accum(i % 100, 20) % 5000);
+        i = i + 1;
+    }
+    print_i64(total);
+    print_str("\n");
+    return 0;
+}

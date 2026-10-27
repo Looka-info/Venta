@@ -1,0 +1,85 @@
+// Vanta Milestone 8: Sum Types, Enums, and Pattern Matching
+//
+// Demonstrates algebraic sum types, unit variants, payload variants,
+// monomorphized generic Option<T>, and pattern matching.
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Shape {
+    Circle(i64),
+    Rectangle(i64, i64),
+    Point,
+}
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+fn describe_color(c: Color) {
+    match c {
+        Color::Red => {
+            print_str("Color is Red\n");
+        },
+        Color::Green => {
+            print_str("Color is Green\n");
+        },
+        Color::Blue => {
+            print_str("Color is Blue\n");
+        },
+    }
+}
+
+fn calculate_area(s: Shape) -> i64 {
+    match s {
+        Shape::Circle(radius) => {
+            return 3 * radius * radius;
+        },
+        Shape::Rectangle(w, h) => {
+            return w * h;
+        },
+        Shape::Point => {
+            return 0;
+        },
+    }
+}
+
+fn unwrap_or(opt: Option<i64>, default_val: i64) -> i64 {
+    match opt {
+        Option::Some(val) => {
+            return val;
+        },
+        Option::None => {
+            return default_val;
+        },
+    }
+}
+
+pub fn main() -> i64 {
+    print_str("--- Vanta Milestone 8: Enums and Patterns ---\n");
+
+    describe_color(Color::Green);
+
+    let rect: Shape = Shape::Rectangle(10, 5);
+    let area: i64 = calculate_area(rect);
+    print_str("Rectangle area: ");
+    print_i64(area);
+    print_str("\n");
+
+    let opt1: Option<i64> = Option::Some(42);
+    let opt2: Option<i64> = Option<i64>::None;
+
+    print_str("Option 1 value: ");
+    print_i64(unwrap_or(opt1, 0));
+    print_str("\n");
+
+    print_str("Option 2 fallback: ");
+    print_i64(unwrap_or(opt2, 100));
+    print_str("\n");
+
+    return 0;
+}

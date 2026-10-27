@@ -17,6 +17,7 @@ fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o0 = CompilerSession::new();
     let res_o0 = session_o0.compile(&opts_o0);
@@ -38,6 +39,7 @@ fn run_differential_test(name: &str, src: &str, expected_exit_code: i32) {
         opt_level: OptLevel::O1,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o1 = CompilerSession::new();
     let res_o1 = session_o1.compile(&opts_o1);
@@ -79,6 +81,7 @@ fn run_differential_stdout_test(
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o0 = CompilerSession::new();
     let res_o0 = session_o0.compile(&opts_o0);
@@ -108,6 +111,7 @@ fn run_differential_stdout_test(
         opt_level: OptLevel::O1,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o1 = CompilerSession::new();
     let res_o1 = session_o1.compile(&opts_o1);
@@ -162,6 +166,7 @@ fn run_differential_stderr_test(
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o0 = CompilerSession::new();
     let res_o0 = session_o0.compile(&opts_o0);
@@ -191,6 +196,7 @@ fn run_differential_stderr_test(
         opt_level: OptLevel::O1,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
     let mut session_o1 = CompilerSession::new();
     let res_o1 = session_o1.compile(&opts_o1);
@@ -376,6 +382,7 @@ fn test_compile_fail_borrowcheck_mutation_when_borrowed() {
         opt_level: OptLevel::O1,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -603,6 +610,7 @@ fn test_compile_fail_redefine_intrinsic_print_i64() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -635,6 +643,7 @@ fn test_compile_fail_redefine_intrinsic_print_str() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -669,6 +678,7 @@ fn test_compile_fail_returning_str_slice() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -679,7 +689,9 @@ fn test_compile_fail_returning_str_slice() {
         .diagnostics()
         .iter()
         .any(|d| d.message.contains(
-            "Returning '&str' from user-defined functions is not yet supported in Milestone 3"
+            "returns a reference, but does not take any reference parameters to borrow from"
+        ) || d.message.contains(
+            "Returning '&str' from user-defined functions is not yet supported"
         )));
 }
 
@@ -707,6 +719,7 @@ fn test_compile_fail_type_mismatch_print_i64() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -743,6 +756,7 @@ fn test_compile_fail_type_mismatch_print_str() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -779,6 +793,7 @@ fn test_compile_fail_bare_str() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -813,6 +828,7 @@ fn test_compile_fail_mut_str() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Human,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -851,6 +867,7 @@ fn test_ai_first_check_clean() {
         opt_level: OptLevel::O1,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -886,6 +903,7 @@ fn test_ai_first_check_diagnostics_json_type_mismatch() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -927,6 +945,7 @@ fn test_ai_first_check_borrow_conflict_json() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1205,6 +1224,7 @@ fn test_compile_fail_mutating_immutable_array() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1240,6 +1260,7 @@ fn test_compile_fail_mutating_string_slice_indexing() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1274,6 +1295,7 @@ fn test_compile_fail_redefining_panic_intrinsic() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1482,6 +1504,7 @@ fn test_compile_fail_recursive_struct() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1517,6 +1540,7 @@ fn test_compile_fail_missing_field() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1552,6 +1576,7 @@ fn test_compile_fail_duplicate_field() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1588,6 +1613,7 @@ fn test_compile_fail_unknown_method() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1623,6 +1649,7 @@ fn test_compile_fail_invalid_receiver() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1660,6 +1687,7 @@ fn test_compile_fail_mutating_through_immutable_ref() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();
@@ -1694,6 +1722,7 @@ fn test_compile_fail_mutating_array_while_borrowed_by_slice() {
         opt_level: OptLevel::None,
         verbose: false,
         diagnostic_format: DiagnosticFormat::Json,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();

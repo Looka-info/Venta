@@ -400,6 +400,30 @@ impl CodeEmitter {
                 self.emit_u8(0xB6);
                 self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
             }
+            MachineInst::Mov32Mem { dest, base, offset } => {
+                if dest.is_extended() || base.is_extended() {
+                    self.emit_u8(Self::rex(
+                        false,
+                        dest.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                }
+                self.emit_u8(0x8B);
+                self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
+            }
+            MachineInst::MovMem32 { base, offset, src } => {
+                if src.is_extended() || base.is_extended() {
+                    self.emit_u8(Self::rex(
+                        false,
+                        src.is_extended(),
+                        false,
+                        base.is_extended(),
+                    ));
+                }
+                self.emit_u8(0x89);
+                self.emit_mem_operand(src.hw_encoding(), *base, *offset);
+            }
             MachineInst::Lea { dest, src } => match src {
                 Operand::Mem { base, offset } => {
                     self.emit_u8(Self::rex(
@@ -454,6 +478,17 @@ impl CodeEmitter {
                 self.emit_u8(0xE8);
                 let rel_offset = self.bytes.len();
                 self.emit_i32(-4); // Standard addend for x86-64 CALL relocations
+                self.relocations.push(Relocation {
+                    offset: rel_offset,
+                    symbol: symbol.clone(),
+                    addend: -4,
+                    r_type: 4, // R_X86_64_PLT32
+                });
+            }
+            MachineInst::TailJmp(symbol) => {
+                self.emit_u8(0xE9); // JMP rel32 opcode
+                let rel_offset = self.bytes.len();
+                self.emit_i32(-4); // Standard addend for x86-64 PLT32 relocations
                 self.relocations.push(Relocation {
                     offset: rel_offset,
                     symbol: symbol.clone(),

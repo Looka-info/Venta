@@ -70,7 +70,37 @@ impl DeadCodeElimination {
 
         let initial_count = func.blocks.len();
         func.blocks.retain(|b| reachable.contains(&b.id));
-        func.blocks.len() != initial_count
+        let blocks_removed = func.blocks.len() != initial_count;
+
+        // Clean up phis that referenced eliminated blocks
+        if blocks_removed {
+            for block in &mut func.blocks {
+                for inst in &mut block.instructions {
+                    if let Instruction::Phi { dest, inputs, ty } = inst {
+                        inputs.retain(|(pred, _)| reachable.contains(pred));
+                        if inputs.len() == 1 {
+                            let src = inputs[0].1;
+                            *inst = Instruction::Copy {
+                                dest: *dest,
+                                src,
+                                ty: ty.clone(),
+                            };
+                        } else if !inputs.is_empty() {
+                            let first_src = inputs[0].1;
+                            if inputs.iter().all(|(_, v)| *v == first_src) {
+                                *inst = Instruction::Copy {
+                                    dest: *dest,
+                                    src: first_src,
+                                    ty: ty.clone(),
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        blocks_removed
     }
 
     /// Eliminates instructions whose results are never used and that produce no side effects.
@@ -84,7 +114,8 @@ impl DeadCodeElimination {
                     Instruction::Store { val, .. } => {
                         used_values.insert(*val);
                     }
-                    Instruction::StoreIndirect { addr, val } => {
+                    Instruction::StoreIndirect { addr, val }
+                    | Instruction::StoreIndirect32 { addr, val } => {
                         used_values.insert(*addr);
                         used_values.insert(*val);
                     }
@@ -118,6 +149,14 @@ impl DeadCodeElimination {
                     Instruction::StoreSlice { ptr, len, .. } => {
                         used_values.insert(*ptr);
                         used_values.insert(*len);
+                    }
+                    Instruction::Copy { src, .. } => {
+                        used_values.insert(*src);
+                    }
+                    Instruction::Phi { inputs, .. } => {
+                        for (_pred, val) in inputs {
+                            used_values.insert(*val);
+                        }
                     }
                     Instruction::ConstInt { .. }
                     | Instruction::ConstBool { .. }
@@ -164,6 +203,9 @@ impl DeadCodeElimination {
                     Instruction::IndexAddr { dest, .. }
                     | Instruction::IndexPtrAddr { dest, .. }
                     | Instruction::FieldAddr { dest, .. } => used_values.contains(dest),
+                    Instruction::Copy { dest, .. } | Instruction::Phi { dest, .. } => {
+                        used_values.contains(dest)
+                    }
                     Instruction::StrSlice {
                         dest_ptr, dest_len, ..
                     } => used_values.contains(dest_ptr) || used_values.contains(dest_len),
@@ -175,6 +217,7 @@ impl DeadCodeElimination {
                     Instruction::Store { .. }
                     | Instruction::StoreSlice { .. }
                     | Instruction::StoreIndirect { .. }
+                    | Instruction::StoreIndirect32 { .. }
                     | Instruction::LoadIndirect { .. }
                     | Instruction::Call { .. } => true,
                 }

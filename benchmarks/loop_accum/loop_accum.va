@@ -1,0 +1,18 @@
+fn main() -> i64 {
+    let mut a: i64 = 1;
+    let mut b: i64 = 2;
+    let mut c: i64 = 3;
+    let mut d: i64 = 4;
+    let mut i: i64 = 0;
+    while i < 20000000 {
+        a = (a + b) ^ (c + d);
+        b = (b + 3) ^ a;
+        c = (c + 5) ^ b;
+        d = (d + 7) ^ c;
+        i = i + 1;
+    }
+    let total = a + b + c + d;
+    print_i64(total);
+    print_str("\n");
+    return 0;
+}

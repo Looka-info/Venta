@@ -1,24 +1,56 @@
 //! Stack frame layout and System V AMD64 ABI alignment.
 
+use crate::abi::classify_type;
 use crate::machine_ir::{MachineInst, Operand};
 use crate::register::Reg;
 use std::collections::HashMap;
 use vanta_mir::{MirFunction, SlotId, ValueId};
+use vanta_sema::{EnumDef, StructDef, Type};
 
 #[derive(Debug)]
 pub struct FrameLayout {
     pub slot_offsets: HashMap<SlotId, i32>,
     pub value_offsets: HashMap<ValueId, i32>,
+    pub call_return_buffers: HashMap<ValueId, i32>,
+    pub spill_offsets: HashMap<i32, i32>,
+    pub used_callee_saved: Vec<Reg>,
+    pub sret_offset: Option<i32>,
     pub total_frame_size: i32,
 }
 
 impl FrameLayout {
-    pub fn compute(func: &MirFunction) -> Self {
+    pub fn compute(
+        func: &MirFunction,
+        structs: &HashMap<String, StructDef>,
+        enums: &HashMap<String, EnumDef>,
+        alloc_res: Option<&crate::reg_alloc::AllocationResult>,
+    ) -> Self {
         let mut slot_offsets = HashMap::new();
         let mut value_offsets = HashMap::new();
-        let mut current_offset = 0;
+        let mut call_return_buffers = HashMap::new();
+        let mut spill_offsets = HashMap::new();
 
-        // Allocate slots for local variables
+        let used_callee_saved = alloc_res
+            .map(|a| a.used_callee_saved.clone())
+            .unwrap_or_default();
+        let callee_count = used_callee_saved.len() as i32;
+
+        // In System V AMD64 ABI, callee-saved registers pushed right after `mov rbp, rsp`
+        // occupy offsets -8, -16, ..., -(callee_count * 8).
+        // Stack locals and spills must therefore start below them.
+        let mut current_offset = callee_count * 8;
+
+        // 1. If function returns an aggregate classified as MEMORY, allocate 8 bytes
+        // for the incoming hidden %rdi return pointer storage.
+        let ret_class = classify_type(&func.ret_type, structs, enums);
+        let sret_offset = if ret_class.is_memory() {
+            current_offset += 8;
+            Some(current_offset)
+        } else {
+            None
+        };
+
+        // 2. Allocate slots for local variables
         for slot in &func.slots {
             let align = slot.align.max(8) as i32;
             let size = slot.size.max(8) as i32;
@@ -27,47 +59,90 @@ impl FrameLayout {
             slot_offsets.insert(slot.id, current_offset);
         }
 
-        // Allocate slots for temporary values
+        // 3. Allocate return buffers and temporary value slots
         for block in &func.blocks {
             for inst in &block.instructions {
-                let val_ids = match inst {
-                    vanta_mir::Instruction::ConstInt { dest, .. }
-                    | vanta_mir::Instruction::ConstBool { dest, .. }
-                    | vanta_mir::Instruction::SlotAddr { dest, .. }
-                    | vanta_mir::Instruction::FieldAddr { dest, .. }
-                    | vanta_mir::Instruction::Load { dest, .. }
-                    | vanta_mir::Instruction::Binary { dest, .. }
-                    | vanta_mir::Instruction::Unary { dest, .. }
-                    | vanta_mir::Instruction::IndexAddr { dest, .. }
-                    | vanta_mir::Instruction::IndexPtrAddr { dest, .. }
-                    | vanta_mir::Instruction::LoadIndirect { dest, .. } => vec![*dest],
-                    vanta_mir::Instruction::StrSlice {
-                        dest_ptr, dest_len, ..
+                if let vanta_mir::Instruction::Call {
+                    dest: Some(d),
+                    ret_type,
+                    ..
+                } = inst
+                {
+                    let call_ret_class = classify_type(ret_type, structs, enums);
+                    if call_ret_class.is_memory() {
+                        let align = match call_ret_class {
+                            crate::abi::AbiClass::Memory { align, .. } => align.max(8) as i32,
+                            _ => 8,
+                        };
+                        let size = call_ret_class.size().max(8) as i32;
+                        // Allocate `size` bytes for the return buffer
+                        current_offset = (current_offset + align - 1) & !(align - 1);
+                        current_offset += size;
+                        call_return_buffers.insert(*d, current_offset);
+
+                        if alloc_res.is_none() {
+                            current_offset += 8;
+                            value_offsets.insert(*d, current_offset);
+                        }
+                        continue;
                     }
-                    | vanta_mir::Instruction::LoadSlice {
-                        dest_ptr, dest_len, ..
-                    } => vec![*dest_ptr, *dest_len],
-                    vanta_mir::Instruction::Call { dest: Some(d), .. } => vec![*d],
-                    _ => vec![],
-                };
-                for v in val_ids {
-                    value_offsets.entry(v).or_insert_with(|| {
-                        current_offset += 8;
-                        current_offset
-                    });
+                }
+
+                if alloc_res.is_none() {
+                    let val_ids = match inst {
+                        vanta_mir::Instruction::ConstInt { dest, .. }
+                        | vanta_mir::Instruction::ConstBool { dest, .. }
+                        | vanta_mir::Instruction::SlotAddr { dest, .. }
+                        | vanta_mir::Instruction::FieldAddr { dest, .. }
+                        | vanta_mir::Instruction::Load { dest, .. }
+                        | vanta_mir::Instruction::Binary { dest, .. }
+                        | vanta_mir::Instruction::Unary { dest, .. }
+                        | vanta_mir::Instruction::IndexAddr { dest, .. }
+                        | vanta_mir::Instruction::IndexPtrAddr { dest, .. }
+                        | vanta_mir::Instruction::LoadIndirect { dest, .. }
+                        | vanta_mir::Instruction::Phi { dest, .. }
+                        | vanta_mir::Instruction::Copy { dest, .. } => vec![*dest],
+                        vanta_mir::Instruction::StrSlice {
+                            dest_ptr, dest_len, ..
+                        }
+                        | vanta_mir::Instruction::LoadSlice {
+                            dest_ptr, dest_len, ..
+                        } => vec![*dest_ptr, *dest_len],
+                        vanta_mir::Instruction::Call { dest: Some(d), .. } => vec![*d],
+                        _ => vec![],
+                    };
+                    for v in val_ids {
+                        value_offsets.entry(v).or_insert_with(|| {
+                            current_offset += 8;
+                            current_offset
+                        });
+                    }
                 }
             }
         }
 
-        // Align stack frame to 16 bytes (System V AMD64 ABI)
-        // Since `call` pushes 8 bytes return address, and `push rbp` pushes 8 bytes,
-        // (rsp is 16-byte aligned after push rbp). Thus, total_frame_size must be a multiple of 16.
-        let aligned_size = (current_offset + 15) & !15;
+        // 4. Allocate spill slots if register allocation is active
+        if let Some(alloc) = alloc_res {
+            for spill_idx in 0..(alloc.num_spills as i32) {
+                current_offset += 8;
+                spill_offsets.insert(spill_idx, current_offset);
+            }
+        }
+
+        // Align stack frame to 16 bytes (System V AMD64 ABI):
+        // (callee_count * 8 + frame_size) must be a multiple of 16.
+        let total = current_offset;
+        let aligned_total = (total + 15) & !15;
+        let frame_size = aligned_total - (callee_count * 8);
 
         Self {
             slot_offsets,
             value_offsets,
-            total_frame_size: aligned_size,
+            call_return_buffers,
+            spill_offsets,
+            used_callee_saved,
+            sret_offset,
+            total_frame_size: frame_size,
         }
     }
 
@@ -95,6 +170,10 @@ impl FrameLayout {
             dest: Operand::Reg(Reg::Rbp),
             src: Operand::Reg(Reg::Rsp),
         });
+        // push callee-saved registers
+        for reg in &self.used_callee_saved {
+            insts.push(MachineInst::Push(*reg));
+        }
         // sub rsp, total_frame_size
         if self.total_frame_size > 0 {
             insts.push(MachineInst::Sub {
@@ -103,15 +182,31 @@ impl FrameLayout {
             });
         }
 
-        // Spill incoming register arguments into their allocated stack slots
         let mut arg_reg_idx = 0;
+        let mut stack_arg_offset = 16;
+
+        if let Some(sret_off) = self.sret_offset {
+            // Callee received hidden return buffer pointer in %rdi!
+            // Spill it into stack slot
+            insts.push(MachineInst::Mov {
+                dest: Operand::Mem {
+                    base: Reg::Rbp,
+                    offset: -sret_off,
+                },
+                src: Operand::Reg(Reg::Rdi),
+            });
+            // User arguments start from %rsi (index 1 in Reg::ARG_REGS)
+            arg_reg_idx = 1;
+        }
+
+        // Spill incoming arguments into their allocated stack slots
         for (slot, ty) in &func.params {
             if ty.is_str_slice() || ty.is_slice() {
+                let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
                 if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
                     let ptr_reg = Reg::ARG_REGS[arg_reg_idx];
                     let len_reg = Reg::ARG_REGS[arg_reg_idx + 1];
                     arg_reg_idx += 2;
-                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
                     insts.push(MachineInst::Mov {
                         dest: Operand::Mem {
                             base: Reg::Rbp,
@@ -126,6 +221,106 @@ impl FrameLayout {
                         },
                         src: Operand::Reg(len_reg),
                     });
+                } else if arg_reg_idx < Reg::ARG_REGS.len() {
+                    let ptr_reg = Reg::ARG_REGS[arg_reg_idx];
+                    arg_reg_idx += 1;
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset,
+                        },
+                        src: Operand::Reg(ptr_reg),
+                    });
+                    // Read len from stack
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: stack_arg_offset,
+                        },
+                    });
+                    stack_arg_offset += 8;
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset + 8,
+                        },
+                        src: Operand::Reg(Reg::R10),
+                    });
+                } else {
+                    // Both from stack
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: stack_arg_offset,
+                        },
+                    });
+                    stack_arg_offset += 8;
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset,
+                        },
+                        src: Operand::Reg(Reg::R10),
+                    });
+
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: stack_arg_offset,
+                        },
+                    });
+                    stack_arg_offset += 8;
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset + 8,
+                        },
+                        src: Operand::Reg(Reg::R10),
+                    });
+                }
+            } else if matches!(ty, Type::Struct(_) | Type::Enum(_)) {
+                let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(8);
+                let slot_size = func
+                    .slots
+                    .iter()
+                    .find(|s| s.id == *slot)
+                    .map(|s| s.size)
+                    .unwrap_or(8);
+
+                let arg_ptr_reg = if arg_reg_idx < Reg::ARG_REGS.len() {
+                    let reg = Reg::ARG_REGS[arg_reg_idx];
+                    arg_reg_idx += 1;
+                    reg
+                } else {
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: stack_arg_offset,
+                        },
+                    });
+                    stack_arg_offset += 8;
+                    Reg::R11
+                };
+
+                for off in (0..slot_size).step_by(8) {
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Mem {
+                            base: arg_ptr_reg,
+                            offset: off as i32,
+                        },
+                    });
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: -slot_offset + (off as i32),
+                        },
+                        src: Operand::Reg(Reg::R10),
+                    });
                 }
             } else if arg_reg_idx < Reg::ARG_REGS.len() {
                 let arg_reg = Reg::ARG_REGS[arg_reg_idx];
@@ -135,12 +330,38 @@ impl FrameLayout {
                     dest: slot_op,
                     src: Operand::Reg(arg_reg),
                 });
+            } else {
+                insts.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R10),
+                    src: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: stack_arg_offset,
+                    },
+                });
+                stack_arg_offset += 8;
+                let slot_op = self.get_slot_op(*slot);
+                insts.push(MachineInst::Mov {
+                    dest: slot_op,
+                    src: Operand::Reg(Reg::R10),
+                });
             }
         }
     }
 
     pub fn emit_epilogue(&self, insts: &mut Vec<MachineInst>) {
-        if self.total_frame_size > 0 {
+        if !self.used_callee_saved.is_empty() {
+            let callee_bytes = (self.used_callee_saved.len() * 8) as i32;
+            insts.push(MachineInst::Lea {
+                dest: Reg::Rsp,
+                src: Operand::Mem {
+                    base: Reg::Rbp,
+                    offset: -callee_bytes,
+                },
+            });
+            for reg in self.used_callee_saved.iter().rev() {
+                insts.push(MachineInst::Pop(*reg));
+            }
+        } else if self.total_frame_size > 0 {
             insts.push(MachineInst::Mov {
                 dest: Operand::Reg(Reg::Rsp),
                 src: Operand::Reg(Reg::Rbp),

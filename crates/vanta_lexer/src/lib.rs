@@ -2,7 +2,7 @@
 
 pub mod token;
 
-pub use token::{Token, TokenKind};
+pub use token::{Comment, CommentKind, Token, TokenKind};
 use vanta_diagnostics::{codes, Diagnostic, DiagnosticBag};
 use vanta_source::{SourceFile, Span};
 
@@ -10,6 +10,7 @@ pub struct Lexer<'a> {
     file: &'a SourceFile,
     chars: Vec<(usize, char)>,
     cursor: usize,
+    comments: Vec<Comment>,
 }
 
 impl<'a> Lexer<'a> {
@@ -19,6 +20,7 @@ impl<'a> Lexer<'a> {
             file,
             chars,
             cursor: 0,
+            comments: Vec::new(),
         }
     }
 
@@ -61,13 +63,22 @@ impl<'a> Lexer<'a> {
                 Some('/') => {
                     if self.peek_char2() == Some('/') {
                         // Single-line comment
+                        let start = self.current_offset();
                         self.bump();
                         self.bump();
+                        let mut end = self.current_offset();
                         while let Some(c) = self.bump() {
                             if c == '\n' {
                                 break;
                             }
+                            end = self.current_offset();
                         }
+                        let text = self.file.src[start..end].to_string();
+                        self.comments.push(Comment {
+                            kind: CommentKind::Line,
+                            span: self.span(start, end),
+                            text,
+                        });
                     } else if self.peek_char2() == Some('*') {
                         // Multi-line comment (supporting nesting)
                         let start = self.current_offset();
@@ -89,13 +100,20 @@ impl<'a> Lexer<'a> {
                                 self.bump();
                             }
                         }
+                        let end = self.current_offset();
+                        let text = self.file.src[start..end].to_string();
                         if depth > 0 {
                             diags.emit(
                                 Diagnostic::error("Unterminated block comment")
                                     .with_code(codes::E0002_UNTERMINATED_LITERAL)
-                                    .with_span(self.span(start, self.current_offset())),
+                                    .with_span(self.span(start, end)),
                             );
                         }
+                        self.comments.push(Comment {
+                            kind: CommentKind::Block,
+                            span: self.span(start, end),
+                            text,
+                        });
                     } else {
                         break;
                     }
@@ -112,6 +130,27 @@ impl<'a> Lexer<'a> {
         let Some(c) = self.bump() else {
             return Token::new(TokenKind::Eof, self.span(start_pos, start_pos));
         };
+
+        // Lifetimes: 'a, 'b, 'static, '_
+        if c == '\'' {
+            if let Some(next) = self.peek_char() {
+                if next.is_alphabetic() || next == '_' {
+                    let mut s = String::new();
+                    s.push('\'');
+                    while let Some(ch) = self.peek_char() {
+                        if ch.is_alphanumeric() || ch == '_' {
+                            s.push(ch);
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                    let end_pos = self.current_offset();
+                    let span = self.span(start_pos, end_pos);
+                    return Token::new(TokenKind::Lifetime(s), span);
+                }
+            }
+        }
 
         // Identifiers and Keywords
         if c.is_alphabetic() || c == '_' {
@@ -145,6 +184,14 @@ impl<'a> Lexer<'a> {
                 "as" => TokenKind::As,
                 "const" => TokenKind::Const,
                 "unsafe" => TokenKind::Unsafe,
+                "enum" => TokenKind::Enum,
+                "match" => TokenKind::Match,
+                "mod" => TokenKind::Mod,
+                "import" => TokenKind::Import,
+                "trait" => TokenKind::Trait,
+                "for" => TokenKind::For,
+                "in" => TokenKind::In,
+                "_" => TokenKind::Underscore,
                 "true" => TokenKind::BoolLiteral(true),
                 "false" => TokenKind::BoolLiteral(false),
                 "i8" => TokenKind::I8,
@@ -367,6 +414,9 @@ impl<'a> Lexer<'a> {
                 if self.peek_char() == Some('=') {
                     self.bump();
                     TokenKind::EqEq
+                } else if self.peek_char() == Some('>') {
+                    self.bump();
+                    TokenKind::FatArrow
                 } else {
                     TokenKind::Eq
                 }
@@ -436,6 +486,7 @@ impl<'a> Lexer<'a> {
             }
             ',' => TokenKind::Comma,
             '.' => TokenKind::Dot,
+            '?' => TokenKind::Question,
             _ => {
                 diags.emit(
                     Diagnostic::error(format!("Unexpected character: '{}'", c))
@@ -461,6 +512,21 @@ impl<'a> Lexer<'a> {
             }
         }
         tokens
+    }
+
+    /// Tokenize the entire source file and return both tokens and all parsed comments.
+    pub fn tokenize_with_comments(
+        &mut self,
+        diags: &mut DiagnosticBag,
+    ) -> (Vec<Token>, Vec<Comment>) {
+        let tokens = self.tokenize(diags);
+        let comments = std::mem::take(&mut self.comments);
+        (tokens, comments)
+    }
+
+    /// Returns a slice of comments accumulated so far.
+    pub fn comments(&self) -> &[Comment] {
+        &self.comments
     }
 }
 
@@ -507,5 +573,80 @@ mod tests {
 
         assert!(!diags.has_errors());
         assert_eq!(tokens[0].kind, TokenKind::IntLiteral(123));
+    }
+
+    #[test]
+    fn test_tokenize_with_comments() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "with_comments.va".into(),
+            "// Header\nfn main() { // trailing\n/* block */\n}\n".into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut lexer = Lexer::new(&file);
+        let mut diags = DiagnosticBag::new();
+        let (tokens, comments) = lexer.tokenize_with_comments(&mut diags);
+
+        assert!(!diags.has_errors());
+        assert_eq!(tokens[0].kind, TokenKind::Fn);
+        assert_eq!(comments.len(), 3);
+        assert_eq!(comments[0].kind, CommentKind::Line);
+        assert_eq!(comments[0].text, "// Header");
+        assert_eq!(comments[1].kind, CommentKind::Line);
+        assert_eq!(comments[1].text, "// trailing");
+        assert_eq!(comments[2].kind, CommentKind::Block);
+        assert_eq!(comments[2].text, "/* block */");
+    }
+
+    #[test]
+    fn test_lex_trait_and_for() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "traits.va".into(),
+            "trait Describe for User for x in iter".into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut lexer = Lexer::new(&file);
+        let mut diags = DiagnosticBag::new();
+        let tokens = lexer.tokenize(&mut diags);
+
+        assert!(!diags.has_errors());
+        assert_eq!(tokens[0].kind, TokenKind::Trait);
+        assert_eq!(tokens[1].kind, TokenKind::Ident("Describe".into()));
+        assert_eq!(tokens[2].kind, TokenKind::For);
+        assert_eq!(tokens[3].kind, TokenKind::Ident("User".into()));
+        assert_eq!(tokens[4].kind, TokenKind::For);
+        assert_eq!(tokens[5].kind, TokenKind::Ident("x".into()));
+        assert_eq!(tokens[6].kind, TokenKind::In);
+        assert_eq!(tokens[7].kind, TokenKind::Ident("iter".into()));
+    }
+
+    #[test]
+    fn test_lex_lifetimes() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "lifetimes.va".into(),
+            "fn first<'a, 'b, T>(x: &'a [i64]) -> Option<&'a i64>".into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut lexer = Lexer::new(&file);
+        let mut diags = DiagnosticBag::new();
+        let tokens = lexer.tokenize(&mut diags);
+
+        assert!(!diags.has_errors());
+        assert_eq!(tokens[0].kind, TokenKind::Fn);
+        assert_eq!(tokens[1].kind, TokenKind::Ident("first".into()));
+        assert_eq!(tokens[2].kind, TokenKind::Lt);
+        assert_eq!(tokens[3].kind, TokenKind::Lifetime("'a".into()));
+        assert_eq!(tokens[4].kind, TokenKind::Comma);
+        assert_eq!(tokens[5].kind, TokenKind::Lifetime("'b".into()));
+        assert_eq!(tokens[6].kind, TokenKind::Comma);
+        assert_eq!(tokens[7].kind, TokenKind::Ident("T".into()));
+        assert_eq!(tokens[8].kind, TokenKind::Gt);
+        assert_eq!(tokens[9].kind, TokenKind::LParen);
+        assert_eq!(tokens[10].kind, TokenKind::Ident("x".into()));
+        assert_eq!(tokens[11].kind, TokenKind::Colon);
+        assert_eq!(tokens[12].kind, TokenKind::Ampersand);
+        assert_eq!(tokens[13].kind, TokenKind::Lifetime("'a".into()));
     }
 }

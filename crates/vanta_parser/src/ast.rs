@@ -2,10 +2,16 @@
 
 use vanta_source::Span;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident {
     pub name: String,
     pub span: Span,
+}
+
+impl std::fmt::Display for Ident {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl Ident {
@@ -36,10 +42,25 @@ pub enum PrimType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExprKind {
     Primitive(PrimType),
-    Reference { is_mut: bool, inner: Box<TypeExpr> },
-    Array { inner: Box<TypeExpr>, len: usize },
-    Slice { inner: Box<TypeExpr> },
+    Reference {
+        lifetime: Option<Ident>,
+        is_mut: bool,
+        inner: Box<TypeExpr>,
+    },
+    Array {
+        inner: Box<TypeExpr>,
+        len: usize,
+    },
+    Slice {
+        lifetime: Option<Ident>,
+        inner: Box<TypeExpr>,
+    },
     Named(String),
+    Generic {
+        name: String,
+        type_args: Vec<TypeExpr>,
+    },
+    Lifetime(Ident),
     Unit,
 }
 
@@ -47,6 +68,12 @@ pub enum TypeExprKind {
 pub struct TypeExpr {
     pub kind: TypeExprKind,
     pub span: Span,
+}
+
+impl TypeExpr {
+    pub fn new(kind: TypeExprKind, span: Span) -> Self {
+        Self { kind, span }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,12 +85,96 @@ pub struct Program {
 pub enum Item {
     Function(FnDecl),
     Struct(StructDecl),
+    Enum(EnumDecl),
+    Trait(TraitDecl),
     Impl(ImplBlock),
+    Mod(ModDecl),
+    Import(ImportDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeParam {
+    pub name: Ident,
+    pub bound: Option<Ident>,
+    pub span: Span,
+}
+
+impl std::ops::Deref for TypeParam {
+    type Target = Ident;
+    fn deref(&self) -> &Self::Target {
+        &self.name
+    }
+}
+
+impl From<Ident> for TypeParam {
+    fn from(name: Ident) -> Self {
+        let span = name.span;
+        Self {
+            name,
+            bound: None,
+            span,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub lifetime_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
+    pub methods: Vec<TraitMethodDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodDecl {
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub ret_type: Option<TypeExpr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    pub is_pub: bool,
+    pub path: Vec<Ident>,
+    pub items: Vec<Ident>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub lifetime_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
+    pub variants: Vec<VariantDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariantDecl {
+    pub name: Ident,
+    pub payload: Vec<TypeExpr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplBlock {
+    pub lifetime_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
+    pub trait_name: Option<Ident>,
+    pub trait_args: Vec<TypeExpr>,
     pub target: Ident,
+    pub target_args: Vec<TypeExpr>,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
@@ -72,6 +183,8 @@ pub struct ImplBlock {
 pub struct FnDecl {
     pub is_pub: bool,
     pub name: Ident,
+    pub lifetime_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub ret_type: Option<TypeExpr>,
     pub body: Block,
@@ -90,6 +203,8 @@ pub struct Param {
 pub struct StructDecl {
     pub is_pub: bool,
     pub name: Ident,
+    pub lifetime_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub fields: Vec<FieldDecl>,
     pub span: Span,
 }
@@ -130,6 +245,12 @@ pub enum Stmt {
         span: Span,
     },
     Loop {
+        body: Block,
+        span: Span,
+    },
+    For {
+        var: Ident,
+        iter: Expr,
         body: Block,
         span: Span,
     },
@@ -178,6 +299,7 @@ pub enum ExprKind {
     Deref(Box<Expr>),
     Call {
         callee: String,
+        type_args: Vec<TypeExpr>,
         args: Vec<Expr>,
     },
     Index {
@@ -202,8 +324,52 @@ pub enum ExprKind {
     ArrayLiteral(Vec<Expr>),
     StructLiteral {
         name: Ident,
+        type_args: Vec<TypeExpr>,
         fields: Vec<(Ident, Expr)>,
     },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
+    VariantConstructor {
+        enum_name: Option<Ident>,
+        variant: Ident,
+        type_args: Vec<TypeExpr>,
+        args: Vec<Expr>,
+    },
+    Try(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: Span,
+}
+
+impl Pattern {
+    pub fn new(kind: PatternKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
+    Wildcard,
+    Ident(String),
+    Variant {
+        enum_name: Option<Ident>,
+        variant: Ident,
+        subpatterns: Vec<Pattern>,
+    },
+    Bool(bool),
+    Int(i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]

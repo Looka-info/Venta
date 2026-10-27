@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 vanta_source = { workspace = true }
 vanta_diagnostics = { workspace = true }
+vanta_lexer = { workspace = true }
 vanta_parser = { workspace = true }
 
 [dev-dependencies]
-vanta_lexer = { workspace = true }

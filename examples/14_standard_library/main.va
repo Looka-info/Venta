@@ -1,0 +1,65 @@
+mod config;
+
+import config::{ServerConfig, load_config};
+import std::option::Option;
+import std::result::Result;
+
+fn print_status(res: &Result<ServerConfig, i64>) {
+    if res.is_ok() {
+        print_str("Config status: OK\n");
+    } else {
+        print_str("Config status: ERR\n");
+    }
+}
+
+fn main() {
+    print_str("=== Vanta Milestone 11: Standard Library & Error Propagation ===\n");
+
+    // 1. Success case using ? propagation and unwrap_or
+    let ok_res = load_config(8080, 3);
+    print_status(&ok_res);
+    match ok_res {
+        Result::Ok(cfg) => {
+            print_str("Port: ");
+            print_i64(cfg.port);
+            print_str("\nTimeout ms: ");
+            print_i64(cfg.timeout);
+            print_str("\n");
+        },
+        Result::Err(err_code) => {
+            print_str("Failed with error code: ");
+            print_i64(err_code);
+            print_str("\n");
+        },
+    }
+
+    // 2. Error propagation case: invalid port 80 fails parse_port with 403
+    let err_res = load_config(80, 0);
+    print_status(&err_res);
+    match err_res {
+        Result::Ok(_) => {
+            print_str("Unexpected success\n");
+        },
+        Result::Err(err_code) => {
+            print_str("Early returned error code: ");
+            print_i64(err_code);
+            print_str("\n");
+        },
+    }
+
+    // 3. Option helper methods
+    let opt_some = Option::Some(42);
+    let opt_none: Option<i64> = Option::None;
+
+    if opt_some.is_some() {
+        print_str("opt_some is active, unwrap = ");
+        print_i64(opt_some.unwrap());
+        print_str("\n");
+    }
+
+    if opt_none.is_none() {
+        print_str("opt_none is empty, unwrap_or = ");
+        print_i64(opt_none.unwrap_or(100));
+        print_str("\n");
+    }
+}

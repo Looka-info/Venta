@@ -1,0 +1,142 @@
+// Vanta Milestone 14: Owned Strings, UTF-8 Operations, Safe Slicing, and String Memory Safety
+import std::string::String;
+import std::option::Option;
+
+fn demonstrate_string_basics() {
+    print_str("--- 1. String Creation and Growth ---\n");
+    let mut greeting = String::new();
+    print_str("Initial is_empty: ");
+    if greeting.is_empty() {
+        print_str("true\n");
+    } else {
+        print_str("false\n");
+    }
+
+    greeting.push_str("Hello");
+    greeting.push_str(", ");
+    greeting.push_str("Vanta");
+    greeting.push_str("!");
+    print_str("Greeting: ");
+    print_str(greeting.as_str());
+    print_str("\n");
+
+    print_str("Byte length: ");
+    print_i64(greeting.len_bytes());
+    print_str("\n");
+}
+
+fn demonstrate_cloning_and_equality() {
+    print_str("--- 2. Cloning and Byte Equality ---\n");
+    let original = String::from_str("Systems Programming");
+    let mut cloned = original.clone();
+    cloned.push_str(" with Vanta");
+
+    print_str("Original: ");
+    print_str(original.as_str());
+    print_str("\n");
+
+    print_str("Cloned: ");
+    print_str(cloned.as_str());
+    print_str("\n");
+
+    print_str("Original equals 'Systems Programming': ");
+    if original.equals("Systems Programming") {
+        print_str("true\n");
+    } else {
+        print_str("false\n");
+    }
+
+    print_str("Cloned equals Original: ");
+    if cloned.equals(original.as_str()) {
+        print_str("true\n");
+    } else {
+        print_str("false\n");
+    }
+}
+
+fn demonstrate_utf8_slicing() {
+    print_str("--- 3. Safe UTF-8 Byte Slicing ---\n");
+    // "🦀 Ferris" - 4-byte crab emoji + space + "Ferris"
+    let emoji_str = String::from_str("🦀 Ferris");
+    print_str("Full string: ");
+    print_str(emoji_str.as_str());
+    print_str("\n");
+
+    print_str("Slice [0..4] (emoji): ");
+    match emoji_str.slice_bytes(0, 4) {
+        Option::Some(emoji) => {
+            print_str(emoji);
+            print_str("\n");
+        }
+        Option::None => {
+            print_str("Invalid UTF-8 boundary!\n");
+        },
+    }
+
+    print_str("Slice [5..11] (name): ");
+    match emoji_str.slice_bytes(5, 11) {
+        Option::Some(name) => {
+            print_str(name);
+            print_str("\n");
+        }
+        Option::None => {
+            print_str("Invalid UTF-8 boundary!\n");
+        },
+    }
+
+    print_str("Slice [0..2] (split emoji midpoint rejection): ");
+    match emoji_str.slice_bytes(0, 2) {
+        Option::Some(bad) => {
+            print_str(bad);
+            print_str("\n");
+        }
+        Option::None => {
+            print_str("Rejected safely (boundary check passed)!\n");
+        },
+    }
+}
+
+fn demonstrate_vector_of_strings() {
+    print_str("--- 4. Vec<String> and Clean Destruction ---\n");
+    let mut names: Vec<String> = Vec::new();
+    names.push(String::from_str("Ada"));
+    names.push(String::from_str("Alan"));
+    names.push(String::from_str("Grace"));
+
+    print_str("Vector length: ");
+    print_i64(names.len());
+    print_str("\n");
+
+    print_str("Active heap allocations inside scope: ");
+    print_i64(vanta_active_allocs());
+    print_str("\n");
+}
+
+fn demonstrate_string_return_by_value() {
+    print_str("--- 5. Large Aggregate Return (sret) ---\n");
+    let banner = create_banner("System V AMD64 Aggregate Return");
+    print_str(banner.as_str());
+    print_str("\n");
+}
+
+fn create_banner(title: &str) -> String {
+    let mut banner = String::from_str("=== ");
+    banner.push_str(title);
+    banner.push_str(" ===");
+    return banner;
+}
+
+fn main() -> i64 {
+    print_str("=== Vanta Milestone 14 & 15: Owned Strings & ABI Stability Showcase ===\n");
+    demonstrate_string_basics();
+    demonstrate_cloning_and_equality();
+    demonstrate_utf8_slicing();
+    demonstrate_vector_of_strings();
+    demonstrate_string_return_by_value();
+
+    print_str("Active heap allocations after all drops: ");
+    print_i64(vanta_active_allocs());
+    print_str("\n");
+    print_str("All string tests and demonstrations completed successfully.\n");
+    return 0;
+}

@@ -1,0 +1,23 @@
+// Math submodule exporting public arithmetic operations while keeping
+// internal helpers private to the module.
+
+pub fn add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+pub fn multiply(a: i64, b: i64) -> i64 {
+    return a *b;
+}
+
+// Private helper inaccessible from other modules
+fn internal_clamp(val: i64, max_val: i64) -> i64 {
+    if val > max_val {
+        return max_val;
+    }
+    return val;
+}
+
+pub fn clamp_add(a: i64, b: i64, max_val: i64) -> i64 {
+    let total: i64 = add(a, b);
+    return internal_clamp(total, max_val);
+}

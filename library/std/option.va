@@ -1,0 +1,25 @@
+pub enum Option<T> {
+    None,
+    Some(T),
+}
+
+pub fn is_some<T>(opt: &Option<T>) -> bool {
+    match *opt {
+        Option::Some(_) => true,
+        Option::None => false,
+    }
+}
+
+pub fn is_none<T>(opt: &Option<T>) -> bool {
+    match *opt {
+        Option::Some(_) => false,
+        Option::None => true,
+    }
+}
+
+pub fn unwrap_or<T>(opt: Option<T>, default_val: T) -> T {
+    match opt {
+        Option::Some(val) => val,
+        Option::None => default_val,
+    }
+}

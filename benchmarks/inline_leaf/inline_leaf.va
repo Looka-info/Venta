@@ -1,0 +1,25 @@
+fn add3(a: i64, b: i64, c: i64) -> i64 {
+    return a + b + c;
+}
+
+fn scale_add(x: i64, factor: i64, bias: i64) -> i64 {
+    return x * factor + bias;
+}
+
+fn leaf_work(val: i64) -> i64 {
+    let s1 = add3(val, 15, 27);
+    let s2 = scale_add(s1, 3, 7);
+    return s2;
+}
+
+fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 10000000 {
+        sum = sum + (leaf_work(i % 500) % 1000);
+        i = i + 1;
+    }
+    print_i64(sum);
+    print_str("\n");
+    return 0;
+}

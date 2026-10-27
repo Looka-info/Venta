@@ -1,0 +1,18 @@
+fn eval_tree(x: i64, y: i64) -> i64 {
+    let a = (x + y) * (x - y) + (x * 3) - (y * 5);
+    let b = (a + x) * 2 - (a - y) * 3 + (x + y);
+    let c = (a + b) + (a * 2) - (b * 2) + 7;
+    return c;
+}
+
+fn main() -> i64 {
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 2000000 {
+        sum = sum + eval_tree(i % 100, (i + 3) % 100);
+        i = i + 1;
+    }
+    print_i64(sum);
+    print_str("\n");
+    return 0;
+}
