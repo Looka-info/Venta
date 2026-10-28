@@ -1,0 +1,67 @@
+// ============================================================================
+// Vanta-C Compiler: Symbol Table & Scope Management (pure Vanta)
+// ============================================================================
+
+import std::string::String;
+import std::option::Option;
+
+pub struct SymbolTable {
+    pub pool: String,
+    pub count: i64,
+}
+
+pub fn make_symbol_table() -> SymbolTable {
+    SymbolTable {
+        pool: String::from_str(" "),
+        count: 0,
+    }
+}
+
+impl SymbolTable {
+    pub fn add_var(self: &mut Self, name: &str) -> i64 {
+        let existing = self.find_offset(name);
+        if existing > 0 {
+            return existing;
+        }
+
+        self.count = self.count + 1;
+        self.pool.push_str(name);
+        self.pool.push_str(" ");
+        return self.count * 8;
+    }
+
+    pub fn find_offset(self: &Self, name: &str) -> i64 {
+        let pool_len = self.pool.len_bytes();
+        let s: &str = self.pool.as_str();
+        let mut i = 0;
+        let mut word_idx = 1;
+        let mut in_word = 0;
+        let mut word_start = 0;
+
+        while i < pool_len {
+            let ch: i64 = s[i];
+            if ch == 32 {
+                if in_word == 1 {
+                    let sub_opt = self.pool.slice_bytes(word_start, i);
+                    match sub_opt {
+                        Option::Some(w) => {
+                            if w.equals(name) {
+                                return word_idx * 8;
+                            }
+                        }
+                        Option::None => {}
+                    }
+                    word_idx = word_idx + 1;
+                    in_word = 0;
+                }
+            } else {
+                if in_word == 0 {
+                    in_word = 1;
+                    word_start = i;
+                }
+            }
+            i = i + 1;
+        }
+        return 0; // Not found
+    }
+}

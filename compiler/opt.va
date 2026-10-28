@@ -1,0 +1,57 @@
+// ============================================================================
+// Vanta-C Compiler: Pure Vanta Optimization Pass (Constant Folding & Reductions)
+// ============================================================================
+
+import tokens::{
+    TOK_PLUS, TOK_MINUS, TOK_STAR, TOK_SLASH,
+    TOK_EQ, TOK_NE, TOK_LT, TOK_LE, TOK_GT, TOK_GE
+};
+
+pub struct Optimizer {
+    pub folds_performed: i64,
+}
+
+pub fn make_optimizer() -> Optimizer {
+    Optimizer {
+        folds_performed: 0,
+    }
+}
+
+/// Checks if adding `b` is an identity operation (x + 0).
+pub fn is_identity_add(b: i64) -> i64 {
+    if b == 0 { 1 } else { 0 }
+}
+
+/// Checks if multiplying by `b` is an identity operation (x * 1).
+pub fn is_identity_mul(b: i64) -> i64 {
+    if b == 1 { 1 } else { 0 }
+}
+
+/// Checks if multiplying by `b` annihilates to zero (x * 0).
+pub fn is_annihilate_mul(b: i64) -> i64 {
+    if b == 0 { 1 } else { 0 }
+}
+
+impl Optimizer {
+    /// Evaluates constant binary expressions at compile time.
+    pub fn try_fold_binary(self: &mut Self, op: i64, a: i64, b: i64) -> i64 {
+        self.folds_performed = self.folds_performed + 1;
+        if op == TOK_PLUS() { return a + b; }
+        if op == TOK_MINUS() { return a - b; }
+        if op == TOK_STAR() { return a * b; }
+        if op == TOK_SLASH() {
+            if b != 0 {
+                return a / b;
+            } else {
+                return 0;
+            }
+        }
+        if op == TOK_EQ() { if a == b { return 1; } else { return 0; } }
+        if op == TOK_NE() { if a != b { return 1; } else { return 0; } }
+        if op == TOK_LT() { if a < b  { return 1; } else { return 0; } }
+        if op == TOK_LE() { if a <= b { return 1; } else { return 0; } }
+        if op == TOK_GT() { if a > b  { return 1; } else { return 0; } }
+        if op == TOK_GE() { if a >= b { return 1; } else { return 0; } }
+        return 0;
+    }
+}

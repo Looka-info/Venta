@@ -1,0 +1,14 @@
+# ============================================================================
+# GitHub Linguist Configuration for Vanta
+# ============================================================================
+
+# Treat Vanta language files as primary source
+*.va linguist-language=Vanta
+
+# Mark Stage 0 Rust bootstrap compiler as vendored so it does not skew
+# repository language statistics, establishing Vanta as the primary language.
+crates/** linguist-vendored
+
+# Mark documentation files
+docs/** linguist-documentation
+*.md linguist-documentation

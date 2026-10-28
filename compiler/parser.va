@@ -1,0 +1,452 @@
+// ============================================================================
+// Vanta-C Compiler: Recursive Descent Parser & Orchestrator (pure Vanta)
+// ============================================================================
+
+import tokens::{
+    Token,
+    TOK_EOF, TOK_FN, TOK_LET, TOK_MUT, TOK_RETURN, TOK_IF, TOK_ELSE, TOK_WHILE,
+    TOK_IDENT, TOK_INT, TOK_LPAREN, TOK_RPAREN, TOK_LBRACE, TOK_RBRACE,
+    TOK_SEMI, TOK_COMMA, TOK_COLON, TOK_ARROW, TOK_ASSIGN,
+    TOK_PLUS, TOK_MINUS, TOK_STAR, TOK_SLASH,
+    TOK_EQ, TOK_NE, TOK_LT, TOK_LE, TOK_GT, TOK_GE
+};
+
+import lexer::{Lexer, make_lexer};
+import symtab::{SymbolTable, make_symbol_table};
+import opt::{Optimizer, make_optimizer};
+import backend::{
+    BackendEmitter, make_backend_emitter, compute_frame_layout, FrameLayout, i64_to_str,
+    REG_RAX, REG_RBX, REG_RCX, REG_RDX, REG_RSI, REG_RDI, REG_RBP, REG_RSP, REG_R8, REG_R9,
+    CC_EQ, CC_NE, CC_LT, CC_LE, CC_GT, CC_GE
+};
+
+import std::string::String;
+
+pub struct Parser {
+    pub lexer: Lexer,
+    pub curr_tok: Token,
+    pub syms: SymbolTable,
+    pub opt: Optimizer,
+    pub backend: BackendEmitter,
+}
+
+pub fn make_parser(source: &str) -> Parser {
+    let mut lex = make_lexer(source);
+    let first_tok = lex.next_token();
+    Parser {
+        lexer: lex,
+        curr_tok: first_tok,
+        syms: make_symbol_table(),
+        opt: make_optimizer(),
+        backend: make_backend_emitter(),
+    }
+}
+
+impl Parser {
+    pub fn advance(self: &mut Self) {
+        self.curr_tok = self.lexer.next_token();
+    }
+
+    pub fn next_label(self: &mut Self) -> i64 {
+        self.backend.new_label_id()
+    }
+
+    // --- Expressions ---
+
+    pub fn parse_primary(self: &mut Self) {
+        if self.curr_tok.kind == TOK_INT() {
+            let val = self.curr_tok.int_val;
+            self.advance();
+            self.backend.emit_mov_reg_imm(REG_RAX(), val);
+            return;
+        }
+
+        if self.curr_tok.kind == TOK_IDENT() {
+            let name = self.curr_tok.str_val.clone();
+            self.advance();
+
+            // Function Call: foo(...)
+            if self.curr_tok.kind == TOK_LPAREN() {
+                self.advance();
+                let mut arg_count = 0;
+                while self.curr_tok.kind != TOK_RPAREN() && self.curr_tok.kind != TOK_EOF() {
+                    self.parse_expr();
+                    self.backend.emit_push(REG_RAX());
+                    arg_count = arg_count + 1;
+                    if self.curr_tok.kind == TOK_COMMA() {
+                        self.advance();
+                    }
+                }
+                if self.curr_tok.kind == TOK_RPAREN() {
+                    self.advance();
+                }
+
+                // Pop arguments into System V AMD64 argument registers in reverse
+                self.backend.emit_call_args(arg_count);
+                self.backend.emit_call(name.as_str());
+                return;
+            }
+
+            // Local variable load
+            let offset = self.syms.find_offset(name.as_str());
+            if offset > 0 {
+                self.backend.emit_mov_reg_mem(REG_RAX(), REG_RBP(), offset);
+            } else {
+                self.backend.emit_mov_reg_imm(REG_RAX(), 0);
+            }
+            return;
+        }
+
+        if self.curr_tok.kind == TOK_LPAREN() {
+            self.advance();
+            self.parse_expr();
+            if self.curr_tok.kind == TOK_RPAREN() {
+                self.advance();
+            }
+            return;
+        }
+
+        self.backend.emit_mov_reg_imm(REG_RAX(), 0);
+    }
+
+    pub fn parse_multiplicative(self: &mut Self) {
+        self.parse_primary();
+        while self.curr_tok.kind == TOK_STAR() || self.curr_tok.kind == TOK_SLASH() {
+            let op = self.curr_tok.kind;
+            self.advance();
+            self.backend.emit_push(REG_RAX());
+            self.parse_primary();
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            if op == TOK_STAR() {
+                self.backend.emit_imul(REG_RAX(), REG_RBX());
+            } else {
+                self.backend.emit_idiv(REG_RBX());
+            }
+        }
+    }
+
+    pub fn parse_additive(self: &mut Self) {
+        self.parse_multiplicative();
+        while self.curr_tok.kind == TOK_PLUS() || self.curr_tok.kind == TOK_MINUS() {
+            let op = self.curr_tok.kind;
+            self.advance();
+            self.backend.emit_push(REG_RAX());
+            self.parse_multiplicative();
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            if op == TOK_PLUS() {
+                self.backend.emit_add(REG_RAX(), REG_RBX());
+            } else {
+                self.backend.emit_sub(REG_RAX(), REG_RBX());
+            }
+        }
+    }
+
+    pub fn parse_relational(self: &mut Self) {
+        self.parse_additive();
+        while self.curr_tok.kind == TOK_LT() || self.curr_tok.kind == TOK_LE() || self.curr_tok.kind == TOK_GT() || self.curr_tok.kind == TOK_GE() {
+            let op = self.curr_tok.kind;
+            self.advance();
+            self.backend.emit_push(REG_RAX());
+            self.parse_additive();
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            self.backend.emit_cmp(REG_RAX(), REG_RBX());
+            if op == TOK_LT() {
+                self.backend.emit_setcc(CC_LT(), REG_RAX());
+            } else if op == TOK_LE() {
+                self.backend.emit_setcc(CC_LE(), REG_RAX());
+            } else if op == TOK_GT() {
+                self.backend.emit_setcc(CC_GT(), REG_RAX());
+            } else {
+                self.backend.emit_setcc(CC_GE(), REG_RAX());
+            }
+        }
+    }
+
+    pub fn parse_expr(self: &mut Self) {
+        self.parse_relational();
+        while self.curr_tok.kind == TOK_EQ() || self.curr_tok.kind == TOK_NE() {
+            let op = self.curr_tok.kind;
+            self.advance();
+            self.backend.emit_push(REG_RAX());
+            self.parse_relational();
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            self.backend.emit_cmp(REG_RAX(), REG_RBX());
+            if op == TOK_EQ() {
+                self.backend.emit_setcc(CC_EQ(), REG_RAX());
+            } else {
+                self.backend.emit_setcc(CC_NE(), REG_RAX());
+            }
+        }
+    }
+
+    // --- Statements ---
+
+    pub fn parse_statement(self: &mut Self) {
+        // Return: return expr;
+        if self.curr_tok.kind == TOK_RETURN() {
+            self.advance();
+            self.parse_expr();
+            if self.curr_tok.kind == TOK_SEMI() {
+                self.advance();
+            }
+            self.backend.emit_ret();
+            return;
+        }
+
+        // Let binding: let [mut] x = expr;
+        if self.curr_tok.kind == TOK_LET() {
+            self.advance();
+            if self.curr_tok.kind == TOK_MUT() {
+                self.advance();
+            }
+            let var_name = self.curr_tok.str_val.clone();
+            self.advance();
+
+            if self.curr_tok.kind == TOK_COLON() {
+                self.advance();
+                if self.curr_tok.kind == TOK_IDENT() {
+                    self.advance();
+                }
+            }
+
+            if self.curr_tok.kind == TOK_ASSIGN() {
+                self.advance();
+            }
+
+            self.parse_expr();
+            if self.curr_tok.kind == TOK_SEMI() {
+                self.advance();
+            }
+
+            let offset = self.syms.add_var(var_name.as_str());
+            self.backend.emit_mov_mem_reg(REG_RBP(), offset, REG_RAX());
+            return;
+        }
+
+        // While Loop: while cond { body }
+        if self.curr_tok.kind == TOK_WHILE() {
+            self.advance();
+            let loop_id = self.next_label();
+            let sid = i64_to_str(loop_id);
+
+            let mut start_lbl = String::from_str(".Lloop_start_");
+            start_lbl.push_str(sid.as_str());
+
+            let mut end_lbl = String::from_str(".Lloop_end_");
+            end_lbl.push_str(sid.as_str());
+
+            self.backend.emit_label(start_lbl.as_str());
+
+            self.parse_expr();
+            self.backend.emit_cmp_imm(REG_RAX(), 0);
+            self.backend.emit_je(end_lbl.as_str());
+
+            if self.curr_tok.kind == TOK_LBRACE() {
+                self.advance();
+            }
+            while self.curr_tok.kind != TOK_RBRACE() && self.curr_tok.kind != TOK_EOF() {
+                self.parse_statement();
+            }
+            if self.curr_tok.kind == TOK_RBRACE() {
+                self.advance();
+            }
+
+            self.backend.emit_jmp(start_lbl.as_str());
+            self.backend.emit_label(end_lbl.as_str());
+            return;
+        }
+
+        // If / Else
+        if self.curr_tok.kind == TOK_IF() {
+            self.advance();
+            let if_id = self.next_label();
+            let sid = i64_to_str(if_id);
+
+            let mut else_lbl = String::from_str(".Lelse_");
+            else_lbl.push_str(sid.as_str());
+
+            let mut end_if_lbl = String::from_str(".Lend_if_");
+            end_if_lbl.push_str(sid.as_str());
+
+            self.parse_expr();
+            self.backend.emit_cmp_imm(REG_RAX(), 0);
+            self.backend.emit_je(else_lbl.as_str());
+
+            if self.curr_tok.kind == TOK_LBRACE() {
+                self.advance();
+            }
+            while self.curr_tok.kind != TOK_RBRACE() && self.curr_tok.kind != TOK_EOF() {
+                self.parse_statement();
+            }
+            if self.curr_tok.kind == TOK_RBRACE() {
+                self.advance();
+            }
+
+            self.backend.emit_jmp(end_if_lbl.as_str());
+            self.backend.emit_label(else_lbl.as_str());
+
+            if self.curr_tok.kind == TOK_ELSE() {
+                self.advance();
+                if self.curr_tok.kind == TOK_LBRACE() {
+                    self.advance();
+                    while self.curr_tok.kind != TOK_RBRACE() && self.curr_tok.kind != TOK_EOF() {
+                        self.parse_statement();
+                    }
+                    if self.curr_tok.kind == TOK_RBRACE() {
+                        self.advance();
+                    }
+                } else if self.curr_tok.kind == TOK_IF() {
+                    self.parse_statement();
+                }
+            }
+
+            self.backend.emit_label(end_if_lbl.as_str());
+            return;
+        }
+
+        // Assignment: x = expr; OR Function call: foo(...);
+        if self.curr_tok.kind == TOK_IDENT() {
+            let name = self.curr_tok.str_val.clone();
+            let offset = self.syms.find_offset(name.as_str());
+
+            self.advance();
+            if self.curr_tok.kind == TOK_ASSIGN() && offset > 0 {
+                self.advance();
+                self.parse_expr();
+                if self.curr_tok.kind == TOK_SEMI() {
+                    self.advance();
+                }
+                self.backend.emit_mov_mem_reg(REG_RBP(), offset, REG_RAX());
+                return;
+            }
+
+            if self.curr_tok.kind == TOK_LPAREN() {
+                self.advance();
+                let mut arg_count = 0;
+                while self.curr_tok.kind != TOK_RPAREN() && self.curr_tok.kind != TOK_EOF() {
+                    self.parse_expr();
+                    self.backend.emit_push(REG_RAX());
+                    arg_count = arg_count + 1;
+                    if self.curr_tok.kind == TOK_COMMA() {
+                        self.advance();
+                    }
+                }
+                if self.curr_tok.kind == TOK_RPAREN() {
+                    self.advance();
+                }
+                if self.curr_tok.kind == TOK_SEMI() {
+                    self.advance();
+                }
+
+                self.backend.emit_call_args(arg_count);
+                self.backend.emit_call(name.as_str());
+                return;
+            }
+
+            if self.curr_tok.kind == TOK_SEMI() {
+                self.advance();
+            }
+            return;
+        }
+
+        self.advance();
+    }
+
+    // --- Function Declaration ---
+
+    pub fn parse_function(self: &mut Self) {
+        if self.curr_tok.kind != TOK_FN() {
+            self.advance();
+            return;
+        }
+        self.advance();
+
+        let fn_name = self.curr_tok.str_val.clone();
+        self.advance();
+
+        self.syms = make_symbol_table();
+
+        let mut param_names: [String; 6] = [String::new(), String::new(), String::new(), String::new(), String::new(), String::new()];
+        let mut param_count = 0;
+
+        if self.curr_tok.kind == TOK_LPAREN() {
+            self.advance();
+            while self.curr_tok.kind != TOK_RPAREN() && self.curr_tok.kind != TOK_EOF() {
+                if self.curr_tok.kind == TOK_IDENT() {
+                    let pname = self.curr_tok.str_val.clone();
+                    if param_count < 6 {
+                        param_names[param_count] = pname;
+                        param_count = param_count + 1;
+                    }
+                    self.advance();
+                    if self.curr_tok.kind == TOK_COLON() {
+                        self.advance();
+                        if self.curr_tok.kind == TOK_IDENT() {
+                            self.advance();
+                        }
+                    }
+                    if self.curr_tok.kind == TOK_COMMA() {
+                        self.advance();
+                    }
+                } else {
+                    self.advance();
+                }
+            }
+            if self.curr_tok.kind == TOK_RPAREN() {
+                self.advance();
+            }
+        }
+
+        if self.curr_tok.kind == TOK_ARROW() {
+            self.advance();
+            if self.curr_tok.kind == TOK_IDENT() {
+                self.advance();
+            }
+        }
+
+        // Register parameters in symbol table
+        let mut p = 0;
+        while p < param_count {
+            self.syms.add_var(param_names[p].as_str());
+            p = p + 1;
+        }
+
+        // Compute 16-byte aligned frame layout per System V AMD64 ABI
+        let layout = compute_frame_layout(32, param_count);
+        self.backend.emit_function_start(fn_name.as_str(), layout.stack_size);
+
+        // Bind incoming arguments from registers to stack slots
+        self.backend.emit_bind_params(param_count);
+
+        if self.curr_tok.kind == TOK_LBRACE() {
+            self.advance();
+        }
+        while self.curr_tok.kind != TOK_RBRACE() && self.curr_tok.kind != TOK_EOF() {
+            self.parse_statement();
+        }
+        if self.curr_tok.kind == TOK_RBRACE() {
+            self.advance();
+        }
+
+        self.backend.emit_function_end(fn_name.as_str());
+    }
+
+    pub fn compile_program(self: &mut Self) -> String {
+        self.backend.emit_header();
+
+        while self.curr_tok.kind != TOK_EOF() {
+            if self.curr_tok.kind == TOK_FN() {
+                self.parse_function();
+            } else {
+                self.advance();
+            }
+        }
+
+        self.backend.emit_footer();
+        return self.backend.out.clone();
+    }
+}

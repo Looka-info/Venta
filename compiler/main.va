@@ -1,0 +1,109 @@
+// ============================================================================
+// Vanta Native Self-Hosted Compiler (vanta) - Entry Point
+// ============================================================================
+
+mod tokens;
+mod lexer;
+mod symtab;
+mod backend;
+mod opt;
+mod parser;
+
+import parser::{Parser, make_parser};
+
+import std::fs;
+import std::io;
+import std::env;
+import std::string::String;
+import std::result::Result;
+
+fn print_usage() {
+    print_str("Vanta Native Self-Hosted Compiler (vanta)\n");
+    print_str("Usage: vanta <input.va> [-o <output.s>]\n\n");
+    print_str("Options:\n");
+    print_str("  -o <path>       Specify assembly output file (default: output.s)\n");
+    print_str("  -v, --version   Display compiler version\n");
+    print_str("  -h, --help      Display this help message\n");
+}
+
+fn main() -> i64 {
+    print_str("========================================================\n");
+    print_str("   ⚡ Vanta Native Self-Hosted Compiler (in Pure Vanta)  \n");
+    print_str("========================================================\n");
+
+    let args_res = env::args();
+    let mut input_path = String::from_str("main.va");
+    let mut output_path = String::from_str("output.s");
+
+    match args_res {
+        Result::Ok(args) => {
+            if args.len() < 2 {
+                print_usage();
+                return 1;
+            }
+
+            let first_arg = args[1].clone();
+            if first_arg.equals("-h") || first_arg.equals("--help") {
+                print_usage();
+                return 0;
+            }
+            if first_arg.equals("-v") || first_arg.equals("--version") {
+                print_str("vanta 1.0.0 (x86_64-unknown-linux-gnu, pure vanta)\n");
+                return 0;
+            }
+
+            input_path = first_arg;
+            if args.len() >= 4 {
+                let flag = args[2].clone();
+                if flag.equals("-o") {
+                    output_path = args[3].clone();
+                }
+            }
+        }
+        Result::Err(_) => {
+            print_usage();
+            return 1;
+        }
+    }
+
+    print_str("--> Reading source file: ");
+    print_str(input_path.as_str());
+    print_str("\n");
+
+    let read_res = fs::read_to_string(input_path.as_str());
+    let mut source_content = String::new();
+    match read_res {
+        Result::Ok(content) => {
+            source_content = content;
+        }
+        Result::Err(_) => {
+            print_str("Error: Failed to read input file: ");
+            print_str(input_path.as_str());
+            print_str("\n");
+            return 1;
+        }
+    }
+
+    print_str("--> Running Pure Vanta Frontend & Native x86-64 Backend...\n");
+    let mut p = make_parser(source_content.as_str());
+    let asm_code = p.compile_program();
+
+    print_str("--> Writing native System V AMD64 assembly: ");
+    print_str(output_path.as_str());
+    print_str("\n");
+
+    let write_res = fs::write(output_path.as_str(), asm_code.as_str());
+    match write_res {
+        Result::Ok(_) => {
+            print_str("--> Compilation successful! Native x86-64 assembly generated.\n");
+        }
+        Result::Err(_) => {
+            print_str("Error: Failed to write assembly file: ");
+            print_str(output_path.as_str());
+            print_str("\n");
+            return 2;
+        }
+    }
+
+    return 0;
+}
