@@ -302,9 +302,9 @@ flowchart LR
     end
 
     subgraph NativePipeline ["Stage 1: Pure Vanta Native Backend Pipeline"]
-        S1_BIN -->|Parses AST & Symbols| FRONT["Compiler Frontend"]
+        S1_BIN -->|Parses AST and Symbols| FRONT["Compiler Frontend"]
         FRONT -->|Delegates to| BACKEND["Native Backend (backend.va)"]
-        BACKEND -->|FrameLayout (16-Byte Align)| STACK["System V AMD64 Stack Manager"]
+        BACKEND -->|16-Byte Aligned FrameLayout| STACK["System V AMD64 Stack Manager"]
         BACKEND -->|BackendEmitter| ASM["Valid System V AMD64 Assembly (.s)"]
         ASM -->|gcc -no-pie| PROG["Native Standalone Linux Executables"]
     end
