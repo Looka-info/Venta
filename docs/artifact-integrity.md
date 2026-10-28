@@ -2,11 +2,16 @@
 
 ## 1. Release Candidate Artifacts & Cryptographic Checksums
 
-For **Vanta v1.0-RC1 (Linux x86-64)**, the official release artifacts and their verified SHA-256 digests are:
-
+### Vanta v1.0-RC2 (Current Candidate)
 | File Name | File Size | SHA-256 Checksum | Purpose |
 |:---|:---:|:---|:---|
-| `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `6268c37ad04b0013fa3879464315b634e83726b740b3c45941201c62ab860199` | Primary release tarball (binaries, runtime, std, examples, scripts) |
+| `vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `0e5be3e64886811e6400aeb6da5f81c46c678d66eb06f38f9fe2e9d348d4931e` | Primary release tarball (binaries, runtime, std, examples, scripts) |
+| `vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz.sha256` | 113 B | N/A (Contains hash line) | Standard SHA-256 hash manifest |
+
+### Vanta v1.0-RC1 (Superseded)
+| File Name | File Size | SHA-256 Checksum | Purpose |
+|:---|:---:|:---|:---|
+| `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `6268c37ad04b0013fa3879464315b634e83726b740b3c45941201c62ab860199` | Primary release tarball |
 | `vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256` | 113 B | N/A (Contains hash line) | Standard SHA-256 hash manifest |
 
 ---

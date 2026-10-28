@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-VERSION="1.0-RC1"
+VERSION="${1:-1.0-RC2}"
 TARGET="x86_64-unknown-linux-gnu"
 PKG_NAME="vanta-v${VERSION}-${TARGET}"
 DIST_DIR="${REPO_ROOT}/dist"

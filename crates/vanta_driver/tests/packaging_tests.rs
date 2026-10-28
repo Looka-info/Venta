@@ -15,7 +15,7 @@ fn test_release_package_install_and_uninstall() {
 
     let dist_tarball = repo_root
         .join("dist")
-        .join("vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz");
+        .join("vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz");
 
     // Ensure package is built
     if !dist_tarball.is_file() {
@@ -41,7 +41,7 @@ fn test_release_package_install_and_uninstall() {
 
     let stage_dir = test_dir
         .path()
-        .join("vanta-v1.0-RC1-x86_64-unknown-linux-gnu");
+        .join("vanta-v1.0-RC2-x86_64-unknown-linux-gnu");
     assert!(stage_dir.is_dir());
 
     // 2. Install to custom prefix

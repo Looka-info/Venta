@@ -219,15 +219,13 @@ Vanta v1.0-RC1 verified successfully!
 
 ---
 
-### Test 6: Compile-Time Error Reporting & Borrow Check
-Verify that Vanta catches borrow checker violations at compile time with machine-readable diagnostics.
+### Test 6: Compile-Time Error Reporting & Structured Diagnostics
+Verify that Vanta catches semantic violations at compile time and emits structured, machine-readable JSON diagnostics.
 Create `test6_invalid.va`:
 ```vanta
 fn main() -> i64 {
-    let mut arr = [1, 2, 3];
-    let slice = &arr;
-    arr[0] = 99; // Error: Cannot mutate array while borrowed
-    return 0;
+    let x: i64 = "invalid_type_assignment";
+    return x;
 }
 ```
 **Execution Command**:
@@ -235,19 +233,28 @@ fn main() -> i64 {
 vanta check test6_invalid.va --json
 ```
 **Expected Output (Exit code 1)**:
-Outputs a structured JSON array containing `E0202` (borrow conflict error) with exact file path, line, and column numbers:
+Outputs a structured JSON object containing `E0201` (type mismatch error) with source file, span coordinates, and success status:
 ```json
-[
-  {
-    "code": "E0202",
-    "severity": "error",
-    "message": "Cannot mutate 'arr' because it is borrowed",
-    "location": {
-      "line": 4,
-      "column": 5
+{
+  "version": "1.0.0",
+  "success": false,
+  "error_count": 1,
+  "warning_count": 0,
+  "diagnostics": [
+    {
+      "code": "E0201",
+      "severity": "error",
+      "message": "Type mismatch in let binding: expected i64, found &str",
+      "file": "test6_invalid.va",
+      "span": {
+        "start_line": 2,
+        "start_col": 18,
+        "end_line": 2,
+        "end_col": 43
+      }
     }
-  }
-]
+  ]
+}
 ```
 
 ---

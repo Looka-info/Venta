@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-10-28
+
+**General Availability Release for Linux x86-64 (`x86_64-unknown-linux-gnu`)**
+
+- **Status**: Formally certified and approved for General Availability following Milestone 27 evaluation and release gate audit.
+- **Scope**: Verified on Linux x86-64, System V AMD64 ABI compliant, custom 14-pass SSA optimizer, pure Rust x86-64 instruction encoder and ELF64 object writer.
+
+## [1.0.0-rc.2] - 2026-10-28
+
+**Release Candidate 2 for Linux x86-64**
+
+### Fixed
+- **CLI Driver Option Parsing**: Resolved an issue where `vanta check <file> --json` and `vanta compile <file> --json` rejected `--json` as an unknown option. Direct `--json`, `--diagnostics=json`, and `--format=json` are now accepted across all subcommands (`run`, `compile`, `check`) in both `vanta` and `vantac`.
+- **Diagnostic Output Formatting**: Ensured structured JSON output containing exact diagnostic error codes, spans, and `success` boolean statuses is emitted directly to stdout.
+- **Automated Regression Testing**: Added `test_cli_json_diagnostics_support` to prevent future regressions.
+
+### Documentation
+- Updated Evaluation Guide ([`docs/external-evaluation.md`](file:///docs/external-evaluation.md)) to accurately specify error detection schemas for `--json`.
+- Established Evaluator Feedback Workflow ([`docs/external-feedback.md`](file:///docs/external-feedback.md)) and issue template ([`.github/ISSUE_TEMPLATE/evaluator-feedback.md`](file:///.github/ISSUE_TEMPLATE/evaluator-feedback.md)).
+- Published Feedback Triage Report ([`docs/feedback-triage.md`](file:///docs/feedback-triage.md)), GA Decision Report ([`docs/v1.0-ga-decision.md`](file:///docs/v1.0-ga-decision.md)), and Post-v1.0 Roadmap ([`docs/post-v1.0-roadmap.md`](file:///docs/post-v1.0-roadmap.md)).
+
 ## [1.0.0-rc.1] - 2026-10-28
 
 **Release Candidate 1 for Linux x86-64 (`x86_64-unknown-linux-gnu`)**

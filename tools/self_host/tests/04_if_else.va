@@ -1,0 +1,13 @@
+fn check(x: i64) -> i64 {
+    if x > 100 {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+fn main() -> i64 {
+    let r1 = check(150);
+    let r2 = check(50);
+    return r1 * 10 + r2;
+}

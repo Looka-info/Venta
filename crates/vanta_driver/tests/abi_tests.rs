@@ -240,7 +240,7 @@ fn test_cli_version_and_help_commands() {
         .expect("Failed to run vantac --version");
     assert!(out_ver.status.success());
     let stdout_ver = String::from_utf8_lossy(&out_ver.stdout);
-    assert!(stdout_ver.contains("vantac 1.0.0-rc.1"), "Unexpected version: {}", stdout_ver);
+    assert!(stdout_ver.contains("vantac 1.0.0-rc.2"), "Unexpected version: {}", stdout_ver);
 
     // 2. -V returns 0
     let out_v = Command::new("cargo")
@@ -249,7 +249,7 @@ fn test_cli_version_and_help_commands() {
         .expect("Failed to run vantac -V");
     assert!(out_v.status.success());
     let stdout_v = String::from_utf8_lossy(&out_v.stdout);
-    assert!(stdout_v.contains("vantac 1.0.0-rc.1"), "Unexpected -V: {}", stdout_v);
+    assert!(stdout_v.contains("vantac 1.0.0-rc.2"), "Unexpected -V: {}", stdout_v);
 
     // 3. --help returns 0 and prints help to stdout
     let out_help = Command::new("cargo")
@@ -270,4 +270,63 @@ fn test_cli_version_and_help_commands() {
     assert_eq!(out_unknown.status.code(), Some(2));
     let stderr_unknown = String::from_utf8_lossy(&out_unknown.stderr);
     assert!(stderr_unknown.contains("Error: Unknown option '--non-existent-option'"));
+}
+
+
+#[test]
+fn test_cli_json_diagnostics_support() {
+    let temp_dir = std::env::temp_dir().join("vanta_cli_json_test");
+    let _ = fs::create_dir_all(&temp_dir);
+    let invalid_va = temp_dir.join("invalid_type.va");
+    fs::write(
+        &invalid_va,
+        r#"
+fn main() -> i64 {
+    let x: i64 = "hello";
+    return x;
+}
+"#,
+    )
+    .unwrap();
+
+    // 1. Test `vantac check <file> --json`
+    let vantac_out = Command::new("cargo")
+        .args(&["run", "--bin", "vantac", "--", "check", invalid_va.to_str().unwrap(), "--json"])
+        .output()
+        .expect("Run vantac check --json");
+    assert_eq!(vantac_out.status.code(), Some(1), "Expected exit code 1 on check failure");
+    let vantac_stdout = String::from_utf8_lossy(&vantac_out.stdout);
+    assert!(vantac_stdout.contains("E0201"), "Expected E0201 in vantac JSON output: {}", vantac_stdout);
+    assert!(vantac_stdout.contains("\"success\":false"), "Expected success:false in: {}", vantac_stdout);
+
+    // 2. Test `vanta check <file> --json`
+    let vanta_out = Command::new("cargo")
+        .args(&["run", "--bin", "vanta", "--", "check", invalid_va.to_str().unwrap(), "--json"])
+        .output()
+        .expect("Run vanta check --json");
+    assert_eq!(vanta_out.status.code(), Some(1), "Expected exit code 1 on check failure");
+    let vanta_stdout = String::from_utf8_lossy(&vanta_out.stdout);
+    assert!(vanta_stdout.contains("E0201"), "Expected E0201 in vanta JSON output: {}", vanta_stdout);
+    assert!(vanta_stdout.contains("\"success\":false"), "Expected success:false in: {}", vanta_stdout);
+
+    // 3. Test `vanta check <file> --json` on a valid file
+    let valid_va = temp_dir.join("valid.va");
+    fs::write(
+        &valid_va,
+        r#"
+fn main() -> i64 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+    let vanta_valid = Command::new("cargo")
+        .args(&["run", "--bin", "vanta", "--", "check", valid_va.to_str().unwrap(), "--json"])
+        .output()
+        .expect("Run vanta check valid --json");
+    assert_eq!(vanta_valid.status.code(), Some(0));
+    let valid_stdout = String::from_utf8_lossy(&vanta_valid.stdout);
+    assert!(valid_stdout.contains("\"success\":true"), "Expected success:true in: {}", valid_stdout);
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }

@@ -9,3 +9,7 @@ dist/
 *.a
 .DS_Store
 Thumbs.db
+tools/self_host/vanta_c_bin
+tools/self_host/tests/*.s
+tools/self_host/tests/*_bin
+

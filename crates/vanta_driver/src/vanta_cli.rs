@@ -20,8 +20,8 @@ USAGE:
 
 COMMANDS:
     run <file.va> [-- <args>...]   Compile and run a Vanta program immediately
-    compile <file.va> [-o <out>]   Compile a Vanta program to a native binary
-    check <file.va>                Verify syntax, types, borrows, and MIR without compiling
+    compile <file.va> [-o <out>] [--json]   Compile a Vanta program to a native binary
+    check <file.va> [--json]                Verify syntax, types, borrows, and MIR without compiling
     fmt [files...] [--check]       Format Vanta source files canonically
 
 OPTIONS:
@@ -84,6 +84,7 @@ fn handle_run(args: &[String]) {
     let mut std_path: Option<PathBuf> = None;
     let mut runtime_path: Option<PathBuf> = None;
     let mut opt_level = OptLevel::O1;
+    let mut diagnostic_format = DiagnosticFormat::Human;
     let mut enable_reg_alloc = true;
     let mut enable_mem2reg = true;
     let mut enable_gvn = true;
@@ -111,6 +112,26 @@ fn handle_run(args: &[String]) {
             opt_level = OptLevel::None;
         } else if arg == "-O1" || arg == "-O" || arg == "--opt" {
             opt_level = OptLevel::O1;
+        } else if arg == "--json" {
+            diagnostic_format = DiagnosticFormat::Json;
+        } else if let Some(fmt) = arg.strip_prefix("--diagnostics=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
+        } else if let Some(fmt) = arg.strip_prefix("--format=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
         } else if arg == "--no-regalloc" {
             enable_reg_alloc = false;
         } else if arg == "--no-mem2reg" {
@@ -190,7 +211,7 @@ fn handle_run(args: &[String]) {
         emit_target: EmitTarget::Exe,
         opt_level,
         verbose: false,
-        diagnostic_format: DiagnosticFormat::Human,
+        diagnostic_format,
         std_path,
         runtime_path,
         enable_reg_alloc,
@@ -213,7 +234,11 @@ fn handle_run(args: &[String]) {
 
     let mut session = CompilerSession::new();
     if let Err(_e) = session.compile(&options) {
-        eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+        if diagnostic_format == DiagnosticFormat::Json {
+            println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+        } else {
+            eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+        }
         let _ = fs::remove_dir_all(&temp_dir);
         process::exit(1);
     }
@@ -252,6 +277,7 @@ fn handle_compile(args: &[String]) {
     let mut std_path: Option<PathBuf> = None;
     let mut runtime_path: Option<PathBuf> = None;
     let mut opt_level = OptLevel::O1;
+    let mut diagnostic_format = DiagnosticFormat::Human;
     let mut enable_reg_alloc = true;
     let mut enable_mem2reg = true;
     let mut enable_gvn = true;
@@ -276,6 +302,26 @@ fn handle_compile(args: &[String]) {
             opt_level = OptLevel::None;
         } else if arg == "-O1" || arg == "-O" || arg == "--opt" {
             opt_level = OptLevel::O1;
+        } else if arg == "--json" {
+            diagnostic_format = DiagnosticFormat::Json;
+        } else if let Some(fmt) = arg.strip_prefix("--diagnostics=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
+        } else if let Some(fmt) = arg.strip_prefix("--format=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
         } else if arg == "--no-regalloc" {
             enable_reg_alloc = false;
         } else if arg == "--no-mem2reg" {
@@ -367,7 +413,7 @@ fn handle_compile(args: &[String]) {
         emit_target: EmitTarget::Exe,
         opt_level,
         verbose: false,
-        diagnostic_format: DiagnosticFormat::Human,
+        diagnostic_format,
         std_path,
         runtime_path,
         enable_reg_alloc,
@@ -389,9 +435,20 @@ fn handle_compile(args: &[String]) {
     };
 
     let mut session = CompilerSession::new();
-    if let Err(_e) = session.compile(&options) {
-        eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
-        process::exit(1);
+    match session.compile(&options) {
+        Ok(_) => {
+            if diagnostic_format == DiagnosticFormat::Json {
+                println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+            }
+        }
+        Err(_e) => {
+            if diagnostic_format == DiagnosticFormat::Json {
+                println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+            } else {
+                eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+            }
+            process::exit(1);
+        }
     }
 }
 
@@ -409,12 +466,33 @@ fn handle_check(args: &[String]) {
     let mut input_file: Option<PathBuf> = None;
     let mut std_path: Option<PathBuf> = None;
     let mut verbose = false;
+    let mut diagnostic_format = DiagnosticFormat::Human;
 
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
         if arg == "-v" || arg == "--verbose" {
             verbose = true;
+        } else if arg == "--json" {
+            diagnostic_format = DiagnosticFormat::Json;
+        } else if let Some(fmt) = arg.strip_prefix("--diagnostics=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
+        } else if let Some(fmt) = arg.strip_prefix("--format=") {
+            diagnostic_format = match fmt {
+                "json" => DiagnosticFormat::Json,
+                "human" => DiagnosticFormat::Human,
+                _ => {
+                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    process::exit(2);
+                }
+            };
         } else if let Some(p) = arg.strip_prefix("--std-path=") {
             std_path = Some(PathBuf::from(p));
         } else if arg == "--std-path" {
@@ -450,7 +528,7 @@ fn handle_check(args: &[String]) {
         emit_target: EmitTarget::Exe,
         opt_level: OptLevel::None,
         verbose,
-        diagnostic_format: DiagnosticFormat::Human,
+        diagnostic_format,
         std_path,
         runtime_path: None,
         enable_reg_alloc: false,
@@ -474,13 +552,19 @@ fn handle_check(args: &[String]) {
     let mut session = CompilerSession::new();
     match session.check(&options) {
         Ok(()) => {
-            if verbose {
+            if diagnostic_format == DiagnosticFormat::Json {
+                println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+            } else if verbose {
                 println!("Check successful: 0 errors");
             }
             process::exit(0);
         }
         Err(_) => {
-            eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+            if diagnostic_format == DiagnosticFormat::Json {
+                println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+            } else {
+                eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+            }
             process::exit(1);
         }
     }

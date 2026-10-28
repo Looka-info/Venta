@@ -55,6 +55,7 @@ OPTIONS:
                             mir      - Vanta Mid-Level IR
                             obj      - Relocatable ELF64 object file (.o)
                             exe      - Linked native executable (default)
+    --json                Emit diagnostics formatted as JSON
     --diagnostics=<fmt>   Diagnostics format: human (default) or json
     --format=<fmt>        Alias for --diagnostics
     --std-path=<path>     Path to standard library root
@@ -223,6 +224,9 @@ fn main() {
                     process::exit(2);
                 }
                 output_file = Some(PathBuf::from(&args[idx]));
+            }
+            "--json" => {
+                diagnostic_format = DiagnosticFormat::Json;
             }
             s if s.starts_with("--diagnostics=") || s.starts_with("--format=") => {
                 let fmt = s

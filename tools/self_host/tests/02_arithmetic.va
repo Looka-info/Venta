@@ -1,0 +1,6 @@
+fn main() -> i64 {
+    let a = 10;
+    let b = 25;
+    let c = (a * 2) + (b - 5);
+    return c;
+}

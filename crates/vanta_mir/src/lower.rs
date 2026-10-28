@@ -3197,9 +3197,9 @@ impl<'a> MirLowerer<'a> {
                         Type::Ref { inner, .. } => match &**inner {
                             Type::Struct(s) => s.clone(),
                             Type::Enum(e) => e.clone(),
-                            _ => panic!("Method call on non-struct/enum type: {:?}", target_ty),
+                            _ => panic!("Method call '{}' on non-struct/enum type: {:?}", method.name, target_ty),
                         },
-                        _ => panic!("Method call on non-struct/enum type: {:?}", target_ty),
+                        _ => panic!("Method call '{}' on non-struct/enum type: {:?}", method.name, target_ty),
                     };
 
                     let mangled = if let Some(mangled) = self
