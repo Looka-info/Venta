@@ -1,0 +1,96 @@
+// ============================================================================
+// ⚡ Venta Web Page Root Module (in Pure Venta)
+// Composes the entire Awwwards-winning showcase web page in pure Venta
+// ============================================================================
+
+import std::string::String;
+import dom::{Element, div, main_elem};
+import styles::get_luxury_styles;
+import scripts::get_client_scripts;
+import components::{
+    render_navbar,
+    render_hero,
+    render_bento_grid,
+    render_code_studio,
+    render_benchmark_arena,
+    render_cli_simulator,
+    render_vscode_section,
+    render_footer
+};
+
+pub fn render_showcase_document() -> String {
+    let mut doc = String::from_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
+    doc.push_str("    <meta charset=\"UTF-8\">\n");
+    doc.push_str("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
+    doc.push_str("    <title>⚡ Venta — Velocity. Safety. Zero Overhead.</title>\n");
+    doc.push_str("    <meta name=\"description\" content=\"A performance-first, memory-safe systems programming language featuring a 14-pass SSA optimizer, native x86-64 backend, and affine borrow semantics. Compiles in 0.24 seconds with zero LLVM bloat.\">\n");
+    doc.push_str("    <link rel=\"icon\" type=\"image/svg+xml\" href=\"vanta-file-icon.svg\">\n");
+    doc.push_str("    <link rel=\"alternate icon\" type=\"image/png\" href=\"favicon.png\">\n");
+    doc.push_str("    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n");
+    doc.push_str("    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n");
+    doc.push_str("    <link href=\"https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Syne:wght@700;800;900&display=swap\" rel=\"stylesheet\">\n");
+    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js\"></script>\n");
+    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js\"></script>\n");
+    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/TextPlugin.min.js\"></script>\n");
+
+    // Inject Luxury Styles from pure Venta styles module
+    let css = get_luxury_styles();
+    doc.push_str(css.as_str());
+
+    doc.push_str("</head>\n<body>\n");
+
+    // Trailing Custom Cursor & Background Canvas
+    doc.push_str("    <div class=\"custom-cursor\" id=\"cursor-dot\"></div>\n");
+    doc.push_str("    <div class=\"cursor-follower\" id=\"cursor-follower\"></div>\n");
+    doc.push_str("    <canvas id=\"bg-canvas\"></canvas>\n");
+    doc.push_str("    <div class=\"ambient-glow glow-1\"></div>\n");
+    doc.push_str("    <div class=\"ambient-glow glow-2\"></div>\n");
+    doc.push_str("    <div class=\"ambient-glow glow-3\"></div>\n");
+
+    // Render Navigation
+    let navbar = render_navbar();
+    let navbar_str = navbar.render();
+    doc.push_str(navbar_str.as_str());
+
+    // Main Container
+    let mut main_container = main_elem();
+
+    // Hero Section
+    let hero = render_hero();
+    main_container.add_child(&hero);
+
+    // Bento Grid Section
+    let bento = render_bento_grid();
+    main_container.add_child(&bento);
+
+    // Code Studio Section
+    let studio = render_code_studio();
+    main_container.add_child(&studio);
+
+    // Benchmark Arena Section
+    let bench = render_benchmark_arena();
+    main_container.add_child(&bench);
+
+    // CLI Simulator Section
+    let cli = render_cli_simulator();
+    main_container.add_child(&cli);
+
+    // VS Code Section
+    let vscode = render_vscode_section();
+    main_container.add_child(&vscode);
+
+    let main_str = main_container.render();
+    doc.push_str(main_str.as_str());
+
+    // Footer Section
+    let footer_elem = render_footer();
+    let footer_str = footer_elem.render();
+    doc.push_str(footer_str.as_str());
+
+    // Inject Client GSAP & Canvas Scripts from pure Venta scripts module
+    let js = get_client_scripts();
+    doc.push_str(js.as_str());
+
+    doc.push_str("</body>\n</html>\n");
+    doc
+}

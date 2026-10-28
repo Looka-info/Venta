@@ -1,0 +1,32 @@
+// ============================================================================
+// ⚡ Venta Web Application & Page Engine (100% Pure Venta)
+// The entire web page is authored in Venta (www/page.va, components.va, dom.va)
+//
+// Run web page natively: vanta run www/server.va [--port 8080]
+// Run engine evaluation: vanta run www/main.va
+// ============================================================================
+
+mod dom;
+mod styles;
+mod scripts;
+mod components;
+mod page;
+
+import page::render_showcase_document;
+import std::string::String;
+
+fn main() -> i64 {
+    print_str("====================================================================\n");
+    print_str("   ⚡ Venta Web Page Engine — Authored 100% in Pure Venta (.va)    \n");
+    print_str("====================================================================\n");
+    print_str("Evaluating DOM tree from www/page.va...\n");
+    let doc = render_showcase_document();
+    print_str("✨ Page evaluated in pure memory: ");
+    print_i64(doc.len_bytes());
+    print_str(" bytes of HTML\n\n");
+    print_str("Zero external .html files required to author or run this page!\n");
+    print_str("To launch the native web server and view it live in your browser:\n");
+    print_str("   vanta run www/server.va --port 8080\n");
+    print_str("====================================================================\n");
+    0
+}

@@ -1,0 +1,99 @@
+// ============================================================================
+// ⚡ Venta Declarative DOM Engine (in Pure Venta)
+// Construct HTML trees using typed Venta functions & structs
+// ============================================================================
+
+import std::string::String;
+
+pub struct Element {
+    tag: String,
+    classes: String,
+    id: String,
+    attrs: String,
+    content: String,
+}
+
+pub fn make_element(tag_name: &str) -> Element {
+    Element {
+        tag: String::from_str(tag_name),
+        classes: String::from_str(""),
+        id: String::from_str(""),
+        attrs: String::from_str(""),
+        content: String::from_str(""),
+    }
+}
+
+pub fn div() -> Element { make_element("div") }
+pub fn section() -> Element { make_element("section") }
+pub fn header() -> Element { make_element("header") }
+pub fn nav() -> Element { make_element("nav") }
+pub fn footer() -> Element { make_element("footer") }
+pub fn main_elem() -> Element { make_element("main") }
+pub fn h1() -> Element { make_element("h1") }
+pub fn h2() -> Element { make_element("h2") }
+pub fn h3() -> Element { make_element("h3") }
+pub fn p() -> Element { make_element("p") }
+pub fn span() -> Element { make_element("span") }
+pub fn a() -> Element { make_element("a") }
+pub fn button() -> Element { make_element("button") }
+pub fn pre() -> Element { make_element("pre") }
+pub fn code() -> Element { make_element("code") }
+pub fn canvas() -> Element { make_element("canvas") }
+
+impl Element {
+    pub fn set_class(self: &mut Element, c: &str) {
+        if self.classes.len_bytes() > 0 {
+            self.classes.push_str(" ");
+        }
+        self.classes.push_str(c);
+    }
+
+    pub fn set_id(self: &mut Element, id_val: &str) {
+        self.id = String::from_str(id_val);
+    }
+
+    pub fn set_attr(self: &mut Element, key: &str, val: &str) {
+        self.attrs.push_str(" ");
+        self.attrs.push_str(key);
+        self.attrs.push_str("=\"");
+        self.attrs.push_str(val);
+        self.attrs.push_str("\"");
+    }
+
+    pub fn add_text(self: &mut Element, text_content: &str) {
+        self.content.push_str(text_content);
+    }
+
+    pub fn add_child(self: &mut Element, child: &Element) {
+        let child_rendered = child.render();
+        self.content.push_str(child_rendered.as_str());
+    }
+
+    pub fn add_raw(self: &mut Element, raw_markup: &str) {
+        self.content.push_str(raw_markup);
+    }
+
+    pub fn render(self: &Element) -> String {
+        let mut out = String::from_str("<");
+        out.push_str(self.tag.as_str());
+        if self.classes.len_bytes() > 0 {
+            out.push_str(" class=\"");
+            out.push_str(self.classes.as_str());
+            out.push_str("\"");
+        }
+        if self.id.len_bytes() > 0 {
+            out.push_str(" id=\"");
+            out.push_str(self.id.as_str());
+            out.push_str("\"");
+        }
+        if self.attrs.len_bytes() > 0 {
+            out.push_str(self.attrs.as_str());
+        }
+        out.push_str(">");
+        out.push_str(self.content.as_str());
+        out.push_str("</");
+        out.push_str(self.tag.as_str());
+        out.push_str(">\n");
+        out
+    }
+}

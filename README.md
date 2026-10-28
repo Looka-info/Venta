@@ -59,7 +59,7 @@
 
 Experience the official Venta language showcase, live benchmark visualizer, release hub (v1.0-RC2), and developer guide:
 
-- **Static Browser / GitHub Pages**: Open [`docs/index.html`](docs/index.html) or [`www/index.html`](www/index.html) in any browser.
+- **Live Web Showcase (100% Pure Venta)**: Authored entirely in Venta ([`www/page.va`](www/page.va)) and served dynamically by the native Venta HTTP engine ([`www/server.va`](www/server.va)) or viewed via GitHub Pages ([`docs/index.html`](docs/index.html)).
 - **Native Pure Venta HTTP Engine**: Launch the HTTP server implemented 100% in pure Venta ([`www/server.va`](www/server.va)):
   ```bash
   # Run directly via the Vanta CLI
@@ -609,9 +609,14 @@ Venta/
 │   ├── server.va                    # HTTP application server
 │   ├── main.va                      # Full-stack runnable app entry point
 │   └── README.md                    # Framework documentation
-├── www/                             # Venta Showcase Web Page & Pure Venta HTTP Server
-│   ├── index.html                   # Interactive dark-theme showcase & guide
-│   └── server.va                    # Pure Venta native HTTP web server
+├── www/                             # 100% Pure Venta Web Page & Native HTTP Engine
+│   ├── page.va                      # Awwwards-level showcase web page authored in pure Venta
+│   ├── components.va                # Declarative UI components (Navbar, Hero, Bento, Studio)
+│   ├── dom.va                       # Typed DOM & Element builder
+│   ├── styles.va                    # Luxury Obsidian & 24K Gold styles
+│   ├── scripts.va                   # GSAP 3.12+ kinetic typography & 3D canvas scripts
+│   ├── main.va                      # Page engine runner & evaluator
+│   └── server.va                    # Native pure Venta HTTP server
 ├── tools/self_host/                 # Self-hosted compiler and backend verification
 │   ├── vanta_c.va                   # Self-hosting compiler in pure Vanta
 │   ├── backend.va                   # Modular native backend in pure Vanta

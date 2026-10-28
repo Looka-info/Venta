@@ -1,10 +1,16 @@
 // ============================================================================
 // ⚡ Venta Native HTTP Web Server (in Pure Venta)
-// Serves the Venta Showcase, Release Hub & Developer Guide over HTTP
+// Serves the Venta Showcase Web Page Authored 100% in Pure Venta (www/page.va)
 // ============================================================================
 
+mod dom;
+mod styles;
+mod scripts;
+mod components;
+mod page;
+
+import page::render_showcase_document;
 import std::net;
-import std::fs;
 import std::env;
 import std::string::String;
 import std::result::Result;
@@ -14,7 +20,7 @@ fn print_banner(port: i64) {
     print_str("====================================================================\n");
     print_str("   ⚡ Venta Native HTTP Engine — Pure Venta Language Runtime        \n");
     print_str("====================================================================\n");
-    print_str("   Product:      Venta Showcase & v1.0-RC2 Release Hub              \n");
+    print_str("   Web Page:     Authored 100% in Pure Venta (www/page.va)          \n");
     print_str("   Architecture: System V AMD64 (Native Assembly Backend)           \n");
     print_str("   Port:         ");
     print_i64(port);
@@ -37,31 +43,12 @@ fn print_usage() {
 }
 
 fn load_document() -> String {
-    print_str("[Server] Loading showcase document...\n");
-    let try_www = fs::read_to_string("www/index.html");
-    match try_www {
-        Result::Ok(content) => {
-            print_str("[Server] Loaded www/index.html (");
-            print_i64(content.len_bytes());
-            print_str(" bytes)\n");
-            return content;
-        }
-        Result::Err(_) => {}
-    }
-
-    let try_docs = fs::read_to_string("docs/index.html");
-    match try_docs {
-        Result::Ok(content) => {
-            print_str("[Server] Loaded docs/index.html (");
-            print_i64(content.len_bytes());
-            print_str(" bytes)\n");
-            return content;
-        }
-        Result::Err(_) => {}
-    }
-
-    print_str("[Server] Fallback to embedded showcase HTML\n");
-    String::from_str("<!DOCTYPE html><html><head><title>Venta Showcase</title></head><body style='background:#0d1117;color:#c9d1d9;font-family:sans-serif;padding:40px;'><h1>⚡ Venta Showcase</h1><p>Venta v1.0-RC2 is running via the pure Venta HTTP engine.</p></body></html>")
+    print_str("[Server] Evaluating Venta Page DOM in memory (www/page.va)...\n");
+    let doc = render_showcase_document();
+    print_str("[Server] Generated dynamic showcase page (");
+    print_i64(doc.len_bytes());
+    print_str(" bytes)\n");
+    doc
 }
 
 fn main() -> i64 {
@@ -89,8 +76,8 @@ fn main() -> i64 {
                         port = 3000;
                     } else if next_arg.equals("8000") {
                         port = 8000;
-                    } else if next_arg.equals("8099") {
-                        port = 8099;
+                    } else if next_arg.equals("9000") {
+                        port = 9000;
                     }
                     i = i + 1;
                 }
@@ -108,9 +95,7 @@ fn main() -> i64 {
     if server_fd < 0 {
         print_str("[Error] Failed to bind TCP listener to port ");
         print_i64(port);
-        print_str(" (code: ");
-        print_i64(server_fd);
-        print_str(")\n");
+        print_str("\n");
         return 1;
     }
 
@@ -133,7 +118,6 @@ fn main() -> i64 {
             let bytes_read = net::read(client_fd, &mut req);
 
             let mut is_api_status: bool = false;
-            let mut is_health: bool = false;
 
             if req.len_bytes() >= 15 {
                 let p = req.slice_bytes(0, 15);
@@ -147,34 +131,14 @@ fn main() -> i64 {
                 }
             }
 
-            if req.len_bytes() >= 11 {
-                let p_health = req.slice_bytes(0, 11);
-                match p_health {
-                    Option::Some(prefix) => {
-                        if prefix.equals("GET /health") {
-                            is_health = true;
-                        }
-                    }
-                    Option::None => {}
-                }
-            }
-
             if is_api_status {
                 print_str("        --> Handling 200 OK /api/status (JSON)\n");
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nServer: Venta-Native-HTTP/1.0\r\nConnection: close\r\n\r\n";
-                let json_body = "{\"status\":\"online\",\"language\":\"Venta\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"compiler\":\"vanta-native-ssa\",\"backend\":\"System V AMD64\",\"safety\":\"100% Guaranteed\",\"features\":[\"Ownership & Borrow Checker\",\"Zero-Cost Abstractions\",\"SSA Optimizer\",\"Native Assembly Generator\",\"System V C ABI Interop\"]}\n";
-                net::write(client_fd, header);
-                net::write(client_fd, json_body);
-            } else if is_health {
-                print_str("        --> Handling 200 OK /health (JSON)\n");
-                let header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nServer: Venta-Native-HTTP/1.0\r\nConnection: close\r\n\r\n";
-                let json_body = "{\"status\":\"ok\",\"engine\":\"Venta-Native-HTTP/1.0\"}\n";
+                let json_body = "{\"status\":\"online\",\"language\":\"Venta\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"compiler\":\"vantac\",\"page_authored_in\":\"Pure Venta (www/page.va)\",\"safety\":\"100% Guaranteed Affine Borrow Safety\"}\n";
                 net::write(client_fd, header);
                 net::write(client_fd, json_body);
             } else {
-                print_str("        --> Handling 200 OK Showcase & Guide (HTML, ");
-                print_i64(html_body.len_bytes());
-                print_str(" bytes)\n");
+                print_str("        --> Handling 200 OK Showcase Web Page (HTML rendered from www/page.va)\n");
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nServer: Venta-Native-HTTP/1.0\r\nConnection: close\r\n\r\n";
                 net::write(client_fd, header);
                 net::write(client_fd, html_body.as_str());
@@ -191,6 +155,6 @@ fn main() -> i64 {
     }
 
     net::close(server_fd);
-    print_str("[Server] Server stopped.\n");
+    print_str("[Server] Server stopped cleanly.\n");
     0
 }
