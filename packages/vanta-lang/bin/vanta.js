@@ -21,6 +21,7 @@ function getCandidates() {
     path.join(home, '.local', 'bin', 'vanta'),
     path.join(PKG_ROOT, '..', '..', 'bin', 'vanta'),
     path.join(PKG_ROOT, '..', '..', 'target', 'release', 'vanta'),
+    path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'vanta'),
   ];
 }
 

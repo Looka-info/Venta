@@ -128,8 +128,26 @@ install_file() {
 }
 
 echo "--> Installing compiler binaries to ${BIN_DEST}..."
-install_file "${SRC_BIN}/vantac" "${BIN_DEST}/vantac" 0755
-install_file "${SRC_BIN}/vanta" "${BIN_DEST}/vanta" 0755
+if [ -f "${SRC_BIN}/vantac" ]; then
+    install_file "${SRC_BIN}/vantac" "${BIN_DEST}/vantac" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/vantac" ]; then
+    install_file "${SCRIPT_DIR}/../target/release/vantac" "${BIN_DEST}/vantac" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/vantac" ]; then
+    install_file "${SCRIPT_DIR}/../target/debug/vantac" "${BIN_DEST}/vantac" 0755
+else
+    echo "Error: vantac binary not found in ${SRC_BIN}"
+    exit 1
+fi
+
+if [ -f "${SRC_BIN}/vanta" ]; then
+    install_file "${SRC_BIN}/vanta" "${BIN_DEST}/vanta" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../bin/vanta" ]; then
+    install_file "${SCRIPT_DIR}/../bin/vanta" "${BIN_DEST}/vanta" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/vanta" ]; then
+    install_file "${SCRIPT_DIR}/../target/release/vanta" "${BIN_DEST}/vanta" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/vanta" ]; then
+    install_file "${SCRIPT_DIR}/../target/debug/vanta" "${BIN_DEST}/vanta" 0755
+fi
 
 echo "--> Installing native runtime archive to ${LIB_DEST}..."
 if [ -f "${SRC_LIB}/libvanta_rt.a" ]; then
@@ -162,8 +180,12 @@ echo ""
 echo "=========================================================="
 echo "  ⚡ Vanta Toolchain Installed Successfully!               "
 echo "=========================================================="
-echo "Compiler:   $(${BIN_DEST}/vantac --version)"
-echo "Self-Host:  $(${BIN_DEST}/vanta --version)"
+if [ -x "${BIN_DEST}/vantac" ]; then
+    echo "Compiler:   $(${BIN_DEST}/vantac --version 2>/dev/null || echo 'vantac installed')"
+fi
+if [ -x "${BIN_DEST}/vanta" ]; then
+    echo "Driver:     $(${BIN_DEST}/vanta --version 2>/dev/null || echo 'vanta installed')"
+fi
 echo "Location:   ${BIN_DEST}"
 
 # Check PATH

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 EVAL_DIR="/tmp/vanta_clean_eval_test"
 echo "=== Setting up clean evaluation directory: ${EVAL_DIR} ==="
 rm -rf "${EVAL_DIR}"
 mkdir -p "${EVAL_DIR}/archive" "${EVAL_DIR}/prefix" "${EVAL_DIR}/workspace"
 
 echo "=== Extracting release archive ==="
-tar -xzf /mnt/c/Users/mumer/OneDrive/Documents/Venta/dist/vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz -C "${EVAL_DIR}/archive"
+tar -xzf "${REPO_ROOT}/dist/vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz" -C "${EVAL_DIR}/archive"
 
 echo "=== Installing to isolated prefix ==="
 cd "${EVAL_DIR}/archive/vanta-v1.0-RC2-x86_64-unknown-linux-gnu"

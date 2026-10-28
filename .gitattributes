@@ -36,3 +36,4 @@ editors/** linguist-vendored
 # Documentation files
 docs/** linguist-documentation
 *.md linguist-documentation
+LICENSE* linguist-documentation

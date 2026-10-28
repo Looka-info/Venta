@@ -6,10 +6,11 @@
 
 [![CI Status](https://github.com/Looka-info/Venta/actions/workflows/release-validation.yml/badge.svg)](https://github.com/Looka-info/Venta/actions)
 [![Release Candidate](https://img.shields.io/badge/Release-v1.0--RC2-blue.svg)](https://github.com/Looka-info/Venta/releases)
-[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-green.svg)](LICENSE)
+[![NPM Package](https://img.shields.io/badge/npm-vanta--lang%401.0.0--rc.2-cb3837.svg?logo=npm)](https://www.npmjs.com/package/vanta-lang)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-green.svg)](LICENSE)
 [![Target Architecture](https://img.shields.io/badge/Target-Linux%20x86--64-orange.svg)](#)
-[![Backend](https://img.shields.io/badge/Backend-Pure%20Rust%20(No%20LLVM)-red.svg)](#)
-[![System V AMD64 ABI](https://img.shields.io/badge/ABI-System%20V%20AMD64-purple.svg)](#)
+[![Backend](https://img.shields.io/badge/Backend-Pure%20Rust%20%2B%20Pure%20Vanta-red.svg)](#)
+[![Language](https://img.shields.io/badge/Language-Vanta%20100%25-563d7c.svg)](#)
 
 ---
 
@@ -21,36 +22,45 @@
 
 ## 📖 Table of Contents
 
-- [Quick Installation](#-quick-installation)
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [14-Pass SSA Optimization Pipeline](#-14-pass-ssa-optimization-pipeline)
-- [Performance Benchmarks](#-performance-benchmarks)
+- [⚡ Quick Installation](#quick-installation)
+  - [Option 1: Via Node / NPM (Recommended)](#option-1-via-node-npm-recommended)
+  - [Option 2: Universal 1-Line Shell Installer (`curl | bash`)](#option-2-universal-1-line-shell-installer-curl-bash)
+  - [Option 3: Pre-built Release Tarball (GitHub Releases)](#option-3-pre-built-release-tarball-github-releases)
+  - [Option 4: Build from Source](#option-4-build-from-source)
+- [🚀 Overview](#overview)
+- [✨ Key Features](#key-features)
+- [🏗 System Architecture](#system-architecture)
+- [⚡ 14-Pass SSA Optimization Pipeline](#14-pass-ssa-optimization-pipeline)
+- [📊 Performance Benchmarks](#performance-benchmarks)
   - [Optimization Speedup Highlights](#optimization-speedup-highlights)
-  - [Compilation Speed & Binary Footprint Comparison](#compilation-speed--binary-footprint-comparison)
+  - [Compilation Speed & Binary Footprint Comparison](#compilation-speed-binary-footprint-comparison)
   - [Full Benchmark Execution Times](#full-benchmark-execution-times)
-- [Self-Hosted Native Compiler (`vanta_c.va`) & Backend (`backend.va`)](#-self-hosted-native-compiler-vanta_cva--backend-backendva)
-- [Language Tour & Examples](#-language-tour--examples)
+- [🛠 Self-Hosted Native Compiler & Modular Backend](#self-hosted-native-compiler-modular-backend)
+- [💻 Language Tour & Examples](#language-tour-examples)
   - [1. Ownership and Affine Borrowing](#1-ownership-and-affine-borrowing)
   - [2. Enums and Pattern Matching](#2-enums-and-pattern-matching)
   - [3. Traits and Zero-Cost Polymorphism](#3-traits-and-zero-cost-polymorphism)
   - [4. Standard Library and I/O](#4-standard-library-and-io)
-- [VS Code Editor Support](#-vs-code-editor-support)
-- [Command Line Interface (CLI)](#-command-line-interface-cli)
-- [Building and Testing](#-building-and-testing)
-- [Repository Structure](#-repository-structure)
-- [License](#-license)
+- [🎨 VS Code Editor Support](#vs-code-editor-support)
+- [🖥 Command Line Interface (CLI)](#command-line-interface-cli)
+- [🔨 Building and Testing](#building-and-testing)
+- [📁 Repository Structure](#repository-structure)
+- [📄 License](#license)
 
 ---
 
 ## ⚡ Quick Installation
 
-Vanta can be installed globally using **Node/NPM** or a **1-line shell script**:
+Vanta can be installed globally using **Node/NPM**, a **1-line shell script**, or from **GitHub Releases**:
 
 ### Option 1: Via Node / NPM (Recommended)
 ```bash
+# Install globally
 npm install -g vanta-lang
+
+# Verify compiler and toolchain
+vantac --version
+vanta --version
 ```
 Or run immediately without installing via `npx`:
 ```bash
@@ -59,7 +69,11 @@ npx vanta-lang --version
 
 ### Option 2: Universal 1-Line Shell Installer (`curl | bash`)
 ```bash
+# Install to default directory (~/.local/bin)
 curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash
+
+# Or specify a custom prefix:
+curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash -s -- --prefix /usr/local
 ```
 
 ### Option 3: Pre-built Release Tarball (GitHub Releases)
@@ -69,19 +83,27 @@ tar -xzf vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz
 cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
 ```
 
-For more options and custom prefixes, see the [Full Installation Guide](docs/installation.md).
+### Option 4: Build from Source
+```bash
+git clone https://github.com/Looka-info/Venta.git
+cd Venta
+cargo build --release --bin vantac --bin vanta
+./scripts/install.sh
+```
+
+For custom prefixes and uninstallation steps, see the [Full Installation Guide](docs/installation.md).
 
 ---
 
 ## 🚀 Overview
 
-**Vanta** is a modern systems programming language designed from first principles. Unlike most new programming languages that rely on LLVM or Cranelift, Vanta implements its **own end-to-end toolchain in pure Rust**:
+**Vanta** is a modern systems programming language designed from first principles. Unlike most new programming languages that rely on LLVM or Cranelift, Vanta implements its **own end-to-end toolchain in pure Rust and pure Vanta**:
 
 - **Custom Frontend**: Handcrafted recursive descent parser with precedence climbing, strict semantic type checking, and compile-time affine borrow checking.
 - **Mid-Level IR (MIR)**: Static Single Assignment (SSA) form with control flow graphs (CFGs), basic blocks, and explicit terminator semantics.
 - **14-Pass Optimizer**: Inlining, Global Value Numbering (GVN), Dead Code Elimination (DCE), Loop Invariant Code Motion (LICM), Scalar Replacement of Aggregates (SROA), Loop Unrolling, Loop Peeling, Instruction Scheduling, Tail-Call Optimization (TCO), and Trace-Scheduled Machine Code Layout.
 - **Zero-Dependency Native Backend**: Linear-scan physical register allocator, direct x86-64 machine instruction encoder, and pure-Rust ELF64 relocatable object file writer.
-- **Self-Hosting Compiler**: A native compiler written in 100% pure Vanta (`tools/self_host/vanta_c.va`) capable of compiling procedural Vanta code directly to System V AMD64 assembly.
+- **Modular Pure-Vanta Native Compiler**: A complete modular compiler and code generator written in 100% pure Vanta ([`compiler/`](compiler/) and [`tools/self_host/`](tools/self_host/)) capable of self-compilation to System V AMD64 assembly.
 
 ---
 
@@ -130,9 +152,9 @@ flowchart TD
 
 ## ⚡ 14-Pass SSA Optimization Pipeline
 
-Vanta features an aggressive, verifiable SSA optimization suite implemented in [`crates/vanta_mir/src/opt/`](file:///crates/vanta_mir/src/opt/):
+Vanta features an aggressive, verifiable SSA optimization suite implemented in [`crates/vanta_mir/src/opt/`](crates/vanta_mir/src/opt/):
 
-```
+```text
        [ MIR Lowering ]
               |
               v
@@ -163,11 +185,11 @@ Every pass can be enabled, disabled, or tuned via dedicated compiler CLI switche
 
 ## 📊 Performance Benchmarks
 
-All benchmark data below is independently reproduced and audited from the official test suite in [`benchmarks/results/milestone-25-release-audit.json`](file:///benchmarks/results/milestone-25-release-audit.json) run under controlled hardware isolation (AMD x86-64, Linux 6.6 kernel).
+All benchmark data below is independently reproduced and audited from the official test suite in [`benchmarks/results/milestone-25-release-audit.json`](benchmarks/results/milestone-25-release-audit.json) run under controlled hardware isolation (AMD x86-64, Linux 6.6 kernel).
 
 ### Optimization Speedup Highlights
 
-```
+```text
 =================================================================================================
  Optimization Pass Performance Multipliers (Vanta -O1 vs Vanta -O0)
 =================================================================================================
@@ -220,24 +242,24 @@ Vanta provides an exceptional balance of rapid iteration, compact executable foo
 
 ---
 
-## 🛠 Self-Hosted Native Compiler (`vanta_c.va`) & Backend (`backend.va`)
+## 🛠 Self-Hosted Native Compiler & Modular Backend
 
-Located in [`tools/self_host/vanta_c.va`](file:///tools/self_host/vanta_c.va) and [`tools/self_host/backend.va`](file:///tools/self_host/backend.va), this is a complete native compiler and modular code generation backend written **100% in pure Vanta**:
+Vanta includes a modular compiler toolchain written **100% in pure Vanta** ([`compiler/`](compiler/) and [`tools/self_host/`](tools/self_host/)):
 
 ```mermaid
 flowchart LR
     subgraph Bootstrap ["Stage 0: Bootstrap Compiler"]
         RUST["Rust Reference Compiler (vantac)"]
-        VA_SRC["tools/self_host/vanta_c.va"]
-        VA_BACKEND["tools/self_host/backend.va"]
+        VA_SRC["compiler/main.va"]
+        VA_BACKEND["compiler/backend.va"]
         RUST -->|Compiles| VA_SRC
         VA_BACKEND -.->|Modular Import| VA_SRC
-        VA_SRC -->|Produces| S1_BIN["Stage 1 Compiler Binary (vanta_c_bin)"]
+        VA_SRC -->|Produces| S1_BIN["Stage 1 Native Binary (bin/vanta)"]
     end
 
     subgraph NativePipeline ["Stage 1: Pure Vanta Native Backend Pipeline"]
         S1_BIN -->|Parses AST & Symbols| FRONT["Compiler Frontend"]
-        FRONT -->|Delegates to| BACKEND["Vanta-C Native Backend (backend.va)"]
+        FRONT -->|Delegates to| BACKEND["Native Backend (backend.va)"]
         BACKEND -->|FrameLayout (16-Byte Align)| STACK["System V AMD64 Stack Manager"]
         BACKEND -->|BackendEmitter| ASM["Valid System V AMD64 Assembly (.s)"]
         ASM -->|gcc -no-pie| PROG["Native Standalone Linux Executables"]
@@ -251,7 +273,7 @@ flowchart LR
 - **Machine Code & ELF64 Reference:** Pure Vanta encoding helpers for x86-64 REX prefix bytes, ModR/M addressing bytes, SIB bytes, and ELF64 header metadata.
 
 ### Verified Test Suite:
-Run via [`scripts/test_self_hosted_compiler.sh`](file:///scripts/test_self_hosted_compiler.sh):
+Run via [`scripts/test_self_hosted_compiler.sh`](scripts/test_self_hosted_compiler.sh):
 - `backend_test.va`: Pure Vanta native backend unit tests (**PASS**, exit `100`)
 - `01_return_42.va`: Basic exit code return (**PASS**, exit `42`)
 - `02_arithmetic.va`: Binary expressions & parentheses (**PASS**, exit `40`)
@@ -271,7 +293,7 @@ Run via [`scripts/test_self_hosted_compiler.sh`](file:///scripts/test_self_hoste
 ### 1. Ownership and Affine Borrowing
 Vanta strictly enforces ownership rules at compile time:
 
-```vanta
+```rust
 struct Buffer {
     capacity: i64,
     size: i64,
@@ -302,7 +324,7 @@ fn main() -> i64 {
 ### 2. Enums and Pattern Matching
 Algebraic Data Types with payload support:
 
-```vanta
+```rust
 import std::option::Option;
 
 enum ResultStatus {
@@ -328,7 +350,7 @@ fn evaluate(res: ResultStatus) -> i64 {
 
 ### 3. Traits and Zero-Cost Polymorphism
 
-```vanta
+```rust
 trait Formatter {
     fn format(self: &Self) -> i64;
 }
@@ -346,7 +368,7 @@ impl Formatter for Metric {
 
 ### 4. Standard Library and I/O
 
-```vanta
+```rust
 import std::fs;
 import std::io;
 import std::string::String;
@@ -381,9 +403,22 @@ fn main() -> i64 {
 
 ---
 
-## 💻 Command Line Interface (CLI)
+## 🎨 VS Code Editor Support
 
-The `vanta` driver provides a unified interface for checking, compiling, and running code:
+Official syntax highlighting and language configuration for Vanta (`.va`, `.vanta` files) is located in [`editors/vscode/`](editors/vscode/):
+
+- **Full TextMate Grammar**: Covers keywords (`fn`, `let`, `mut`, `struct`, `enum`, `trait`, `impl`, `match`), types, lifetimes, numbers, strings, and operators.
+- **Language Configuration**: Auto-closing brackets, braces, and line comments (`//`, `/* */`).
+- **One-Command Installation**:
+  ```bash
+  cp -r editors/vscode ~/.vscode/extensions/vanta-vscode
+  ```
+
+---
+
+## 🖥 Command Line Interface (CLI)
+
+The `vanta` driver and `vantac` compiler provide a unified interface for checking, compiling, and running code:
 
 ```bash
 # Type check and borrow check without compiling (ultra fast)
@@ -411,8 +446,9 @@ vantac src/main.va -O1 --no-licm --no-tco --unroll-factor=4 -o my_app
 - **Rust Toolchain**: 1.80+ (pinned to 1.93.1 in `rust-toolchain.toml`)
 - **GCC**: standard C toolchain for linking (`gcc`, `ar`, `make`)
 - **Python 3**: for version validation and benchmark harnesses
+- **Node.js**: 16.0+ (optional, for `vanta-lang` NPM package)
 
-### Build from Source
+### Build and Test Commands
 ```bash
 # Clone the repository
 git clone https://github.com/Looka-info/Venta.git
@@ -421,7 +457,7 @@ cd Venta
 # Build compiler binaries in release mode
 cargo build --release --bin vantac --bin vanta
 
-# Run full workspace test suite (150+ tests)
+# Run full workspace test suite (148 tests)
 cargo test --workspace
 
 # Run specialized ABI and differential tests
@@ -429,8 +465,14 @@ cargo test --test abi_tests
 cargo test --test differential_tests
 cargo test --test version_gate_tests
 
-# Run self-hosted compiler test suite (9 native tests)
+# Run self-hosted compiler test suite (10 tests + backend unit test)
 ./scripts/test_self_hosted_compiler.sh
+
+# Build pure Vanta self-hosted compiler binary (bin/vanta)
+./scripts/build_self_hosted_compiler.sh
+
+# Run clean-prefix evaluation and packaging tests
+./scripts/run_clean_evaluation.sh
 
 # Build distribution release package
 ./scripts/package_release.sh
@@ -440,7 +482,7 @@ cargo test --test version_gate_tests
 
 ## 📁 Repository Structure
 
-```
+```text
 Venta/
 ├── Cargo.toml                       # Virtual workspace root
 ├── package.json                     # NPM distribution manifest (vanta-lang)
@@ -489,7 +531,7 @@ Venta/
 ## 📄 License
 
 Vanta is dual-licensed under either:
-- **MIT License** ([LICENSE-MIT](LICENSE) or http://opensource.org/licenses/MIT)
-- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE) or http://www.apache.org/licenses/LICENSE-2.0)
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or [LICENSE](LICENSE))
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 
 at your option.

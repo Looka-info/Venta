@@ -32,18 +32,24 @@ function ensureDir(dir) {
 
 function findLocalBinaries() {
   const repoRoot = path.resolve(PKG_ROOT, '../..');
-  const candidates = [
+  const dirs = [
+    path.join(repoRoot, 'dist', `vanta-${VERSION}-x86_64-unknown-linux-gnu`, 'bin'),
     path.join(repoRoot, 'dist', `vanta-${VERSION}-x86_64-unknown-linux-gnu`),
     path.join(repoRoot, 'target', 'release'),
+    path.join(repoRoot, 'target', 'debug'),
     path.join(repoRoot, 'bin'),
   ];
 
-  for (const c of candidates) {
-    const vantac = path.join(c, 'vantac');
-    const vanta = path.join(c, 'vanta');
-    if (fs.existsSync(vantac) && fs.existsSync(vanta)) {
-      return { dir: c, vantac, vanta };
-    }
+  let vantac = null;
+  let vanta = null;
+
+  for (const d of dirs) {
+    if (!vantac && fs.existsSync(path.join(d, 'vantac'))) vantac = path.join(d, 'vantac');
+    if (!vanta && fs.existsSync(path.join(d, 'vanta'))) vanta = path.join(d, 'vanta');
+  }
+
+  if (vantac && vanta) {
+    return { dir: path.dirname(vantac), vantac, vanta };
   }
   return null;
 }
