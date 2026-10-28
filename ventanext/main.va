@@ -1,0 +1,62 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Application Entry Point
+// Run with: vanta run ventanext/main.va [--port 3000] [--once]
+// Or build: vantac ventanext/main.va -o ventanext/app && ./ventanext/app
+// ============================================================================
+
+mod http;
+mod router;
+mod ssr;
+mod middleware;
+mod server;
+
+import server::run_server;
+import std::env;
+import std::result::Result;
+
+fn print_usage() {
+    print_str("Usage: vanta run ventanext/main.va [options]\n\n");
+    print_str("Options:\n");
+    print_str("  --port <p>      Port to listen on (default: 3000, Next.js standard)\n");
+    print_str("  --once          Serve single HTTP request and exit (headless testing)\n");
+    print_str("  -h, --help      Display this help dialog\n");
+}
+
+fn main() -> i64 {
+    let mut port: i64 = 3000;
+    let mut serve_once: bool = false;
+
+    let args_res = env::args();
+    match args_res {
+        Result::Ok(args) => {
+            let mut i: i64 = 1;
+            while i < args.len() {
+                let arg = args[i].clone();
+                if arg.equals("-h") || arg.equals("--help") {
+                    print_usage();
+                    return 0;
+                }
+                if arg.equals("--once") {
+                    serve_once = true;
+                }
+                if (arg.equals("--port") || arg.equals("-p")) && (i + 1 < args.len()) {
+                    let next_arg = args[i + 1].clone();
+                    if next_arg.equals("3000") {
+                        port = 3000;
+                    } else if next_arg.equals("8080") {
+                        port = 8080;
+                    } else if next_arg.equals("8000") {
+                        port = 8000;
+                    } else if next_arg.equals("9000") {
+                        port = 9000;
+                    }
+                    i = i + 1;
+                }
+                i = i + 1;
+            }
+        }
+        Result::Err(_) => {}
+    }
+
+    run_server(port, serve_once)
+}

@@ -1,0 +1,48 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Middleware Pipeline
+// Global middleware: Logging, CORS, Security Headers, and Preflight Handling
+// ============================================================================
+
+import http::{Request, Response, add_header};
+import std::string::String;
+
+pub fn apply_security_headers(resp: &mut Response) {
+    add_header(resp, "X-Content-Type-Options", "nosniff");
+    add_header(resp, "X-Frame-Options", "SAMEORIGIN");
+    add_header(resp, "X-XSS-Protection", "1; mode=block");
+    add_header(resp, "Referrer-Policy", "strict-origin-when-cross-origin");
+}
+
+pub fn apply_cors_headers(resp: &mut Response) {
+    add_header(resp, "Access-Control-Allow-Origin", "*");
+    add_header(resp, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    add_header(resp, "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+}
+
+pub fn handle_options_preflight() -> Response {
+    let mut resp = http::make_response(204, "text/plain", "");
+    apply_cors_headers(&mut resp);
+    add_header(&mut resp, "Access-Control-Max-Age", "86400");
+    resp
+}
+
+pub fn log_request(req_id: i64, req: &Request, resp: &Response) {
+    print_str("[VentaNext #");
+    print_i64(req_id);
+    print_str("] ");
+    print_str(req.method.as_str());
+    print_str(" ");
+    print_str(req.path.as_str());
+    if req.query.len_bytes() > 0 {
+        print_str("?");
+        print_str(req.query.as_str());
+    }
+    print_str(" -> ");
+    print_i64(resp.status);
+    print_str(" ");
+    let reason = http::status_reason(resp.status);
+    print_str(reason.as_str());
+    print_str(" (");
+    print_i64(resp.body.len_bytes());
+    print_str(" bytes)\n");
+}

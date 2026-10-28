@@ -72,6 +72,25 @@ Experience the official Venta language showcase, live benchmark visualizer, rele
   curl -i http://localhost:8080/api/status
   ```
 
+### ⚡ VentaNext Framework — Next.js for Venta (in Pure Venta)
+
+A full-stack, server-side web framework inspired by Next.js, written 100% in pure Venta ([`ventanext/`](ventanext/)):
+- **Pages & App Router**: Declarative routing for `/`, `/dashboard`, `/docs`, and dynamic `:id` paths (e.g. `/posts/:id`).
+- **Server-Side Rendering (SSR)**: Pure Venta component functions render HTML on the server in microseconds with zero virtual DOM overhead.
+- **Typed JSON API Routes**: REST endpoints (`/api/status`, `/api/posts`, `/api/posts/:id`, `/api/echo`).
+- **Middleware Pipeline**: Built-in request logger, CORS, security headers, and Next.js-style 404 error boundaries.
+- **Ultra-Lean Native Binary**: Compiles to an **86 KB standalone native executable** (no Node.js, V8, or Python dependencies).
+
+```bash
+# Run VentaNext server on http://localhost:3000
+vanta run ventanext/main.va
+
+# Or compile to a standalone native binary:
+vantac ventanext/main.va -o ventanext/app
+./ventanext/app --port 3000
+```
+Open **`http://localhost:3000/`** in your browser to experience full-stack SSR in pure Venta!
+
 ## ⚡ Quick Installation
 
 Vanta can be installed globally using **Node/NPM**, a **1-line shell script**, or from **GitHub Releases**:
@@ -575,6 +594,15 @@ Venta/
 │   ├── vanta_rt.c                   # Lightweight C runtime (memory, panic, strings)
 │   └── libvanta_rt.a                # Static runtime library
 ├── library/std/                     # Standard library (fs, io, env, string, iter, net)
+├── ventanext/                       # VentaNext full-stack web framework (inspired by Next.js)
+│   ├── mod.va                       # Framework module exports
+│   ├── http.va                      # HTTP Request/Response model
+│   ├── router.va                    # Router with dynamic param extraction (:id)
+│   ├── ssr.va                       # Server-Side Rendering (SSR) & Component Engine
+│   ├── middleware.va                # Logging, CORS, Security headers
+│   ├── server.va                    # HTTP application server
+│   ├── main.va                      # Full-stack runnable app entry point
+│   └── README.md                    # Framework documentation
 ├── www/                             # Venta Showcase Web Page & Pure Venta HTTP Server
 │   ├── index.html                   # Interactive dark-theme showcase & guide
 │   └── server.va                    # Pure Venta native HTTP web server

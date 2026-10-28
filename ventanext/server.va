@@ -1,0 +1,179 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Server Application Engine
+// Connection lifecycle, route dispatching, middleware execution, and event loop
+// ============================================================================
+
+import http::{Request, Response, parse_http_request, response_html, response_json, response_not_found, to_wire_format};
+import router::{path_equals, match_dynamic_route};
+import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
+import ssr::{render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page, render_404_page};
+
+import std::net;
+import std::string::String;
+import std::option::Option;
+
+pub fn print_server_banner(port: i64) {
+    print_str("\n====================================================================\n");
+    print_str("   ⚡ VentaNext Framework — Full-Stack Server-Side Engine           \n");
+    print_str("   Inspired by Next.js • Written 100% in Pure Venta Language        \n");
+    print_str("====================================================================\n");
+    print_str("   Architecture: System V AMD64 Native Machine Code (No LLVM)       \n");
+    print_str("   Environment:  Production (v1.0-RC2 Runtime)                      \n");
+    print_str("   TCP Port:     ");
+    print_i64(port);
+    print_str("\n");
+    print_str("   Listening:    http://127.0.0.1:");
+    print_i64(port);
+    print_str("/\n");
+    print_str("====================================================================\n");
+    print_str("   Available Routes:\n");
+    print_str("     - GET  /              -> Home Page (SSR)\n");
+    print_str("     - GET  /dashboard     -> Live Telemetry Dashboard (SSR)\n");
+    print_str("     - GET  /docs          -> Framework Documentation (SSR)\n");
+    print_str("     - GET  /posts/:id     -> Dynamic Post Detail (SSR Param)\n");
+    print_str("     - GET  /api/status    -> System Diagnostics (JSON API)\n");
+    print_str("     - GET  /api/posts     -> Posts Collection (JSON API)\n");
+    print_str("     - GET  /api/posts/:id -> Entity Lookup (JSON API Param)\n");
+    print_str("     - POST /api/echo      -> Payload Reflection (JSON API)\n");
+    print_str("====================================================================\n\n");
+}
+
+pub fn dispatch_request(req: &mut Request) -> Response {
+    let method = req.method.as_str();
+    let path = req.path.as_str();
+
+    // 1. Handle HTTP OPTIONS Preflight
+    if method.equals("OPTIONS") {
+        return handle_options_preflight();
+    }
+
+    // 2. Exact Page Routes (SSR)
+    if method.equals("GET") {
+        if path_equals(path, "/") {
+            let html = render_home_page();
+            return response_html(html.as_str());
+        }
+        if path_equals(path, "/dashboard") {
+            let html = render_dashboard_page();
+            return response_html(html.as_str());
+        }
+        if path_equals(path, "/docs") {
+            let html = render_docs_page();
+            return response_html(html.as_str());
+        }
+
+        // 3. Dynamic Page Route: /posts/:id
+        let post_param = match_dynamic_route(path, "/posts/");
+        match post_param {
+            Option::Some(id_str) => {
+                req.param_name = String::from_str("id");
+                req.param_value = id_str.clone();
+                let html = render_post_detail_page(id_str.as_str());
+                return response_html(html.as_str());
+            }
+            Option::None => {}
+        }
+
+        // 4. API Routes (JSON)
+        if path_equals(path, "/api/status") {
+            let json = "{\"framework\":\"VentaNext\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"status\":\"operational\",\"memory_safety\":\"guaranteed\",\"features\":[\"File Routing\",\"Dynamic Params (:id)\",\"SSR Components\",\"Middleware Pipeline\",\"Typed API Routes\"]}\n";
+            return response_json(json);
+        }
+
+        if path_equals(path, "/api/posts") {
+            let json = "{\"posts\":[{\"id\":\"1\",\"title\":\"Introducing VentaNext\",\"author\":\"Antigravity\"},{\"id\":\"2\",\"title\":\"Server-Side Rendering at 60 MB/s\",\"author\":\"Looka\"},{\"id\":\"3\",\"title\":\"Affine Borrowing in Web Backends\",\"author\":\"Venta Team\"}]}\n";
+            return response_json(json);
+        }
+
+        // Dynamic API Route: /api/posts/:id
+        let api_post_param = match_dynamic_route(path, "/api/posts/");
+        match api_post_param {
+            Option::Some(id_str) => {
+                let mut json = String::from_str("{\"id\":\"");
+                json.push_str(id_str.as_str());
+                json.push_str("\",\"title\":\"Dynamic Post #");
+                json.push_str(id_str.as_str());
+                json.push_str("\",\"body\":\"Fetched dynamically via VentaNext API route.\",\"framework\":\"VentaNext\"}\n");
+                return response_json(json.as_str());
+            }
+            Option::None => {}
+        }
+    }
+
+    // 5. POST API Routes
+    if method.equals("POST") {
+        if path_equals(path, "/api/echo") {
+            let mut json = String::from_str("{\"status\":\"received\",\"method\":\"POST\",\"echo_payload\":");
+            if req.body.is_empty() {
+                json.push_str("null");
+            } else {
+                json.push_str("\"");
+                json.push_str(req.body.as_str());
+                json.push_str("\"");
+            }
+            json.push_str("}\n");
+            return response_json(json.as_str());
+        }
+    }
+
+    // 6. Default 404 Fallback Page (SSR)
+    let not_found_html = render_404_page(path);
+    response_not_found(not_found_html.as_str())
+}
+
+pub fn run_server(port: i64, serve_once: bool) -> i64 {
+    print_server_banner(port);
+
+    let server_fd = net::listen(port);
+    if server_fd < 0 {
+        print_str("[VentaNext] Error: Failed to bind TCP listener on port ");
+        print_i64(port);
+        print_str(" (error code: ");
+        print_i64(server_fd);
+        print_str(")\n");
+        return 1;
+    }
+
+    print_str("[VentaNext] Server active and accepting connections...\n\n");
+
+    let mut running: bool = true;
+    let mut req_counter: i64 = 0;
+
+    while running {
+        let client_fd = net::accept(server_fd);
+        if client_fd < 0 {
+            print_str("[VentaNext] Warning: Connection accept error\n");
+        } else {
+            req_counter = req_counter + 1;
+
+            let mut raw_buf = String::new();
+            let bytes_read = net::read(client_fd, &mut raw_buf);
+
+            if bytes_read > 0 {
+                let mut req = parse_http_request(raw_buf.as_str());
+                let mut resp = dispatch_request(&mut req);
+
+                // Execute Middleware Pipeline
+                apply_security_headers(&mut resp);
+                apply_cors_headers(&mut resp);
+
+                let wire = to_wire_format(&resp);
+                net::write(client_fd, wire.as_str());
+
+                // Log request through middleware logger
+                log_request(req_counter, &req, &resp);
+            }
+
+            net::close(client_fd);
+
+            if serve_once {
+                print_str("[VentaNext] --once flag received. Terminating server loop.\n");
+                running = false;
+            }
+        }
+    }
+
+    net::close(server_fd);
+    print_str("[VentaNext] Server gracefully stopped.\n");
+    0
+}

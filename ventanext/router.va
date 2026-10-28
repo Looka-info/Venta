@@ -1,0 +1,49 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Next.js-Style Router
+// Route pattern matching, dynamic parameter extraction (:id, :slug), and dispatch
+// ============================================================================
+
+import std::string::String;
+import std::option::Option;
+
+pub fn path_equals(path: &str, expected: &str) -> bool {
+    path.equals(expected)
+}
+
+pub fn is_api_route(path: &str) -> bool {
+    if path.len() >= 5 {
+        let p_opt = path.slice_bytes(0, 5);
+        match p_opt {
+            Option::Some(p) => {
+                return p.equals("/api/");
+            }
+            Option::None => {}
+        }
+    }
+    false
+}
+
+pub fn match_dynamic_route(path: &str, prefix: &str) -> Option<String> {
+    let p_len = prefix.len();
+    let path_len = path.len();
+    if path_len <= p_len {
+        return Option::None;
+    }
+
+    let sub_opt = path.slice_bytes(0, p_len);
+    match sub_opt {
+        Option::Some(p) => {
+            if p.equals(prefix) {
+                let val_opt = path.slice_bytes(p_len, path_len);
+                match val_opt {
+                    Option::Some(val) => {
+                        return Option::Some(String::from_str(val));
+                    }
+                    Option::None => {}
+                }
+            }
+        }
+        Option::None => {}
+    }
+    Option::None
+}

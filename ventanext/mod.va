@@ -1,0 +1,10 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Main Module
+// Full-stack Next.js-style web framework for the Venta programming language
+// ============================================================================
+
+pub mod http;
+pub mod router;
+pub mod ssr;
+pub mod middleware;
+pub mod server;
