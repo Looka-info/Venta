@@ -5,7 +5,7 @@
 ### Vanta v1.0-RC2 (Current Candidate)
 | File Name | File Size | SHA-256 Checksum | Purpose |
 |:---|:---:|:---|:---|
-| `vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `0e5be3e64886811e6400aeb6da5f81c46c678d66eb06f38f9fe2e9d348d4931e` | Primary release tarball (binaries, runtime, std, examples, scripts) |
+| `vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz` | ~2.18 MB | `8b5e51840616cf6ef3f0d5cfc31f3d75520330852fdd4379acbb83001c211edb` | Primary release tarball (binaries, runtime, std, examples, scripts) |
 | `vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz.sha256` | 113 B | N/A (Contains hash line) | Standard SHA-256 hash manifest |
 
 ### Vanta v1.0-RC1 (Superseded)

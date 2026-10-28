@@ -1,0 +1,9 @@
+fn main() -> i64 {
+    let a = 100;
+    let b = 20;
+    let c = 5;
+    let d = 2;
+    let res1 = a - b * c + d;
+    let res2 = (a - b) / (c * d);
+    return res1 * 10 + res2;
+}

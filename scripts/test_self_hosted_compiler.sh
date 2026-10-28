@@ -44,6 +44,10 @@ run_test "02_arithmetic" 40
 run_test "03_while_loop" 55
 run_test "04_if_else" 10
 run_test "05_fibonacci" 55
+run_test "06_call_6_args" 21
+run_test "07_comparisons" 63
+run_test "08_nested_loops" 60
+run_test "09_operator_precedence" 28
 
 echo ""
 echo "=========================================================="

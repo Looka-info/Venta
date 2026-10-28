@@ -14,14 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Status**: Formally certified and approved for General Availability following Milestone 27 evaluation and release gate audit.
 - **Scope**: Verified on Linux x86-64, System V AMD64 ABI compliant, custom 14-pass SSA optimizer, pure Rust x86-64 instruction encoder and ELF64 object writer.
 
-## [1.0.0-rc.2] - 2026-10-28
+## [1.0.0-rc.2] - 2026-10-28 (Milestone 28 Hardening)
 
 **Release Candidate 2 for Linux x86-64**
 
 ### Fixed
+- **CI Version Gate Repair**: Fixed a build-blocking failure in `.github/workflows/release-validation.yml` where a hardcoded string check (`1.0.0-rc.1`) and brittle `.packages[0].version` metadata selector rejected release candidate 2 (`1.0.0-rc.2`).
+- **Dynamic Release Artifact Parameterization**: Configured the workflow to dynamically derive archive filenames and checksum manifests from verified SemVer metadata.
 - **CLI Driver Option Parsing**: Resolved an issue where `vanta check <file> --json` and `vanta compile <file> --json` rejected `--json` as an unknown option. Direct `--json`, `--diagnostics=json`, and `--format=json` are now accepted across all subcommands (`run`, `compile`, `check`) in both `vanta` and `vantac`.
 - **Diagnostic Output Formatting**: Ensured structured JSON output containing exact diagnostic error codes, spans, and `success` boolean statuses is emitted directly to stdout.
-- **Automated Regression Testing**: Added `test_cli_json_diagnostics_support` to prevent future regressions.
+
+### Added
+- **Version Consistency Verifier**: Added `scripts/verify_version_consistency.py` validating that all 9 workspace crates have synchronized versions conforming to SemVer 2.0.0 release candidate (`1.0.0-rc.N`) or GA (`1.0.0`) formats.
+- **Version Gate Regression Suite**: Added unit test suite `scripts/test_version_validation.py` (8 test cases) and integration test `crates/vanta_driver/tests/version_gate_tests.rs`.
+- **Self-Hosted Compiler Verification & Hardening**:
+  - Audited the Stage 0 -> Stage 1 bootstrap chain for `tools/self_host/vanta_c.va`.
+  - Expanded test coverage from 5 to 9 native programs (adding 6-argument System V ABI calls, all comparison operators, nested loops, and operator precedence).
+  - Published comprehensive milestone report in `docs/m28-verification-report.md`.
 
 ### Documentation
 - Updated Evaluation Guide ([`docs/external-evaluation.md`](file:///docs/external-evaluation.md)) to accurately specify error detection schemas for `--json`.

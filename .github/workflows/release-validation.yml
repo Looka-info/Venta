@@ -53,12 +53,7 @@ jobs:
 
       - name: Verify Version Consistency
         run: |
-          CARGO_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          echo "Cargo workspace version: ${CARGO_VER}"
-          if [[ "${CARGO_VER}" != "1.0.0-rc.1" ]]; then
-            echo "Error: Unexpected workspace version: ${CARGO_VER}"
-            exit 1
-          fi
+          python3 scripts/verify_version_consistency.py --github-env --github-output
 
       - name: Run Full Workspace Tests
         run: cargo test --workspace --verbose
@@ -68,9 +63,10 @@ jobs:
           cargo test --test abi_tests
           cargo test --test differential_tests
           cargo test --test fuzz_tests
+          cargo test --test version_gate_tests
 
       - name: Build Release Package Archive
-        run: bash scripts/package_release.sh
+        run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}"
 
       - name: Run Clean-Prefix Packaging Tests
         run: cargo test --test packaging_tests
@@ -78,14 +74,14 @@ jobs:
       - name: Verify Cryptographic Checksum
         run: |
           cd dist
-          sha256sum -c vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256
+          sha256sum -c "${VANTA_CHECKSUM_FILE}"
 
       - name: Upload Release Candidate Artifacts
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: vanta-v1.0-RC1-x86_64-unknown-linux-gnu
+          name: ${{ env.VANTA_ARCHIVE_NAME }}
           path: |
-            dist/vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz
-            dist/vanta-v1.0-RC1-x86_64-unknown-linux-gnu.tar.gz.sha256
+            dist/${{ env.VANTA_TARBALL }}
+            dist/${{ env.VANTA_CHECKSUM_FILE }}
           retention-days: 14
