@@ -355,6 +355,9 @@ impl CompilerSession {
     }
 
     fn build_cached_runtime_archive() -> Result<PathBuf, String> {
+        static BUILD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = BUILD_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+
         let repo_rt_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
         let target_archive = if repo_rt_dir.is_dir() {
             repo_rt_dir.join("libvanta_rt.a")
@@ -368,10 +371,11 @@ impl CompilerSession {
             return Ok(target_archive);
         }
 
-        let temp_c = target_archive.with_extension("c");
+        let pid = std::process::id();
+        let temp_c = std::env::temp_dir().join(format!("vanta_rt_{}.c", pid));
         fs::write(&temp_c, RUNTIME_C)
             .map_err(|e| format!("Failed to write runtime source: {}", e))?;
-        let temp_o = target_archive.with_extension("o");
+        let temp_o = std::env::temp_dir().join(format!("vanta_rt_{}.o", pid));
 
         let gcc_status = Command::new("gcc")
             .arg("-c")

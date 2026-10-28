@@ -51,6 +51,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Pre-build Static Runtime Library
+        run: |
+          gcc -c -O2 -fPIC runtime/vanta_rt.c -o runtime/vanta_rt.o
+          ar rcs runtime/libvanta_rt.a runtime/vanta_rt.o
+          rm -f runtime/vanta_rt.o
+
       - name: Verify Version Consistency
         run: |
           python3 scripts/verify_version_consistency.py --github-env --github-output
