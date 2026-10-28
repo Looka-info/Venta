@@ -8,6 +8,10 @@
     "vantac": "packages/vanta-lang/bin/vantac.js"
   },
   "scripts": {
+    "start": "node packages/vanta-lang/bin/vanta.js run www/server.va",
+    "serve": "node packages/vanta-lang/bin/vanta.js run www/server.va",
+    "page": "node packages/vanta-lang/bin/vanta.js run www/main.va",
+    "ventanext": "node packages/vanta-lang/bin/vanta.js run ventanext/main.va",
     "postinstall": "node packages/vanta-lang/scripts/install-binary.js",
     "test": "node packages/vanta-lang/bin/vanta.js --version"
   },

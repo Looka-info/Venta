@@ -19,9 +19,9 @@ function getCandidates() {
     path.join(PKG_ROOT, 'dist', 'vanta'),
     path.join(home, '.vanta', 'bin', 'vanta'),
     path.join(home, '.local', 'bin', 'vanta'),
-    path.join(PKG_ROOT, '..', '..', 'bin', 'vanta'),
     path.join(PKG_ROOT, '..', '..', 'target', 'release', 'vanta'),
     path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'vanta'),
+    path.join(PKG_ROOT, '..', '..', 'bin', 'vanta'),
   ];
 }
 
@@ -34,15 +34,29 @@ function findBinary() {
   return null;
 }
 
+function toWslPath(p) {
+  if (typeof p !== 'string') return p;
+  return p
+    .replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`)
+    .replace(/\\/g, '/');
+}
+
 const nativeBin = findBinary();
 
 if (process.platform === 'win32') {
   // On Windows, invoke the ELF binary via WSL
-  const wslBin = nativeBin 
-    ? nativeBin.replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`).replace(/\\/g, '/')
-    : 'vanta';
+  const wslBin = nativeBin ? toWslPath(nativeBin) : 'vanta';
+  
+  // Convert any path arguments with Windows backslashes to WSL-compatible forward slashes
+  const convertedArgs = process.argv.slice(2).map(arg => {
+    // If it looks like a path or file, convert backslashes
+    if (arg.includes('\\') || /^[A-Za-z]:/.test(arg)) {
+      return toWslPath(arg);
+    }
+    return arg;
+  });
 
-  const child = spawn('wsl', [wslBin, ...process.argv.slice(2)], { stdio: 'inherit' });
+  const child = spawn('wsl', [wslBin, ...convertedArgs], { stdio: 'inherit' });
   child.on('close', (code) => process.exit(code === null ? 1 : code));
   child.on('error', (err) => {
     console.error(`Failed to invoke WSL for Vanta: ${err.message}`);

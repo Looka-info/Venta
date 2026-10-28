@@ -33,15 +33,27 @@ function findBinary() {
   return null;
 }
 
+function toWslPath(p) {
+  if (typeof p !== 'string') return p;
+  return p
+    .replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`)
+    .replace(/\\/g, '/');
+}
+
 const nativeBin = findBinary();
 
 if (process.platform === 'win32') {
   // On Windows, invoke the ELF binary via WSL
-  const wslBin = nativeBin 
-    ? nativeBin.replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`).replace(/\\/g, '/')
-    : 'vantac';
+  const wslBin = nativeBin ? toWslPath(nativeBin) : 'vantac';
 
-  const child = spawn('wsl', [wslBin, ...process.argv.slice(2)], { stdio: 'inherit' });
+  const convertedArgs = process.argv.slice(2).map(arg => {
+    if (arg.includes('\\') || /^[A-Za-z]:/.test(arg)) {
+      return toWslPath(arg);
+    }
+    return arg;
+  });
+
+  const child = spawn('wsl', [wslBin, ...convertedArgs], { stdio: 'inherit' });
   child.on('close', (code) => process.exit(code === null ? 1 : code));
   child.on('error', (err) => {
     console.error(`Failed to invoke WSL for vantac: ${err.message}`);
