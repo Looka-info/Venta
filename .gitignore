@@ -16,4 +16,5 @@ __pycache__/
 tools/self_host/*_bin
 tools/self_host/tests/*.s
 tools/self_host/tests/*_bin
+ventanext/app
 
