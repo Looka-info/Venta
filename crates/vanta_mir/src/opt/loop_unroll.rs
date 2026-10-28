@@ -279,6 +279,37 @@ impl LoopUnrolling {
             return false;
         }
 
+        // Identify side-exit blocks (e.g. bounds check fail blocks) reached from within the loop body
+        let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        for &b_id in &body_block_ids {
+            if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
+                if let Some(term) = &b.terminator {
+                    match term {
+                        Terminator::Branch(t) => {
+                            if !loop_info.blocks.contains(t) && *t != exit_block_id && !side_exit_blocks.contains(t) {
+                                side_exit_blocks.push(*t);
+                            }
+                        }
+                        Terminator::CondBranch { then_block, else_block, .. } => {
+                            if !loop_info.blocks.contains(then_block) && *then_block != exit_block_id && !side_exit_blocks.contains(then_block) {
+                                side_exit_blocks.push(*then_block);
+                            }
+                            if !loop_info.blocks.contains(else_block) && *else_block != exit_block_id && !side_exit_blocks.contains(else_block) {
+                                side_exit_blocks.push(*else_block);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // All blocks to duplicate for each iteration (preserving topological order of func.blocks)
+        let unroll_block_ids: Vec<BlockId> = func.blocks.iter()
+            .map(|b| b.id)
+            .filter(|b_id| body_block_ids.contains(b_id) || side_exit_blocks.contains(b_id))
+            .collect();
+
         let mut next_val_id = func.max_value_id() + 1;
         let mut next_block_id = func.max_block_id() + 1;
 
@@ -302,13 +333,13 @@ impl LoopUnrolling {
             }
 
             let mut iter_block_map: HashMap<BlockId, BlockId> = HashMap::new();
-            for &b in &body_block_ids {
+            for &b in &unroll_block_ids {
                 iter_block_map.insert(b, BlockId(next_block_id));
                 next_block_id += 1;
             }
 
             // Assign fresh ValueIds
-            for &b_id in &body_block_ids {
+            for &b_id in &unroll_block_ids {
                 let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
                 for inst in &orig_b.instructions {
                     match inst {
@@ -356,7 +387,7 @@ impl LoopUnrolling {
                 prev_block.terminator = Some(Terminator::Branch(iter_entry_id));
             }
 
-            for &b_id in &body_block_ids {
+            for &b_id in &unroll_block_ids {
                 let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
                 let new_b_id = iter_block_map[&b_id];
 
@@ -411,14 +442,17 @@ impl LoopUnrolling {
         }
         }
 
+        let unrolled_block_ids: std::collections::HashSet<BlockId> =
+            unrolled_blocks.iter().map(|b| b.id).collect();
+
         // Insert unrolled blocks into func.blocks right after preheader
         let p_idx = func.blocks.iter().position(|b| b.id == preheader_id).unwrap();
         for (offset, ub) in unrolled_blocks.into_iter().enumerate() {
             func.blocks.insert(p_idx + 1 + offset, ub);
         }
 
-        // Remove the old loop blocks (header and original body blocks)
-        func.blocks.retain(|b| !loop_info.blocks.contains(&b.id));
+        // Remove the old loop blocks (header and original body blocks) and original side-exits
+        func.blocks.retain(|b| !loop_info.blocks.contains(&b.id) && !side_exit_blocks.contains(&b.id));
 
         // Update exit block phis: replace references from loop.header with last_block_id
         if let Some(exit_block) = func.blocks.iter_mut().find(|b| b.id == exit_block_id) {
@@ -436,9 +470,12 @@ impl LoopUnrolling {
             }
         }
 
-        // Update all instructions and terminators in remaining blocks to use the final phi values
+        // Update all instructions and terminators in remaining external blocks to use the final phi values
         let empty_block_map = HashMap::new();
         for b in &mut func.blocks {
+            if unrolled_block_ids.contains(&b.id) {
+                continue;
+            }
             for inst in &mut b.instructions {
                 Self::remap_instruction(inst, &curr_phi_vals, &empty_block_map);
             }
@@ -479,6 +516,37 @@ impl LoopUnrolling {
             return false;
         }
 
+        // Identify side-exit blocks (e.g. bounds check fail blocks) reached from within the loop body
+        let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        for &b_id in &body_block_ids {
+            if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
+                if let Some(term) = &b.terminator {
+                    match term {
+                        Terminator::Branch(t) => {
+                            if !loop_info.blocks.contains(t) && !side_exit_blocks.contains(t) {
+                                side_exit_blocks.push(*t);
+                            }
+                        }
+                        Terminator::CondBranch { then_block, else_block, .. } => {
+                            if !loop_info.blocks.contains(then_block) && !side_exit_blocks.contains(then_block) {
+                                side_exit_blocks.push(*then_block);
+                            }
+                            if !loop_info.blocks.contains(else_block) && !side_exit_blocks.contains(else_block) {
+                                side_exit_blocks.push(*else_block);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // All blocks to duplicate for the second iteration (preserving topological order)
+        let unroll_block_ids: Vec<BlockId> = func.blocks.iter()
+            .map(|b| b.id)
+            .filter(|b_id| body_block_ids.contains(b_id) || side_exit_blocks.contains(b_id))
+            .collect();
+
         let mut next_val_id = func.max_value_id() + 1;
         let mut next_block_id = func.max_block_id() + 1;
 
@@ -490,13 +558,13 @@ impl LoopUnrolling {
         }
 
         let mut block_map: HashMap<BlockId, BlockId> = HashMap::new();
-        for &b in &body_block_ids {
+        for &b in &unroll_block_ids {
             block_map.insert(b, BlockId(next_block_id));
             next_block_id += 1;
         }
 
         // Assign fresh ValueIds to defs in the duplicated body
-        for &b_id in &body_block_ids {
+        for &b_id in &unroll_block_ids {
             let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
             for inst in &orig_b.instructions {
                 match inst {
@@ -535,7 +603,7 @@ impl LoopUnrolling {
         let mut second_iter_blocks: Vec<BasicBlock> = Vec::new();
         let second_latch_id = block_map[&latch_id];
 
-        for &b_id in &body_block_ids {
+        for &b_id in &unroll_block_ids {
             let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
             let new_b_id = block_map[&b_id];
 
