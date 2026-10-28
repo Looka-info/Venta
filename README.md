@@ -189,37 +189,49 @@ Vanta provides an exceptional balance of rapid iteration, compact executable foo
 
 ---
 
-## 🛠 Self-Hosted Native Compiler (`vanta_c.va`)
+## 🛠 Self-Hosted Native Compiler (`vanta_c.va`) & Backend (`backend.va`)
 
-Located in [`tools/self_host/vanta_c.va`](file:///tools/self_host/vanta_c.va), this is a native compiler written **100% in pure Vanta**:
+Located in [`tools/self_host/vanta_c.va`](file:///tools/self_host/vanta_c.va) and [`tools/self_host/backend.va`](file:///tools/self_host/backend.va), this is a complete native compiler and modular code generation backend written **100% in pure Vanta**:
 
 ```mermaid
 flowchart LR
-    subgraph Stage0 ["Stage 0: Bootstrap Compiler"]
+    subgraph Bootstrap ["Stage 0: Bootstrap Compiler"]
         RUST["Rust Reference Compiler (vantac)"]
         VA_SRC["tools/self_host/vanta_c.va"]
+        VA_BACKEND["tools/self_host/backend.va"]
         RUST -->|Compiles| VA_SRC
+        VA_BACKEND -.->|Modular Import| VA_SRC
         VA_SRC -->|Produces| S1_BIN["Stage 1 Compiler Binary (vanta_c_bin)"]
     end
 
-    subgraph Stage1 ["Stage 1: Native Self-Hosted Execution"]
-        S1_BIN -->|Compiles| TESTS["Vanta Source (.va)"]
-        TESTS -->|Emits| ASM["System V AMD64 Assembly (.s)"]
-        ASM -->|gcc -no-pie| PROG["Native Linux Binaries"]
+    subgraph NativePipeline ["Stage 1: Pure Vanta Native Backend Pipeline"]
+        S1_BIN -->|Parses AST & Symbols| FRONT["Compiler Frontend"]
+        FRONT -->|Delegates to| BACKEND["Vanta-C Native Backend (backend.va)"]
+        BACKEND -->|FrameLayout (16-Byte Align)| STACK["System V AMD64 Stack Manager"]
+        BACKEND -->|BackendEmitter| ASM["Valid System V AMD64 Assembly (.s)"]
+        ASM -->|gcc -no-pie| PROG["Native Standalone Linux Executables"]
     end
 ```
 
+### Pure Vanta Native Backend Features:
+- **Physical Register Map & Calling Convention:** Full System V AMD64 ABI registers (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`, `rax`, `rsp`, `rbp`) and condition codes.
+- **Strict 16-Byte Stack Frame Alignment:** Dynamic frame layout calculation (`FrameLayout`) guaranteeing compliance across nested function calls without SSE/vector ABI faults.
+- **Security Compliant Directives:** Emits `.section .note.GNU-stack,"",@progbits` ensuring non-executable stack flags and zero linker warnings.
+- **Machine Code & ELF64 Reference:** Pure Vanta encoding helpers for x86-64 REX prefix bytes, ModR/M addressing bytes, SIB bytes, and ELF64 header metadata.
+
 ### Verified Test Suite:
 Run via [`scripts/test_self_hosted_compiler.sh`](file:///scripts/test_self_hosted_compiler.sh):
-- `01_return_42.va`: Basic exit code return (**PASS**)
-- `02_arithmetic.va`: Binary expressions & parentheses (**PASS**)
-- `03_while_loop.va`: Mutable iteration & accumulation (**PASS**)
-- `04_if_else.va`: Multi-function calls & conditional branching (**PASS**)
-- `05_fibonacci.va`: Deep recursive function stack preservation (**PASS**)
-- `06_call_6_args.va`: Full 6-argument System V register calling sequence (**PASS**)
-- `07_comparisons.va`: All relational comparison operations (`==`, `!=`, `<`, `<=`, `>`, `>=`) (**PASS**)
-- `08_nested_loops.va`: Nested loops & stack offset management (**PASS**)
-- `09_operator_precedence.va`: Multiplicative before additive precedence (**PASS**)
+- `backend_test.va`: Pure Vanta native backend unit tests (**PASS**, exit `100`)
+- `01_return_42.va`: Basic exit code return (**PASS**, exit `42`)
+- `02_arithmetic.va`: Binary expressions & parentheses (**PASS**, exit `40`)
+- `03_while_loop.va`: Mutable iteration & accumulation (**PASS**, exit `55`)
+- `04_if_else.va`: Multi-function calls & conditional branching (**PASS**, exit `10`)
+- `05_fibonacci.va`: Deep recursive function stack preservation (**PASS**, exit `55`)
+- `06_call_6_args.va`: Full 6-argument System V register calling sequence (**PASS**, exit `21`)
+- `07_comparisons.va`: All relational comparison operations (`==`, `!=`, `<`, `<=`, `>`, `>=`) (**PASS**, exit `63`)
+- `08_nested_loops.va`: Nested loops & stack offset management (**PASS**, exit `60`)
+- `09_operator_precedence.va`: Multiplicative before additive precedence (**PASS**, exit `28`)
+- `10_stack_alignment_and_calls.va`: 16-byte stack alignment across nested function calls (**PASS**, exit `44`)
 
 ---
 

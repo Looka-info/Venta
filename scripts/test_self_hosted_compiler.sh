@@ -7,12 +7,24 @@ echo "=========================================================="
 echo "    Running Vanta Self-Hosted Compiler Test Suite        "
 echo "=========================================================="
 
-COMPILER="./tools/self_host/vanta_c_bin"
+echo "Compiling self-hosted compiler (tools/self_host/vanta_c.va)..."
+cargo run -p vanta_driver --bin vantac -- compile tools/self_host/vanta_c.va -o tools/self_host/vanta_c_bin
 
-if [ ! -f "$COMPILER" ]; then
-    echo "Compiler binary not found. Compiling tools/self_host/vanta_c.va..."
-    cargo run -p vanta_driver --bin vantac -- compile tools/self_host/vanta_c.va -o tools/self_host/vanta_c_bin
+echo ""
+echo "--- Running Pure Vanta Backend Unit Tests (backend_test.va) ---"
+cargo run -p vanta_driver --bin vantac -- compile tools/self_host/backend_test.va -o tools/self_host/backend_test_bin
+set +e
+./tools/self_host/backend_test_bin
+BACKEND_RET=$?
+set -e
+if [ "$BACKEND_RET" -eq 100 ]; then
+    echo "PASS: Pure Vanta native backend passed all verification tests (exit 100)"
+else
+    echo "FAIL: Backend tests failed with exit code $BACKEND_RET"
+    exit 1
 fi
+
+COMPILER="./tools/self_host/vanta_c_bin"
 
 run_test() {
     local name="$1"
@@ -48,6 +60,7 @@ run_test "06_call_6_args" 21
 run_test "07_comparisons" 63
 run_test "08_nested_loops" 60
 run_test "09_operator_precedence" 28
+run_test "10_stack_alignment_and_calls" 44
 
 echo ""
 echo "=========================================================="

@@ -11,7 +11,7 @@ dist/
 Thumbs.db
 __pycache__/
 *.pyc
-tools/self_host/vanta_c_bin
+tools/self_host/*_bin
 tools/self_host/tests/*.s
 tools/self_host/tests/*_bin
 

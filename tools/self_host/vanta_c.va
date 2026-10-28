@@ -7,10 +7,19 @@
 // Features:
 //   - Lexer: Scans keywords (fn, let, mut, return, if, else, while), idents, numbers, operators.
 //   - Parser: Recursive descent parser with operator precedence.
-//   - Symbol Table: Tracks local variables, parameter slots, and 16-byte stack frame alignment.
-//   - Code Generator: Emits valid, compliant System V AMD64 assembly with calling conventions.
+//   - Symbol Table: Tracks local variables, parameter slots, and variable stack offsets.
+//   - Native Backend: Modular, decoupled x86-64 backend implementing System V AMD64 ABI,
+//     16-byte stack frame alignment, register allocation conventions, and assembly emission.
 //   - File I/O: Reads .va source, writes .s assembly, and runs standalone.
 // ============================================================================
+
+mod backend;
+
+import backend::{
+    BackendEmitter, make_backend_emitter, compute_frame_layout, FrameLayout,
+    REG_RAX, REG_RBX, REG_RCX, REG_RDX, REG_RSI, REG_RDI, REG_RBP, REG_RSP, REG_R8, REG_R9,
+    CC_EQ, CC_NE, CC_LT, CC_LE, CC_GT, CC_GE
+};
 
 import std::fs;
 import std::io;
@@ -254,7 +263,7 @@ impl Lexer {
 }
 
 // ----------------------------------------------------------------------------
-// 4. Symbol Table (String Pool for Variable Stack Mapping)
+// 4. Symbol Table (Tracks Local Variables and Frame Offsets)
 // ----------------------------------------------------------------------------
 
 struct SymbolTable {
@@ -271,7 +280,6 @@ fn make_symbol_table() -> SymbolTable {
 
 impl SymbolTable {
     fn add_var(self: &mut Self, name: &str) -> i64 {
-        // Check if already in symbol table
         let existing = self.find_offset(name);
         if existing > 0 {
             return existing;
@@ -320,15 +328,14 @@ impl SymbolTable {
 }
 
 // ----------------------------------------------------------------------------
-// 5. Code Generator & Parser
+// 5. Compiler Frontend (Decoupled from Backend Code Generation)
 // ----------------------------------------------------------------------------
 
 struct Compiler {
     lexer: Lexer,
     curr_tok: Token,
     syms: SymbolTable,
-    out: String,
-    label_counter: i64,
+    backend: BackendEmitter,
 }
 
 fn make_compiler(source: &str) -> Compiler {
@@ -338,8 +345,7 @@ fn make_compiler(source: &str) -> Compiler {
         lexer: lex,
         curr_tok: first_tok,
         syms: make_symbol_table(),
-        out: String::new(),
-        label_counter: 0,
+        backend: make_backend_emitter(),
     }
 }
 
@@ -349,9 +355,7 @@ impl Compiler {
     }
 
     fn next_label(self: &mut Self) -> i64 {
-        let id = self.label_counter;
-        self.label_counter = self.label_counter + 1;
-        return id;
+        self.backend.new_label_id()
     }
 
     // --- Expressions ---
@@ -360,10 +364,7 @@ impl Compiler {
         if self.curr_tok.kind == TOK_INT() {
             let val = self.curr_tok.int_val;
             self.advance();
-            self.out.push_str("    mov rax, ");
-            let sval = i64_to_str(val);
-            self.out.push_str(sval.as_str());
-            self.out.push_str("\n");
+            self.backend.emit_mov_reg_imm(REG_RAX(), val);
             return;
         }
 
@@ -377,7 +378,7 @@ impl Compiler {
                 let mut arg_count = 0;
                 while self.curr_tok.kind != TOK_RPAREN() && self.curr_tok.kind != TOK_EOF() {
                     self.parse_expr();
-                    self.out.push_str("    push rax\n");
+                    self.backend.emit_push(REG_RAX());
                     arg_count = arg_count + 1;
                     if self.curr_tok.kind == TOK_COMMA() {
                         self.advance();
@@ -388,32 +389,17 @@ impl Compiler {
                 }
 
                 // Pop arguments into System V AMD64 argument registers in reverse
-                let mut a = arg_count - 1;
-                while a >= 0 {
-                    if a == 0 { self.out.push_str("    pop rdi\n"); }
-                    if a == 1 { self.out.push_str("    pop rsi\n"); }
-                    if a == 2 { self.out.push_str("    pop rdx\n"); }
-                    if a == 3 { self.out.push_str("    pop rcx\n"); }
-                    if a == 4 { self.out.push_str("    pop r8\n"); }
-                    if a == 5 { self.out.push_str("    pop r9\n"); }
-                    a = a - 1;
-                }
-
-                self.out.push_str("    call ");
-                self.out.push_str(name.as_str());
-                self.out.push_str("\n");
+                self.backend.emit_call_args(arg_count);
+                self.backend.emit_call(name.as_str());
                 return;
             }
 
             // Local variable load
             let offset = self.syms.find_offset(name.as_str());
             if offset > 0 {
-                self.out.push_str("    mov rax, qword ptr [rbp - ");
-                let soff = i64_to_str(offset);
-                self.out.push_str(soff.as_str());
-                self.out.push_str("]\n");
+                self.backend.emit_mov_reg_mem(REG_RAX(), REG_RBP(), offset);
             } else {
-                self.out.push_str("    mov rax, 0\n");
+                self.backend.emit_mov_reg_imm(REG_RAX(), 0);
             }
             return;
         }
@@ -427,7 +413,7 @@ impl Compiler {
             return;
         }
 
-        self.out.push_str("    mov rax, 0\n");
+        self.backend.emit_mov_reg_imm(REG_RAX(), 0);
     }
 
     fn parse_multiplicative(self: &mut Self) {
@@ -435,15 +421,14 @@ impl Compiler {
         while self.curr_tok.kind == TOK_STAR() || self.curr_tok.kind == TOK_SLASH() {
             let op = self.curr_tok.kind;
             self.advance();
-            self.out.push_str("    push rax\n");
+            self.backend.emit_push(REG_RAX());
             self.parse_primary();
-            self.out.push_str("    mov rbx, rax\n");
-            self.out.push_str("    pop rax\n");
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
             if op == TOK_STAR() {
-                self.out.push_str("    imul rax, rbx\n");
+                self.backend.emit_imul(REG_RAX(), REG_RBX());
             } else {
-                self.out.push_str("    cqo\n");
-                self.out.push_str("    idiv rbx\n");
+                self.backend.emit_idiv(REG_RBX());
             }
         }
     }
@@ -453,14 +438,14 @@ impl Compiler {
         while self.curr_tok.kind == TOK_PLUS() || self.curr_tok.kind == TOK_MINUS() {
             let op = self.curr_tok.kind;
             self.advance();
-            self.out.push_str("    push rax\n");
+            self.backend.emit_push(REG_RAX());
             self.parse_multiplicative();
-            self.out.push_str("    mov rbx, rax\n");
-            self.out.push_str("    pop rax\n");
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
             if op == TOK_PLUS() {
-                self.out.push_str("    add rax, rbx\n");
+                self.backend.emit_add(REG_RAX(), REG_RBX());
             } else {
-                self.out.push_str("    sub rax, rbx\n");
+                self.backend.emit_sub(REG_RAX(), REG_RBX());
             }
         }
     }
@@ -470,21 +455,20 @@ impl Compiler {
         while self.curr_tok.kind == TOK_LT() || self.curr_tok.kind == TOK_LE() || self.curr_tok.kind == TOK_GT() || self.curr_tok.kind == TOK_GE() {
             let op = self.curr_tok.kind;
             self.advance();
-            self.out.push_str("    push rax\n");
+            self.backend.emit_push(REG_RAX());
             self.parse_additive();
-            self.out.push_str("    mov rbx, rax\n");
-            self.out.push_str("    pop rax\n");
-            self.out.push_str("    cmp rax, rbx\n");
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            self.backend.emit_cmp(REG_RAX(), REG_RBX());
             if op == TOK_LT() {
-                self.out.push_str("    setl al\n");
+                self.backend.emit_setcc(CC_LT(), REG_RAX());
             } else if op == TOK_LE() {
-                self.out.push_str("    setle al\n");
+                self.backend.emit_setcc(CC_LE(), REG_RAX());
             } else if op == TOK_GT() {
-                self.out.push_str("    setg al\n");
+                self.backend.emit_setcc(CC_GT(), REG_RAX());
             } else {
-                self.out.push_str("    setge al\n");
+                self.backend.emit_setcc(CC_GE(), REG_RAX());
             }
-            self.out.push_str("    movzx rax, al\n");
         }
     }
 
@@ -493,17 +477,16 @@ impl Compiler {
         while self.curr_tok.kind == TOK_EQ() || self.curr_tok.kind == TOK_NE() {
             let op = self.curr_tok.kind;
             self.advance();
-            self.out.push_str("    push rax\n");
+            self.backend.emit_push(REG_RAX());
             self.parse_relational();
-            self.out.push_str("    mov rbx, rax\n");
-            self.out.push_str("    pop rax\n");
-            self.out.push_str("    cmp rax, rbx\n");
+            self.backend.emit_mov_reg_reg(REG_RBX(), REG_RAX());
+            self.backend.emit_pop(REG_RAX());
+            self.backend.emit_cmp(REG_RAX(), REG_RBX());
             if op == TOK_EQ() {
-                self.out.push_str("    sete al\n");
+                self.backend.emit_setcc(CC_EQ(), REG_RAX());
             } else {
-                self.out.push_str("    setne al\n");
+                self.backend.emit_setcc(CC_NE(), REG_RAX());
             }
-            self.out.push_str("    movzx rax, al\n");
         }
     }
 
@@ -517,9 +500,7 @@ impl Compiler {
             if self.curr_tok.kind == TOK_SEMI() {
                 self.advance();
             }
-            self.out.push_str("    mov rsp, rbp\n");
-            self.out.push_str("    pop rbp\n");
-            self.out.push_str("    ret\n");
+            self.backend.emit_ret();
             return;
         }
 
@@ -549,10 +530,7 @@ impl Compiler {
             }
 
             let offset = self.syms.add_var(var_name.as_str());
-            self.out.push_str("    mov qword ptr [rbp - ");
-            let soff = i64_to_str(offset);
-            self.out.push_str(soff.as_str());
-            self.out.push_str("], rax\n");
+            self.backend.emit_mov_mem_reg(REG_RBP(), offset, REG_RAX());
             return;
         }
 
@@ -562,15 +540,17 @@ impl Compiler {
             let loop_id = self.next_label();
             let sid = i64_to_str(loop_id);
 
-            self.out.push_str(".Lloop_start_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str(":\n");
+            let mut start_lbl = String::from_str(".Lloop_start_");
+            start_lbl.push_str(sid.as_str());
+
+            let mut end_lbl = String::from_str(".Lloop_end_");
+            end_lbl.push_str(sid.as_str());
+
+            self.backend.emit_label(start_lbl.as_str());
 
             self.parse_expr();
-            self.out.push_str("    cmp rax, 0\n");
-            self.out.push_str("    je .Lloop_end_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str("\n");
+            self.backend.emit_cmp_imm(REG_RAX(), 0);
+            self.backend.emit_je(end_lbl.as_str());
 
             if self.curr_tok.kind == TOK_LBRACE() {
                 self.advance();
@@ -582,13 +562,8 @@ impl Compiler {
                 self.advance();
             }
 
-            self.out.push_str("    jmp .Lloop_start_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str("\n");
-
-            self.out.push_str(".Lloop_end_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str(":\n");
+            self.backend.emit_jmp(start_lbl.as_str());
+            self.backend.emit_label(end_lbl.as_str());
             return;
         }
 
@@ -598,11 +573,15 @@ impl Compiler {
             let if_id = self.next_label();
             let sid = i64_to_str(if_id);
 
+            let mut else_lbl = String::from_str(".Lelse_");
+            else_lbl.push_str(sid.as_str());
+
+            let mut end_if_lbl = String::from_str(".Lend_if_");
+            end_if_lbl.push_str(sid.as_str());
+
             self.parse_expr();
-            self.out.push_str("    cmp rax, 0\n");
-            self.out.push_str("    je .Lelse_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str("\n");
+            self.backend.emit_cmp_imm(REG_RAX(), 0);
+            self.backend.emit_je(else_lbl.as_str());
 
             if self.curr_tok.kind == TOK_LBRACE() {
                 self.advance();
@@ -614,13 +593,8 @@ impl Compiler {
                 self.advance();
             }
 
-            self.out.push_str("    jmp .Lend_if_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str("\n");
-
-            self.out.push_str(".Lelse_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str(":\n");
+            self.backend.emit_jmp(end_if_lbl.as_str());
+            self.backend.emit_label(else_lbl.as_str());
 
             if self.curr_tok.kind == TOK_ELSE() {
                 self.advance();
@@ -637,9 +611,7 @@ impl Compiler {
                 }
             }
 
-            self.out.push_str(".Lend_if_");
-            self.out.push_str(sid.as_str());
-            self.out.push_str(":\n");
+            self.backend.emit_label(end_if_lbl.as_str());
             return;
         }
 
@@ -655,10 +627,7 @@ impl Compiler {
                 if self.curr_tok.kind == TOK_SEMI() {
                     self.advance();
                 }
-                self.out.push_str("    mov qword ptr [rbp - ");
-                let soff = i64_to_str(offset);
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], rax\n");
+                self.backend.emit_mov_mem_reg(REG_RBP(), offset, REG_RAX());
                 return;
             }
 
@@ -667,7 +636,7 @@ impl Compiler {
                 let mut arg_count = 0;
                 while self.curr_tok.kind != TOK_RPAREN() && self.curr_tok.kind != TOK_EOF() {
                     self.parse_expr();
-                    self.out.push_str("    push rax\n");
+                    self.backend.emit_push(REG_RAX());
                     arg_count = arg_count + 1;
                     if self.curr_tok.kind == TOK_COMMA() {
                         self.advance();
@@ -680,19 +649,8 @@ impl Compiler {
                     self.advance();
                 }
 
-                let mut a = arg_count - 1;
-                while a >= 0 {
-                    if a == 0 { self.out.push_str("    pop rdi\n"); }
-                    if a == 1 { self.out.push_str("    pop rsi\n"); }
-                    if a == 2 { self.out.push_str("    pop rdx\n"); }
-                    if a == 3 { self.out.push_str("    pop rcx\n"); }
-                    if a == 4 { self.out.push_str("    pop r8\n"); }
-                    if a == 5 { self.out.push_str("    pop r9\n"); }
-                    a = a - 1;
-                }
-                self.out.push_str("    call ");
-                self.out.push_str(name.as_str());
-                self.out.push_str("\n");
+                self.backend.emit_call_args(arg_count);
+                self.backend.emit_call(name.as_str());
                 return;
             }
 
@@ -757,49 +715,19 @@ impl Compiler {
             }
         }
 
-        self.out.push_str(".globl ");
-        self.out.push_str(fn_name.as_str());
-        self.out.push_str("\n");
-        self.out.push_str(".type ");
-        self.out.push_str(fn_name.as_str());
-        self.out.push_str(", @function\n");
-        self.out.push_str(fn_name.as_str());
-        self.out.push_str(":\n");
-        self.out.push_str("    push rbp\n");
-        self.out.push_str("    mov rbp, rsp\n");
-        self.out.push_str("    sub rsp, 512\n");
-
+        // Register parameters in symbol table
         let mut p = 0;
         while p < param_count {
-            let offset = self.syms.add_var(param_names[p].as_str());
-            let soff = i64_to_str(offset);
-            if p == 0 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], rdi\n");
-            } else if p == 1 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], rsi\n");
-            } else if p == 2 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], rdx\n");
-            } else if p == 3 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], rcx\n");
-            } else if p == 4 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], r8\n");
-            } else if p == 5 {
-                self.out.push_str("    mov qword ptr [rbp - ");
-                self.out.push_str(soff.as_str());
-                self.out.push_str("], r9\n");
-            }
+            self.syms.add_var(param_names[p].as_str());
             p = p + 1;
         }
+
+        // Compute 16-byte aligned frame layout per System V AMD64 ABI
+        let layout = compute_frame_layout(32, param_count);
+        self.backend.emit_function_start(fn_name.as_str(), layout.stack_size);
+
+        // Bind incoming arguments from registers to stack slots
+        self.backend.emit_bind_params(param_count);
 
         if self.curr_tok.kind == TOK_LBRACE() {
             self.advance();
@@ -811,14 +739,11 @@ impl Compiler {
             self.advance();
         }
 
-        self.out.push_str("    mov rsp, rbp\n");
-        self.out.push_str("    pop rbp\n");
-        self.out.push_str("    ret\n\n");
+        self.backend.emit_function_end(fn_name.as_str());
     }
 
     fn compile_program(self: &mut Self) -> String {
-        self.out.push_str(".intel_syntax noprefix\n");
-        self.out.push_str(".text\n\n");
+        self.backend.emit_header();
 
         while self.curr_tok.kind != TOK_EOF() {
             if self.curr_tok.kind == TOK_FN() {
@@ -828,7 +753,8 @@ impl Compiler {
             }
         }
 
-        return self.out.clone();
+        self.backend.emit_footer();
+        return self.backend.out.clone();
     }
 }
 

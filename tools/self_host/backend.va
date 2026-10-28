@@ -1,0 +1,500 @@
+// ============================================================================
+// Vanta-C Native Backend (written entirely in pure Vanta)
+//
+// A standalone, modular x86-64 code generator and machine backend implemented
+// 100% in pure Vanta (.va) targeting the Linux x86-64 System V AMD64 ABI.
+//
+// Architectural Components:
+//   1. Physical Registers & Calling Convention (System V AMD64 ABI)
+//   2. Relational Condition Codes (setcc / jcc)
+//   3. Stack Frame Management & 16-Byte Stack Alignment (FrameLayout)
+//   4. Native Instruction Emitter (BackendEmitter)
+//   5. Direct Machine Code (x86-64 binary encoding & ELF64 metadata)
+// ============================================================================
+
+import std::string::String;
+
+// ----------------------------------------------------------------------------
+// 1. Helper Utility: Integer to String Conversion
+// ----------------------------------------------------------------------------
+
+pub fn i64_to_str(mut n: i64) -> String {
+    if n == 0 {
+        return String::from_str("0");
+    }
+    let mut is_neg = 0;
+    if n < 0 {
+        is_neg = 1;
+        n = 0 - n;
+    }
+    let mut digits: [i64; 20] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut count = 0;
+    while n > 0 {
+        let rem = n % 10;
+        digits[count] = rem;
+        count = count + 1;
+        n = n / 10;
+    }
+    let mut res = String::new();
+    if is_neg == 1 {
+        res.push_str("-");
+    }
+    let mut i = count - 1;
+    while i >= 0 {
+        let d = digits[i];
+        if d == 0 { res.push_str("0"); }
+        if d == 1 { res.push_str("1"); }
+        if d == 2 { res.push_str("2"); }
+        if d == 3 { res.push_str("3"); }
+        if d == 4 { res.push_str("4"); }
+        if d == 5 { res.push_str("5"); }
+        if d == 6 { res.push_str("6"); }
+        if d == 7 { res.push_str("7"); }
+        if d == 8 { res.push_str("8"); }
+        if d == 9 { res.push_str("9"); }
+        i = i - 1;
+    }
+    return res;
+}
+
+// ----------------------------------------------------------------------------
+// 2. Physical Register Definitions (System V AMD64 ABI)
+// ----------------------------------------------------------------------------
+
+pub fn REG_RAX() -> i64 { 0 }
+pub fn REG_RCX() -> i64 { 1 }
+pub fn REG_RDX() -> i64 { 2 }
+pub fn REG_RBX() -> i64 { 3 }
+pub fn REG_RSP() -> i64 { 4 }
+pub fn REG_RBP() -> i64 { 5 }
+pub fn REG_RSI() -> i64 { 6 }
+pub fn REG_RDI() -> i64 { 7 }
+pub fn REG_R8()  -> i64 { 8 }
+pub fn REG_R9()  -> i64 { 9 }
+pub fn REG_R10() -> i64 { 10 }
+pub fn REG_R11() -> i64 { 11 }
+pub fn REG_R12() -> i64 { 12 }
+pub fn REG_R13() -> i64 { 13 }
+pub fn REG_R14() -> i64 { 14 }
+pub fn REG_R15() -> i64 { 15 }
+
+/// System V AMD64 ABI Integer Argument Passing Registers:
+/// Index 0: RDI, Index 1: RSI, Index 2: RDX, Index 3: RCX, Index 4: R8, Index 5: R9.
+pub fn abi_arg_reg(arg_idx: i64) -> i64 {
+    if arg_idx == 0 { return REG_RDI(); }
+    if arg_idx == 1 { return REG_RSI(); }
+    if arg_idx == 2 { return REG_RDX(); }
+    if arg_idx == 3 { return REG_RCX(); }
+    if arg_idx == 4 { return REG_R8(); }
+    if arg_idx == 5 { return REG_R9(); }
+    return REG_RAX();
+}
+
+/// System V AMD64 ABI Function Return Register: RAX.
+pub fn abi_ret_reg() -> i64 {
+    return REG_RAX();
+}
+
+// ----------------------------------------------------------------------------
+// 3. Condition Codes
+// ----------------------------------------------------------------------------
+
+pub fn CC_EQ() -> i64 { 0 }
+pub fn CC_NE() -> i64 { 1 }
+pub fn CC_LT() -> i64 { 2 }
+pub fn CC_LE() -> i64 { 3 }
+pub fn CC_GT() -> i64 { 4 }
+pub fn CC_GE() -> i64 { 5 }
+
+// ----------------------------------------------------------------------------
+// 4. Stack Frame Management (System V AMD64 ABI 16-Byte Stack Alignment)
+// ----------------------------------------------------------------------------
+
+pub struct FrameLayout {
+    pub num_locals: i64,
+    pub num_params: i64,
+    pub stack_size: i64,
+}
+
+/// Computes the exact stack frame size strictly conforming to the System V AMD64 ABI.
+///
+/// Under the ABI:
+/// - When a `call` executes, the 8-byte return address is pushed: rsp % 16 == 8.
+/// - The function prologue executes `push rbp`: rsp % 16 == 0.
+/// - Therefore, `sub rsp, frame_size` MUST allocate a multiple of 16 bytes so that
+///   before any nested function call, rsp remains 0 (mod 16).
+pub fn compute_frame_layout(num_locals: i64, num_params: i64) -> FrameLayout {
+    let total_slots = num_locals + num_params + 4;
+    let raw_bytes = total_slots * 8;
+    let rem = raw_bytes % 16;
+    let mut aligned = raw_bytes;
+    if rem != 0 {
+        aligned = raw_bytes + (16 - rem);
+    }
+    if aligned < 32 {
+        aligned = 32;
+    }
+    FrameLayout {
+        num_locals: num_locals,
+        num_params: num_params,
+        stack_size: aligned,
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 5. Backend Emitter (Native x86-64 Assembly Generator)
+// ----------------------------------------------------------------------------
+
+pub struct BackendEmitter {
+    pub out: String,
+    pub label_seq: i64,
+}
+
+pub fn make_backend_emitter() -> BackendEmitter {
+    BackendEmitter {
+        out: String::new(),
+        label_seq: 0,
+    }
+}
+
+impl BackendEmitter {
+    pub fn new_label_id(self: &mut Self) -> i64 {
+        let id = self.label_seq;
+        self.label_seq = self.label_seq + 1;
+        return id;
+    }
+
+    /// Appends the 64-bit register name to the output buffer.
+    pub fn push_reg(self: &mut Self, reg: i64) {
+        if reg == 0 { self.out.push_str("rax"); return; }
+        if reg == 1 { self.out.push_str("rcx"); return; }
+        if reg == 2 { self.out.push_str("rdx"); return; }
+        if reg == 3 { self.out.push_str("rbx"); return; }
+        if reg == 4 { self.out.push_str("rsp"); return; }
+        if reg == 5 { self.out.push_str("rbp"); return; }
+        if reg == 6 { self.out.push_str("rsi"); return; }
+        if reg == 7 { self.out.push_str("rdi"); return; }
+        if reg == 8 { self.out.push_str("r8"); return; }
+        if reg == 9 { self.out.push_str("r9"); return; }
+        if reg == 10 { self.out.push_str("r10"); return; }
+        if reg == 11 { self.out.push_str("r11"); return; }
+        if reg == 12 { self.out.push_str("r12"); return; }
+        if reg == 13 { self.out.push_str("r13"); return; }
+        if reg == 14 { self.out.push_str("r14"); return; }
+        if reg == 15 { self.out.push_str("r15"); return; }
+        self.out.push_str("rax");
+    }
+
+    /// Appends the 8-bit low byte register name for setcc operations.
+    pub fn push_byte_reg(self: &mut Self, reg: i64) {
+        if reg == 0 { self.out.push_str("al"); return; }
+        if reg == 1 { self.out.push_str("cl"); return; }
+        if reg == 2 { self.out.push_str("dl"); return; }
+        if reg == 3 { self.out.push_str("bl"); return; }
+        if reg == 4 { self.out.push_str("spl"); return; }
+        if reg == 5 { self.out.push_str("bpl"); return; }
+        if reg == 6 { self.out.push_str("sil"); return; }
+        if reg == 7 { self.out.push_str("dil"); return; }
+        if reg == 8 { self.out.push_str("r8b"); return; }
+        if reg == 9 { self.out.push_str("r9b"); return; }
+        if reg == 10 { self.out.push_str("r10b"); return; }
+        if reg == 11 { self.out.push_str("r11b"); return; }
+        if reg == 12 { self.out.push_str("r12b"); return; }
+        if reg == 13 { self.out.push_str("r13b"); return; }
+        if reg == 14 { self.out.push_str("r14b"); return; }
+        if reg == 15 { self.out.push_str("r15b"); return; }
+        self.out.push_str("al");
+    }
+
+    /// Appends the condition code set mnemonic (sete, setne, setl, etc.)
+    pub fn push_setcc_mnemonic(self: &mut Self, cc: i64) {
+        if cc == 0 { self.out.push_str("sete"); return; }
+        if cc == 1 { self.out.push_str("setne"); return; }
+        if cc == 2 { self.out.push_str("setl"); return; }
+        if cc == 3 { self.out.push_str("setle"); return; }
+        if cc == 4 { self.out.push_str("setg"); return; }
+        if cc == 5 { self.out.push_str("setge"); return; }
+        self.out.push_str("sete");
+    }
+
+    /// Appends the condition code jump mnemonic (je, jne, jl, etc.)
+    pub fn push_jcc_mnemonic(self: &mut Self, cc: i64) {
+        if cc == 0 { self.out.push_str("je"); return; }
+        if cc == 1 { self.out.push_str("jne"); return; }
+        if cc == 2 { self.out.push_str("jl"); return; }
+        if cc == 3 { self.out.push_str("jle"); return; }
+        if cc == 4 { self.out.push_str("jg"); return; }
+        if cc == 5 { self.out.push_str("jge"); return; }
+        self.out.push_str("je");
+    }
+
+    /// Emits assembler directives at the top of the generated assembly file.
+    pub fn emit_header(self: &mut Self) {
+        self.out.push_str(".intel_syntax noprefix\n");
+        self.out.push_str(".text\n\n");
+    }
+
+    /// Emits assembler footer including non-executable stack note to prevent ld warnings.
+    pub fn emit_footer(self: &mut Self) {
+        self.out.push_str("\n.section .note.GNU-stack,\"\",@progbits\n");
+    }
+
+    /// Emits standard System V AMD64 function prologue with 16-byte aligned stack allocation.
+    pub fn emit_function_start(self: &mut Self, fn_name: &str, frame_size: i64) {
+        self.out.push_str(".globl ");
+        self.out.push_str(fn_name);
+        self.out.push_str("\n");
+        self.out.push_str(".type ");
+        self.out.push_str(fn_name);
+        self.out.push_str(", @function\n");
+        self.out.push_str(fn_name);
+        self.out.push_str(":\n");
+        self.out.push_str("    push rbp\n");
+        self.out.push_str("    mov rbp, rsp\n");
+        self.out.push_str("    sub rsp, ");
+        let s_sz = i64_to_str(frame_size);
+        self.out.push_str(s_sz.as_str());
+        self.out.push_str("\n");
+    }
+
+    /// Emits standard System V AMD64 function epilogue.
+    pub fn emit_function_end(self: &mut Self, fn_name: &str) {
+        self.out.push_str("    mov rsp, rbp\n");
+        self.out.push_str("    pop rbp\n");
+        self.out.push_str("    ret\n");
+        self.out.push_str(".size ");
+        self.out.push_str(fn_name);
+        self.out.push_str(", .-");
+        self.out.push_str(fn_name);
+        self.out.push_str("\n\n");
+    }
+
+    /// Emits a code label.
+    pub fn emit_label(self: &mut Self, label: &str) {
+        self.out.push_str(label);
+        self.out.push_str(":\n");
+    }
+
+    // --- Data Movement ---
+
+    /// mov <reg>, <imm64>
+    pub fn emit_mov_reg_imm(self: &mut Self, reg: i64, imm: i64) {
+        self.out.push_str("    mov ");
+        self.push_reg(reg);
+        self.out.push_str(", ");
+        let simm = i64_to_str(imm);
+        self.out.push_str(simm.as_str());
+        self.out.push_str("\n");
+    }
+
+    /// mov <dst>, <src>
+    pub fn emit_mov_reg_reg(self: &mut Self, dst: i64, src: i64) {
+        self.out.push_str("    mov ");
+        self.push_reg(dst);
+        self.out.push_str(", ");
+        self.push_reg(src);
+        self.out.push_str("\n");
+    }
+
+    /// mov <dst>, qword ptr [<base> - <offset>]
+    pub fn emit_mov_reg_mem(self: &mut Self, dst: i64, base_reg: i64, offset: i64) {
+        self.out.push_str("    mov ");
+        self.push_reg(dst);
+        self.out.push_str(", qword ptr [");
+        self.push_reg(base_reg);
+        self.out.push_str(" - ");
+        let soff = i64_to_str(offset);
+        self.out.push_str(soff.as_str());
+        self.out.push_str("]\n");
+    }
+
+    /// mov qword ptr [<base> - <offset>], <src>
+    pub fn emit_mov_mem_reg(self: &mut Self, base_reg: i64, offset: i64, src: i64) {
+        self.out.push_str("    mov qword ptr [");
+        self.push_reg(base_reg);
+        self.out.push_str(" - ");
+        let soff = i64_to_str(offset);
+        self.out.push_str(soff.as_str());
+        self.out.push_str("], ");
+        self.push_reg(src);
+        self.out.push_str("\n");
+    }
+
+    /// push <reg>
+    pub fn emit_push(self: &mut Self, reg: i64) {
+        self.out.push_str("    push ");
+        self.push_reg(reg);
+        self.out.push_str("\n");
+    }
+
+    /// pop <reg>
+    pub fn emit_pop(self: &mut Self, reg: i64) {
+        self.out.push_str("    pop ");
+        self.push_reg(reg);
+        self.out.push_str("\n");
+    }
+
+    // --- Arithmetic & Logical Operations ---
+
+    /// add <dst>, <src>
+    pub fn emit_add(self: &mut Self, dst: i64, src: i64) {
+        self.out.push_str("    add ");
+        self.push_reg(dst);
+        self.out.push_str(", ");
+        self.push_reg(src);
+        self.out.push_str("\n");
+    }
+
+    /// sub <dst>, <src>
+    pub fn emit_sub(self: &mut Self, dst: i64, src: i64) {
+        self.out.push_str("    sub ");
+        self.push_reg(dst);
+        self.out.push_str(", ");
+        self.push_reg(src);
+        self.out.push_str("\n");
+    }
+
+    /// imul <dst>, <src>
+    pub fn emit_imul(self: &mut Self, dst: i64, src: i64) {
+        self.out.push_str("    imul ");
+        self.push_reg(dst);
+        self.out.push_str(", ");
+        self.push_reg(src);
+        self.out.push_str("\n");
+    }
+
+    /// Signed integer division of RAX:RDX by <divisor_reg> via cqo + idiv
+    pub fn emit_idiv(self: &mut Self, divisor_reg: i64) {
+        self.out.push_str("    cqo\n");
+        self.out.push_str("    idiv ");
+        self.push_reg(divisor_reg);
+        self.out.push_str("\n");
+    }
+
+    /// cmp <r1>, <r2>
+    pub fn emit_cmp(self: &mut Self, r1: i64, r2: i64) {
+        self.out.push_str("    cmp ");
+        self.push_reg(r1);
+        self.out.push_str(", ");
+        self.push_reg(r2);
+        self.out.push_str("\n");
+    }
+
+    /// cmp <reg>, <imm>
+    pub fn emit_cmp_imm(self: &mut Self, reg: i64, imm: i64) {
+        self.out.push_str("    cmp ");
+        self.push_reg(reg);
+        self.out.push_str(", ");
+        let simm = i64_to_str(imm);
+        self.out.push_str(simm.as_str());
+        self.out.push_str("\n");
+    }
+
+    /// Evaluates condition code into byte register and zero-extends into 64-bit target register
+    pub fn emit_setcc(self: &mut Self, cc: i64, target_reg: i64) {
+        self.out.push_str("    ");
+        self.push_setcc_mnemonic(cc);
+        self.out.push_str(" ");
+        self.push_byte_reg(target_reg);
+        self.out.push_str("\n");
+
+        self.out.push_str("    movzx ");
+        self.push_reg(target_reg);
+        self.out.push_str(", ");
+        self.push_byte_reg(target_reg);
+        self.out.push_str("\n");
+    }
+
+    // --- Control Flow & ABI Calls ---
+
+    /// jmp <label>
+    pub fn emit_jmp(self: &mut Self, label: &str) {
+        self.out.push_str("    jmp ");
+        self.out.push_str(label);
+        self.out.push_str("\n");
+    }
+
+    /// je <label>
+    pub fn emit_je(self: &mut Self, label: &str) {
+        self.out.push_str("    je ");
+        self.out.push_str(label);
+        self.out.push_str("\n");
+    }
+
+    /// jne <label>
+    pub fn emit_jne(self: &mut Self, label: &str) {
+        self.out.push_str("    jne ");
+        self.out.push_str(label);
+        self.out.push_str("\n");
+    }
+
+    /// call <fn_name>
+    pub fn emit_call(self: &mut Self, fn_name: &str) {
+        self.out.push_str("    call ");
+        self.out.push_str(fn_name);
+        self.out.push_str("\n");
+    }
+
+    /// Pops arguments from stack into System V AMD64 argument registers
+    pub fn emit_call_args(self: &mut Self, arg_count: i64) {
+        let mut a = arg_count - 1;
+        while a >= 0 {
+            let r = abi_arg_reg(a);
+            self.emit_pop(r);
+            a = a - 1;
+        }
+    }
+
+    /// Saves incoming parameter registers into their local stack slots
+    pub fn emit_bind_params(self: &mut Self, param_count: i64) {
+        let mut p = 0;
+        while p < param_count && p < 6 {
+            let reg = abi_arg_reg(p);
+            let offset = (p + 1) * 8;
+            self.emit_mov_mem_reg(REG_RBP(), offset, reg);
+            p = p + 1;
+        }
+    }
+
+    /// Epilogue return
+    pub fn emit_ret(self: &mut Self) {
+        self.out.push_str("    mov rsp, rbp\n");
+        self.out.push_str("    pop rbp\n");
+        self.out.push_str("    ret\n");
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 6. Direct Machine Code / Binary Encoding Reference
+// ----------------------------------------------------------------------------
+
+/// Calculates x86-64 REX prefix byte: 0100WRXB
+pub fn rex_prefix(w: i64, r: i64, x: i64, b: i64) -> i64 {
+    let mut val = 64; // 0x40
+    if w == 1 { val = val + 8; }
+    if r == 1 { val = val + 4; }
+    if x == 1 { val = val + 2; }
+    if b == 1 { val = val + 1; }
+    return val;
+}
+
+/// Calculates x86-64 ModR/M byte: (mod << 6) | (reg << 3) | rm
+pub fn modrm_byte(mode: i64, reg: i64, rm: i64) -> i64 {
+    return (mode * 64) + (reg * 8) + rm;
+}
+
+/// Calculates x86-64 SIB byte: (scale << 6) | (index << 3) | base
+pub fn sib_byte(scale: i64, index: i64, base: i64) -> i64 {
+    return (scale * 64) + (index * 8) + base;
+}
+
+/// Standard ELF64 Architecture ID for x86-64: EM_X86_64 = 0x3E (62)
+pub fn elf64_machine_x86_64() -> i64 {
+    return 62;
+}
+
+/// ELF64 Header Identification Magic bytes: 0x7F, 'E', 'L', 'F'
+pub fn elf64_magic_0() -> i64 { 127 }
+pub fn elf64_magic_1() -> i64 { 69 }
+pub fn elf64_magic_2() -> i64 { 76 }
+pub fn elf64_magic_3() -> i64 { 70 }

@@ -1,0 +1,17 @@
+// Test 10: Stack Alignment and Nested Function Calls
+
+fn multiply_add(a: i64, b: i64, c: i64) -> i64 {
+    let prod = a * b;
+    return prod + c;
+}
+
+fn compute(x: i64, y: i64) -> i64 {
+    let t1 = multiply_add(x, 2, 5);
+    let t2 = multiply_add(y, 3, 7);
+    return t1 + t2;
+}
+
+fn main() -> i64 {
+    let res = compute(10, 4);
+    return res;
+}
