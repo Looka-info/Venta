@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="images/VANTA Gold Lightning Mark.png" width="220" alt="Vanta Gold Lightning Mark" /><br>
+
 # ⚡ Vanta Programming Language
 
 **A Performance-First, Memory-Safe Systems Programming Language with a Custom SSA Optimizer and Native x86-64 Backend**
@@ -481,10 +483,13 @@ fn main() -> i64 {
 
 ---
 
-## 🎨 VS Code Editor Support
+## 🎨 VS Code Editor Support & File Icons
 
-Official syntax highlighting and language configuration for Vanta (`.va`, `.vanta` files) is located in [`editors/vscode/`](editors/vscode/):
+Official language support, syntax grammar, and **3D gold lightning file icons** for Vanta (`.va`, `.vanta` files) is located in [`editors/vscode/`](editors/vscode/):
 
+- **⚡ Official Vanta File Icons**: Automatically decorates all `.va` and `.vanta` files with the glowing 3D faceted lightning mark in VS Code's file tree, open tabs, breadcrumbs, and search pickers.
+- **🎨 Dark & Light Adaptive**: Radiant gold vector icon (`vanta-file-icon-dark.svg`) for dark themes and rich amber-bronze (`vanta-file-icon-light.svg`) for light themes.
+- **🗂️ Built-in Icon Theme**: Includes the "Vanta File Icons" theme (`vanta-icons`) for full explorer file icon integration.
 - **Full TextMate Grammar**: Covers keywords (`fn`, `let`, `mut`, `struct`, `enum`, `trait`, `impl`, `match`), types, lifetimes, numbers, strings, and operators.
 - **Language Configuration**: Auto-closing brackets, braces, and line comments (`//`, `/* */`).
 - **One-Command Installation**:
@@ -577,7 +582,8 @@ Venta/
 │   ├── package.json                 # vanta-lang manifest
 │   ├── bin/                         # Node.js CLI wrappers (vanta, vantac)
 │   └── scripts/                     # Auto-provisioning release binary installer
-├── editors/vscode/                  # Official VS Code Extension & Syntax Grammar
+├── editors/vscode/                  # Official VS Code Extension & File Icons
+│   ├── icons/                       # 3D Gold Lightning File Icons (.svg, .png, icon theme)
 │   ├── syntaxes/vanta.tmLanguage.json # TextMate grammar for .va files
 │   └── language-configuration.json    # Brackets, auto-closing & comments
 ├── crates/                          # Stage 0 Bootstrap Reference Compiler (Rust)

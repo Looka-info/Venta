@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚡ Venta Programming Language | Fast, Memory-Safe Systems Language</title>
     <meta name="description" content="A performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM). Compiles in 0.24 seconds.">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="vanta-file-icon.svg">
+    <link rel="alternate icon" type="image/png" href="favicon.png">
     <style>
         :root {
             --bg-base: #0d1117;
@@ -574,7 +575,8 @@
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-brand">
-            ⚡ <span>Venta</span>
+            <img src="vanta-file-icon.svg" width="24" height="24" alt="Vanta Logo" style="filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.6)); vertical-align: middle;" />
+            <span>Venta</span>
         </div>
         <ul class="nav-links">
             <li><a href="#features">Features</a></li>
@@ -794,7 +796,16 @@
             <button class="tour-tab" onclick="switchTour('ai', this)">5. AI JSON Diagnostics</button>
         </div>
 
-        <pre class="code-display" id="tour-code">
+        <div class="editor-tab-bar" style="display: flex; align-items: center; justify-content: space-between; background: #161b22; border: 1px solid var(--border-color); border-bottom: none; border-radius: 12px 12px 0 0; padding: 8px 16px;">
+            <div style="display: flex; align-items: center; gap: 8px; background: #0d1117; padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255, 215, 0, 0.35); font-family: monospace; font-size: 0.85rem; color: #f0f6fc;">
+                <img src="vanta-file-icon.svg" width="16" height="16" alt=".va" style="filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.7)); vertical-align: middle;" />
+                <span style="font-weight: 600; color: #ffd700;">main.va</span>
+                <span style="color: #6e7681; font-size: 0.75rem;">(Venta Systems)</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #8b949e; font-family: monospace;">UTF-8 • LF • Venta 1.0</div>
+        </div>
+
+        <pre class="code-display" id="tour-code" style="margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0;">
 <span class="kw">struct</span> <span class="ty">Buffer</span> {
     capacity: <span class="ty">i64</span>,
     size: <span class="ty">i64</span>,
@@ -827,15 +838,17 @@
     <section id="vscode" class="section">
         <div class="section-header">
             <div class="section-tag">Editor Ecosystem</div>
-            <h2 class="section-title">Official VS Code Extension</h2>
-            <p class="section-desc">Full syntax highlighting, bracket pairing, and TextMate grammar for <code>.va</code> files.</p>
+            <h2 class="section-title">Official VS Code Extension & File Icons</h2>
+            <p class="section-desc">Full syntax highlighting, bracket pairing, and the official 3D gold lightning file icon for <code>.va</code> files.</p>
         </div>
 
-        <div class="feature-card" style="text-align: center;">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎨</div>
-            <h3 class="feature-title">Install Extension in One Command</h3>
-            <p class="feature-text" style="max-width: 600px; margin: 0 auto 1.5rem auto;">
-                Copy the extension bundle directly into your local VS Code extensions directory:
+        <div class="feature-card" style="text-align: center; border-color: rgba(255, 215, 0, 0.35); background: radial-gradient(circle at top, rgba(255, 215, 0, 0.05), transparent 70%), var(--bg-surface);">
+            <div style="margin-bottom: 1.25rem;">
+                <img src="vanta-file-icon.svg" width="64" height="64" alt="Vanta File Icon" style="filter: drop-shadow(0 0 14px rgba(255, 215, 0, 0.65)); vertical-align: middle;" />
+            </div>
+            <h3 class="feature-title">Official 3D Gold Lightning File Icon for .va Files</h3>
+            <p class="feature-text" style="max-width: 650px; margin: 0 auto 1.5rem auto;">
+                Every <code>.va</code> and <code>.vanta</code> file in your editor displays the radiant gold lightning mark. Includes dark and light adaptive themes, complete TextMate grammar, and bracket autocompletion.
             </p>
             <div class="checksum-box" style="max-width: 600px; margin: 0 auto;">
                 <span>cp -r editors/vscode ~/.vscode/extensions/vanta-vscode</span>
