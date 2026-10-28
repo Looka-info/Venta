@@ -1,0 +1,13 @@
+import std::net;
+
+fn main() -> i64 {
+    let port: i64 = 8899;
+    let server_fd = net::listen(port);
+    if server_fd < 0 {
+        print_str("Failed to listen on port 8899\n");
+        return 1;
+    }
+    print_str("Listening on port 8899 successfully!\n");
+    net::close(server_fd);
+    0
+}

@@ -442,6 +442,73 @@ impl SemanticContext {
             },
         );
 
+        // Networking & HTTP Server Intrinsics
+        functions.insert(
+            "vanta_net_listen".into(),
+            FnSignature {
+                name: "vanta_net_listen".into(),
+                params: vec![("port".into(), Type::I64, false)],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_net_accept".into(),
+            FnSignature {
+                name: "vanta_net_accept".into(),
+                params: vec![("server_fd".into(), Type::I64, false)],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_net_read".into(),
+            FnSignature {
+                name: "vanta_net_read".into(),
+                params: vec![
+                    ("client_fd".into(), Type::I64, false),
+                    (
+                        "dest".into(),
+                        Type::Ref {
+                            is_mut: true,
+                            inner: Box::new(Type::Struct("String".into())),
+                        },
+                        false,
+                    ),
+                ],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_net_write".into(),
+            FnSignature {
+                name: "vanta_net_write".into(),
+                params: vec![
+                    ("client_fd".into(), Type::I64, false),
+                    (
+                        "data".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Str),
+                        },
+                        false,
+                    ),
+                ],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_net_close".into(),
+            FnSignature {
+                name: "vanta_net_close".into(),
+                params: vec![("fd".into(), Type::I64, false)],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+
         let mut generic_structs = HashMap::new();
         generic_structs.insert(
             "Vec".to_string(),
@@ -644,6 +711,7 @@ impl SemanticContext {
             || name_or_path == "vanta_fs_write"
             || name_or_path == "vanta_env_args_count"
             || name_or_path == "vanta_env_arg_get"
+            || name_or_path.starts_with("vanta_net_")
             || name_or_path == "Vec::new"
             || name_or_path == "Vec_new"
             || name_or_path == "String::new"
@@ -3127,6 +3195,7 @@ impl SemanticAnalyzer {
                             || f.name.name == "vanta_fs_write"
                             || f.name.name == "vanta_env_args_count"
                             || f.name.name == "vanta_env_arg_get"
+                            || f.name.name.starts_with("vanta_net_")
                         {
                             diags.emit(
                                 Diagnostic::error(format!(
@@ -3995,6 +4064,13 @@ impl SemanticAnalyzer {
                         self.ctx.borrowed_sources.insert(sym_id, src_id);
                     }
                 }
+                let active_sources: HashSet<SymbolId> =
+                    self.ctx.borrowed_sources.values().copied().collect();
+                for (sym_id, vs) in &mut self.ctx.var_states {
+                    if !active_sources.contains(sym_id) && vs.borrow != BorrowState::None {
+                        vs.borrow = BorrowState::None;
+                    }
+                }
             }
             Stmt::Assign {
                 target,
@@ -4164,6 +4240,13 @@ impl SemanticAnalyzer {
                                 .with_span(*span),
                             );
                         }
+                    }
+                }
+                let active_sources: HashSet<SymbolId> =
+                    self.ctx.borrowed_sources.values().copied().collect();
+                for (sym_id, vs) in &mut self.ctx.var_states {
+                    if !active_sources.contains(sym_id) && vs.borrow != BorrowState::None {
+                        vs.borrow = BorrowState::None;
                     }
                 }
             }

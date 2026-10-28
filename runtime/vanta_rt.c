@@ -653,3 +653,80 @@ int64_t vanta_env_arg_get(int64_t idx, VantaString *dest) {
     vanta_str_from_str(dest, arg, (int64_t)len);
     return 0;
 }
+
+
+/* ============================================================================
+ * Vanta Networking & HTTP Server Primitives
+ * ============================================================================ */
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+int64_t vanta_net_listen(int64_t port) {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) return -1;
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons((uint16_t)port);
+
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(server_fd);
+        return -2;
+    }
+
+    if (listen(server_fd, 32) < 0) {
+        close(server_fd);
+        return -3;
+    }
+
+    return (int64_t)server_fd;
+}
+
+int64_t vanta_net_accept(int64_t server_fd) {
+    if (server_fd < 0) return -1;
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    int client_fd = accept((int)server_fd, (struct sockaddr *)&client_addr, &client_len);
+    return (int64_t)client_fd;
+}
+
+int64_t vanta_net_read(int64_t client_fd, VantaString *dest) {
+    if (dest == NULL) return -1;
+    dest->data = NULL;
+    dest->len = 0;
+    dest->cap = 0;
+
+    char buf[4096];
+    ssize_t n = recv((int)client_fd, buf, sizeof(buf) - 1, 0);
+    if (n < 0) return -1;
+    buf[n] = '\0';
+    vanta_str_from_str(dest, buf, (int64_t)n);
+    return (int64_t)n;
+}
+
+int64_t vanta_net_write(int64_t client_fd, const char *data, uint64_t len) {
+    if (data == NULL || len == 0) return 0;
+    size_t total = 0;
+    while (total < (size_t)len) {
+        ssize_t n = send((int)client_fd, data + total, (size_t)len - total, 0);
+        if (n <= 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        total += (size_t)n;
+    }
+    return (int64_t)total;
+}
+
+int64_t vanta_net_close(int64_t fd) {
+    if (fd >= 0) {
+        close((int)fd);
+    }
+    return 0;
+}

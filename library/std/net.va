@@ -1,0 +1,21 @@
+import std::string::String;
+
+pub fn listen(port: i64) -> i64 {
+    vanta_net_listen(port)
+}
+
+pub fn accept(server_fd: i64) -> i64 {
+    vanta_net_accept(server_fd)
+}
+
+pub fn read(client_fd: i64, dest: &mut String) -> i64 {
+    vanta_net_read(client_fd, dest)
+}
+
+pub fn write(client_fd: i64, data: &str) -> i64 {
+    vanta_net_write(client_fd, data)
+}
+
+pub fn close(fd: i64) -> i64 {
+    vanta_net_close(fd)
+}

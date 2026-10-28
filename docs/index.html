@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Venta Programming Language | Fast, Memory-Safe Systems Language</title>
+    <meta name="description" content="A performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM). Compiles in 0.24 seconds.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+    <style>
+        :root {
+            --bg-base: #0d1117;
+            --bg-surface: #161b22;
+            --bg-elevated: #21262d;
+            --bg-code: #0b0e14;
+            --border-subtle: #30363d;
+            --border-focus: #58a6ff;
+            --text-main: #f0f6fc;
+            --text-muted: #8b949e;
+            --text-dim: #6e7681;
+            --accent-purple: #8b5cf6;
+            --accent-purple-glow: rgba(139, 92, 246, 0.25);
+            --accent-cyan: #06b6d4;
+            --accent-green: #238636;
+            --accent-orange: #f59e0b;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: "Fira Code", "JetBrains Mono", Consolas, "Liberation Mono", Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        a:hover {
+            color: #38bdf8;
+            text-decoration: underline;
+        }
+
+        /* Top Navigation */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(13, 17, 23, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 0.75rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+        }
+
+        .nav-brand span {
+            background: linear-gradient(135deg, #a78bfa, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-main);
+            text-decoration: none;
+        }
+
+        .nav-cta {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            padding: 0.4rem 0.9rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-main) !important;
+            transition: all 0.2s ease;
+        }
+
+        .nav-cta:hover {
+            background: #2a313c;
+            border-color: #8b949e;
+        }
+
+        /* Hero Section */
+        .hero {
+            position: relative;
+            padding: 5rem 2rem 4rem 2rem;
+            text-align: center;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .hero::before {
+            content: "";
+            position: absolute;
+            top: -20%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-purple-glow) 0%, rgba(13, 17, 23, 0) 70%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .release-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            color: #c4b5fd;
+            padding: 0.3rem 0.9rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero h1 {
+            font-size: 3.25rem;
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -1px;
+            margin-bottom: 1.25rem;
+        }
+
+        .hero h1 .gradient-text {
+            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 50%, #38bdf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p.lead {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            max-width: 780px;
+            margin: 0 auto 2.5rem auto;
+            line-height: 1.6;
+        }
+
+        /* Quick Install Terminal Widget */
+        .install-box {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            max-width: 680px;
+            margin: 0 auto 3rem auto;
+            text-align: left;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+
+        .install-header {
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .tab-btn.active {
+            background: var(--bg-surface);
+            color: var(--text-main);
+        }
+
+        .install-body {
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            color: #38bdf8;
+            background: var(--bg-code);
+        }
+
+        .copy-btn {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            color: var(--text-main);
+            border-color: #8b949e;
+        }
+
+        /* Metrics Bar */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .metric-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(139, 92, 246, 0.4);
+        }
+
+        .metric-val {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-val.purple { color: #c4b5fd; }
+        .metric-val.cyan { color: #38bdf8; }
+        .metric-val.green { color: #4ade80; }
+        .metric-val.orange { color: #fbbf24; }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        /* Features Section */
+        .section {
+            padding: 5rem 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3.5rem;
+        }
+
+        .section-tag {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent-purple);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-title {
+            font-size: 2.25rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 1rem;
+        }
+
+        .section-desc {
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            max-width: 650px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.75rem;
+        }
+
+        .feature-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-icon {
+            font-size: 1.75rem;
+            margin-bottom: 1rem;
+            display: inline-block;
+        }
+
+        .feature-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text-main);
+        }
+
+        .feature-text {
+            font-size: 0.92rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* Benchmarks Section */
+        .bench-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        @media (max-width: 768px) {
+            .bench-grid { grid-template-columns: 1fr; }
+        }
+
+        .bench-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .bench-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .bench-bar-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .bench-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .bench-bar-bg {
+            height: 10px;
+            background: var(--bg-elevated);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .bench-bar-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.8s ease;
+        }
+
+        .fill-venta { background: linear-gradient(90deg, #8b5cf6, #38bdf8); }
+        .fill-rust { background: #e06c75; }
+        .fill-gcc { background: #e5c07b; }
+
+        /* Code Tour & Guide */
+        .tour-tabs {
+            display: flex;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 1.5rem;
+            overflow-x: auto;
+        }
+
+        .tour-tab {
+            padding: 0.75rem 1.25rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .tour-tab.active {
+            color: var(--accent-purple);
+            border-color: var(--accent-purple);
+        }
+
+        .code-display {
+            background: var(--bg-code);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            overflow-x: auto;
+            line-height: 1.5;
+            color: #d1d5db;
+        }
+
+        .kw { color: #f472b6; font-weight: 600; }
+        .ty { color: #38bdf8; }
+        .fn { color: #a78bfa; }
+        .str { color: #a3e635; }
+        .num { color: #f59e0b; }
+        .comment { color: #6b7280; font-style: italic; }
+
+        /* Release Hub Card */
+        .release-card {
+            background: linear-gradient(135deg, rgba(22, 27, 34, 0.9), rgba(13, 17, 23, 0.9));
+            border: 1px solid var(--border-subtle);
+            border-radius: 14px;
+            padding: 2.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .release-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .release-title {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--accent-purple);
+            color: #fff !important;
+            padding: 0.65rem 1.25rem;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #7c3aed;
+            transform: translateY(-1px);
+            text-decoration: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-main) !important;
+        }
+
+        .btn-outline:hover {
+            background: var(--bg-elevated);
+            border-color: #8b949e;
+        }
+
+        .checksum-box {
+            background: var(--bg-code);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            word-break: break-all;
+        }
+
+        /* Server Status Pill */
+        .server-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #4ade80;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background: #22c55e;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #22c55e;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: 1px solid var(--border-subtle);
+            padding: 3rem 2rem;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        .footer p {
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            ⚡ <span>Venta</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#benchmarks">Benchmarks</a></li>
+            <li><a href="#releases">Releases</a></li>
+            <li><a href="#guide">Guide</a></li>
+            <li><a href="#vscode">VS Code</a></li>
+        </ul>
+        <a href="https://github.com/Looka-info/Venta" target="_blank" class="nav-cta">
+            <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub
+        </a>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="release-pill">
+            <span class="server-status-pill"><span class="pulse-dot"></span> v1.0-RC2 Official Candidate</span>
+            <span>100% Pure Venta Native</span>
+        </div>
+        <h1>The Systems Language for <br><span class="gradient-text">Machine Speed & AI Pairing</span></h1>
+        <p class="lead">
+            Zero-cost memory safety without Garbage Collection. Custom SSA optimizer and native x86-64 code generation — engineered from first principles with zero LLVM dependency.
+        </p>
+
+        <!-- Quick Install Terminal Widget -->
+        <div class="install-box">
+            <div class="install-header">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchInstall('npm', this)">Node / NPM</button>
+                    <button class="tab-btn" onclick="switchInstall('curl', this)">1-Line Curl</button>
+                    <button class="tab-btn" onclick="switchInstall('source', this)">From Source</button>
+                </div>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Global Toolchain</span>
+            </div>
+            <div class="install-body">
+                <span id="install-cmd">npm install -g vanta-lang</span>
+                <button class="copy-btn" onclick="copyCmd()">
+                    <span id="copy-text">Copy</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-val cyan">~0.24s</div>
+                <div class="metric-label">Full Native Compile Time (8x faster than Rust)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-val purple">~22.5 KB</div>
+                <div class="metric-label">Compact Standalone Executable (520x smaller)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-val green">100%</div>
+                <div class="metric-label">Compile-Time Affine Safety (Zero GC Pauses)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-val orange">0</div>
+                <div class="metric-label">LLVM / Heavy Dependencies (Pure Native Toolchain)</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Core Features Section -->
+    <section id="features" class="section">
+        <div class="section-header">
+            <div class="section-tag">Core Capabilities</div>
+            <h2 class="section-title">Engineered for Raw Speed & Predictability</h2>
+            <p class="section-desc">Venta removes intermediate bloat and runtime penalties, giving you direct control over hardware execution.</p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🛡️</div>
+                <h3 class="feature-title">Memory Safety Without GC</h3>
+                <p class="feature-text">
+                    Affine ownership, move semantics, and lexical borrow checking (<code>&T</code>, <code>&mut T</code>) eliminate dangling pointers, use-after-free, and data races at compile time with zero runtime overhead.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3 class="feature-title">No LLVM / Heavy C++ Bloat</h3>
+                <p class="feature-text">
+                    Custom SSA Mid-Level IR, fast linear-scan physical register allocator, and pure ELF64 writer compile directly to native Linux object files in milliseconds without massive multi-gigabyte dependencies.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3 class="feature-title">AI-First Tooling</h3>
+                <p class="feature-text">
+                    Built-in structured JSON diagnostics across <code>vanta check --json</code> and <code>compile</code> provide token-efficient machine feedback, enabling autonomous AI pair programmers to debug code in 20 milliseconds.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🏎️</div>
+                <h3 class="feature-title">14-Pass SSA Optimizer</h3>
+                <p class="feature-text">
+                    Aggressive optimizations including Inlining, Global Value Numbering (GVN), Loop Invariant Code Motion (LICM), SROA, Loop Unrolling, and Tail-Call Optimization (TCO) delivering up to 4.19x speedups.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔌</div>
+                <h3 class="feature-title">System V AMD64 ABI Native</h3>
+                <p class="feature-text">
+                    Direct register calling conventions (<code>rdi</code>, <code>rsi</code>, <code>rdx</code>, <code>rcx</code>, <code>r8</code>, <code>r9</code>, return in <code>rax</code>), enabling zero-cost C library interop and foreign function calls.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌐</div>
+                <h3 class="feature-title">Native Networking & HTTP</h3>
+                <p class="feature-text">
+                    Standard library networking module (<code>std::net</code>) with high-speed POSIX socket primitives. This showcase website itself is served directly by an HTTP server written in pure Venta!
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Benchmarks Section -->
+    <section id="benchmarks" class="section">
+        <div class="section-header">
+            <div class="section-tag">Performance Verification</div>
+            <h2 class="section-title">Audited Benchmarks & Speedups</h2>
+            <p class="section-desc">Audited and verified under controlled hardware isolation (AMD x86-64, Linux kernel 6.6).</p>
+        </div>
+
+        <div class="bench-grid">
+            <div class="bench-card">
+                <div class="bench-title">
+                    <span>Compilation Speed (Typical Workload)</span>
+                    <span style="font-size: 0.85rem; color: #38bdf8;">Lower is Better</span>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>Venta v1.0-RC2</span><strong>0.24 s (8x faster)</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-venta" style="width: 12.5%;"></div></div>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>GCC 15 -O3</span><strong>0.28 s</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-gcc" style="width: 14.6%;"></div></div>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>Rust 1.93.1 -O3 (LLVM)</span><strong>1.91 s</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-rust" style="width: 100%;"></div></div>
+                </div>
+            </div>
+
+            <div class="bench-card">
+                <div class="bench-title">
+                    <span>Standalone Executable Footprint</span>
+                    <span style="font-size: 0.85rem; color: #c4b5fd;">Lower is Better</span>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>GCC 15 (C Native)</span><strong>16.0 KB</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-gcc" style="width: 2%;"></div></div>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>Venta v1.0-RC2 (Memory-Safe)</span><strong>22.5 KB (520x smaller)</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-venta" style="width: 3%;"></div></div>
+                </div>
+                <div class="bench-bar-group">
+                    <div class="bench-bar-label"><span>Rust 1.93.1 (Standard Library)</span><strong>11.8 MB</strong></div>
+                    <div class="bench-bar-bg"><div class="bench-bar-fill fill-rust" style="width: 100%;"></div></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Release Hub Section -->
+    <section id="releases" class="section">
+        <div class="section-header">
+            <div class="section-tag">Release Channel</div>
+            <h2 class="section-title">Official Distribution Hub</h2>
+            <p class="section-desc">Download pre-built standalone binaries or verify checksum manifests.</p>
+        </div>
+
+        <div class="release-card">
+            <div class="release-header">
+                <div>
+                    <div class="release-title">Venta v1.0-RC2</div>
+                    <div style="color: var(--text-muted); font-size: 0.9rem;">Target: Linux x86-64 (Standalone ELF64 / WSL2)</div>
+                </div>
+                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                    <a href="https://github.com/Looka-info/Venta/releases" target="_blank" class="btn">
+                        Download Package (.tar.gz)
+                    </a>
+                    <a href="https://github.com/Looka-info/Venta" target="_blank" class="btn btn-outline">
+                        View GitHub Release
+                    </a>
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">SHA-256 Checksum Manifest:</div>
+                <div class="checksum-box">
+                    <span>f22db4fb86ba525838618eb7897b6058d9e6027aeb9e14a51e60021b3ce9baeb  vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz</span>
+                    <button class="copy-btn" onclick="copyChecksum()" style="margin-left: 1rem;">Copy</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Developer Guide & Interactive Code Tour -->
+    <section id="guide" class="section">
+        <div class="section-header">
+            <div class="section-tag">Language Guide</div>
+            <h2 class="section-title">Interactive Language Tour</h2>
+            <p class="section-desc">Explore Venta's clean, expressive syntax designed for clarity and zero-cost safety.</p>
+        </div>
+
+        <div class="tour-tabs">
+            <button class="tour-tab active" onclick="switchTour('ownership', this)">1. Ownership & Move</button>
+            <button class="tour-tab" onclick="switchTour('enums', this)">2. Enums & Match</button>
+            <button class="tour-tab" onclick="switchTour('traits', this)">3. Zero-Cost Traits</button>
+            <button class="tour-tab" onclick="switchTour('net', this)">4. Web & Net Server</button>
+            <button class="tour-tab" onclick="switchTour('ai', this)">5. AI JSON Diagnostics</button>
+        </div>
+
+        <pre class="code-display" id="tour-code">
+<span class="kw">struct</span> <span class="ty">Buffer</span> {
+    capacity: <span class="ty">i64</span>,
+    size: <span class="ty">i64</span>,
+}
+
+<span class="kw">fn</span> <span class="fn">process_buffer</span>(b: &<span class="ty">Buffer</span>) -> <span class="ty">i64</span> {
+    <span class="kw">return</span> b.size;
+}
+
+<span class="kw">fn</span> <span class="fn">consume_buffer</span>(b: <span class="ty">Buffer</span>) {
+    <span class="comment">// b is moved and deallocated cleanly at end of scope</span>
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> <span class="ty">i64</span> {
+    <span class="kw">let</span> buf = <span class="ty">Buffer</span> { capacity: <span class="num">1024</span>, size: <span class="num">42</span> };
+    
+    <span class="comment">// Immutable borrow: buf remains fully valid</span>
+    <span class="kw">let</span> s = <span class="fn">process_buffer</span>(&buf);
+    
+    <span class="comment">// Move: ownership transferred</span>
+    <span class="fn">consume_buffer</span>(buf);
+    
+    <span class="comment">// Compile error if accessed here: E0301 (Use of moved value)</span>
+    <span class="kw">return</span> s;
+}
+        </pre>
+    </section>
+
+    <!-- VS Code Editor Section -->
+    <section id="vscode" class="section">
+        <div class="section-header">
+            <div class="section-tag">Editor Ecosystem</div>
+            <h2 class="section-title">Official VS Code Extension</h2>
+            <p class="section-desc">Full syntax highlighting, bracket pairing, and TextMate grammar for <code>.va</code> files.</p>
+        </div>
+
+        <div class="feature-card" style="text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎨</div>
+            <h3 class="feature-title">Install Extension in One Command</h3>
+            <p class="feature-text" style="max-width: 600px; margin: 0 auto 1.5rem auto;">
+                Copy the extension bundle directly into your local VS Code extensions directory:
+            </p>
+            <div class="checksum-box" style="max-width: 600px; margin: 0 auto;">
+                <span>cp -r editors/vscode ~/.vscode/extensions/vanta-vscode</span>
+                <button class="copy-btn" onclick="navigator.clipboard.writeText('cp -r editors/vscode ~/.vscode/extensions/vanta-vscode'); alert('Copied!');">Copy</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>⚡ <strong>Venta Systems Programming Language</strong> • Dual Licensed under <a href="LICENSE-MIT">MIT</a> OR <a href="LICENSE-APACHE">Apache-2.0</a></p>
+        <p>Repository: <a href="https://github.com/Looka-info/Venta" target="_blank">github.com/Looka-info/Venta</a> • NPM: <a href="https://www.npmjs.com/package/vanta-lang" target="_blank">vanta-lang</a></p>
+        <p style="margin-top: 1rem;"><span class="server-status-pill"><span class="pulse-dot"></span> Powered by Pure Venta HTTP Engine (server.va)</span></p>
+    </footer>
+
+    <script>
+        const installCommands = {
+            'npm': 'npm install -g vanta-lang',
+            'curl': 'curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash',
+            'source': 'git clone https://github.com/Looka-info/Venta.git && cd Venta && ./scripts/install.sh'
+        };
+
+        function switchInstall(type, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('install-cmd').innerText = installCommands[type];
+        }
+
+        function copyCmd() {
+            const cmd = document.getElementById('install-cmd').innerText;
+            navigator.clipboard.writeText(cmd);
+            const text = document.getElementById('copy-text');
+            text.innerText = 'Copied!';
+            setTimeout(() => { text.innerText = 'Copy'; }, 2000);
+        }
+
+        function copyChecksum() {
+            navigator.clipboard.writeText('f22db4fb86ba525838618eb7897b6058d9e6027aeb9e14a51e60021b3ce9baeb');
+            alert('Checksum copied to clipboard!');
+        }
+
+        const tourSnippets = {
+            'ownership': `<span class="kw">struct</span> <span class="ty">Buffer</span> {
+    capacity: <span class="ty">i64</span>,
+    size: <span class="ty">i64</span>,
+}
+
+<span class="kw">fn</span> <span class="fn">process_buffer</span>(b: &<span class="ty">Buffer</span>) -> <span class="ty">i64</span> {
+    <span class="kw">return</span> b.size;
+}
+
+<span class="kw">fn</span> <span class="fn">consume_buffer</span>(b: <span class="ty">Buffer</span>) {
+    <span class="comment">// b is moved and deallocated cleanly at end of scope</span>
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> <span class="ty">i64</span> {
+    <span class="kw">let</span> buf = <span class="ty">Buffer</span> { capacity: <span class="num">1024</span>, size: <span class="num">42</span> };
+    
+    <span class="comment">// Immutable borrow: buf remains fully valid</span>
+    <span class="kw">let</span> s = <span class="fn">process_buffer</span>(&buf);
+    
+    <span class="comment">// Move: ownership transferred</span>
+    <span class="fn">consume_buffer</span>(buf);
+    
+    <span class="comment">// Compile error if accessed here: E0301 (Use of moved value)</span>
+    <span class="kw">return</span> s;
+}`,
+            'enums': `<span class="kw">enum</span> <span class="ty">Status</span> {
+    Success(<span class="ty">i64</span>),
+    Error(<span class="ty">i64</span>),
+    Pending,
+}
+
+<span class="kw">fn</span> <span class="fn">eval</span>(s: <span class="ty">Status</span>) -> <span class="ty">i64</span> {
+    <span class="kw">match</span> s {
+        <span class="ty">Status</span>::Success(code) => {
+            <span class="kw">return</span> code;
+        }
+        <span class="ty">Status</span>::Error(err) => {
+            <span class="kw">return</span> -err;
+        }
+        <span class="ty">Status</span>::Pending => {
+            <span class="kw">return</span> <span class="num">0</span>;
+        }
+    }
+}`,
+            'traits': `<span class="kw">trait</span> <span class="ty">Computable</span> {
+    <span class="kw">fn</span> <span class="fn">compute</span>(self: &Self) -> <span class="ty">i64</span>;
+}
+
+<span class="kw">struct</span> <span class="ty">Sensor</span> {
+    val: <span class="ty">i64</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Computable</span> <span class="kw">for</span> <span class="ty">Sensor</span> {
+    <span class="kw">fn</span> <span class="fn">compute</span>(self: &Self) -> <span class="ty">i64</span> {
+        <span class="kw">return</span> self.val * <span class="num">2</span>;
+    }
+}`,
+            'net': `<span class="kw">import</span> std::net;
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> <span class="ty">i64</span> {
+    <span class="fn">print_str</span>(<span class="str">"⚡ Venta HTTP Server running on http://localhost:8080\\n"</span>);
+    <span class="kw">let</span> server_fd = net::<span class="fn">listen</span>(<span class="num">8080</span>);
+
+    <span class="kw">while</span> <span class="kw">true</span> {
+        <span class="kw">let</span> client_fd = net::<span class="fn">accept</span>(server_fd);
+        <span class="kw">if</span> client_fd >= <span class="num">0</span> {
+            net::<span class="fn">write</span>(client_fd, <span class="str">"HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\n\\r\\nHello from Pure Venta!"</span>);
+            net::<span class="fn">close</span>(client_fd);
+        }
+    }
+    net::<span class="fn">close</span>(server_fd);
+    <span class="kw">return</span> <span class="num">0</span>;
+}`,
+            'ai': `{
+  <span class="str">"version"</span>: <span class="str">"1.0.0"</span>,
+  <span class="str">"success"</span>: <span class="kw">false</span>,
+  <span class="str">"error_count"</span>: <span class="num">1</span>,
+  <span class="str">"diagnostics"</span>: [
+    {
+      <span class="str">"code"</span>: <span class="str">"E0201"</span>,
+      <span class="str">"severity"</span>: <span class="str">"error"</span>,
+      <span class="str">"message"</span>: <span class="str">"Type mismatch in let binding: expected i64, found &str"</span>,
+      <span class="str">"span"</span>: { <span class="str">"start_line"</span>: <span class="num">2</span>, <span class="str">"start_col"</span>: <span class="num">18</span>, <span class="str">"end_line"</span>: <span class="num">2</span>, <span class="str">"end_col"</span>: <span class="num">42</span> },
+      <span class="str">"expected"</span>: <span class="str">"i64"</span>,
+      <span class="str">"actual"</span>: <span class="str">"&str"</span>
+    }
+  ]
+}`
+        };
+
+        function switchTour(key, btn) {
+            document.querySelectorAll('.tour-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tour-code').innerHTML = tourSnippets[key];
+        }
+    </script>
+</body>
+</html>

@@ -22,6 +22,7 @@
 
 ## 📖 Table of Contents
 
+- [🌐 Live Web Showcase & Pure Venta HTTP Server](#live-web-showcase--pure-venta-http-server)
 - [⚡ Quick Installation](#quick-installation)
   - [Option 1: Via Node / NPM (Recommended)](#option-1-via-node-npm-recommended)
   - [Option 2: Universal 1-Line Shell Installer (`curl | bash`)](#option-2-universal-1-line-shell-installer-curl-bash)
@@ -41,6 +42,7 @@
   - [2. Enums and Pattern Matching](#2-enums-and-pattern-matching)
   - [3. Traits and Zero-Cost Polymorphism](#3-traits-and-zero-cost-polymorphism)
   - [4. Standard Library and I/O](#4-standard-library-and-io)
+  - [5. Native Networking & Pure Venta HTTP Server](#5-native-networking--pure-venta-http-server)
 - [🎨 VS Code Editor Support](#vs-code-editor-support)
 - [🖥 Command Line Interface (CLI)](#command-line-interface-cli)
 - [🔨 Building and Testing](#building-and-testing)
@@ -48,6 +50,27 @@
 - [📄 License](#license)
 
 ---
+
+---
+
+## 🌐 Live Web Showcase & Pure Venta HTTP Server
+
+Experience the official Venta language showcase, live benchmark visualizer, release hub (v1.0-RC2), and developer guide:
+
+- **Static Browser / GitHub Pages**: Open [`docs/index.html`](docs/index.html) or [`www/index.html`](www/index.html) in any browser.
+- **Native Pure Venta HTTP Engine**: Launch the HTTP server implemented 100% in pure Venta ([`www/server.va`](www/server.va)):
+  ```bash
+  # Run directly via the Vanta CLI
+  vanta run www/server.va
+
+  # Or compile to a standalone native 37 KB executable:
+  vantac www/server.va -o www/server
+  ./www/server --port 8080
+  ```
+  Open **`http://localhost:8080/`** in your browser to view the interactive Showcase, or query the native JSON status API endpoint:
+  ```bash
+  curl -i http://localhost:8080/api/status
+  ```
 
 ## ⚡ Quick Installation
 
@@ -401,6 +424,42 @@ fn main() -> i64 {
 }
 ```
 
+### 5. Native Networking & Pure Venta HTTP Server
+
+Venta provides standard library networking primitives (`std::net`) for high-throughput TCP socket programming, enabling native microservices, REST APIs, and HTTP web servers without external C dependencies:
+
+```rust
+import std::net;
+import std::fs;
+import std::string::String;
+import std::result::Result;
+
+fn main() -> i64 {
+    // Bind and listen on TCP port 8080
+    let server_fd = net::listen(8080);
+    if server_fd < 0 {
+        print_str("Error: Failed to bind to port 8080\n");
+        return 1;
+    }
+    print_str("⚡ Venta HTTP Server listening on http://127.0.0.1:8080/\n");
+
+    // Accept incoming client connection
+    let client_fd = net::accept(server_fd);
+    if client_fd >= 0 {
+        let mut request = String::new();
+        net::read(client_fd, &mut request);
+
+        // Send HTTP 200 OK Response
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello from Pure Venta Native HTTP Engine!";
+        net::write(client_fd, response);
+        net::close(client_fd);
+    }
+
+    net::close(server_fd);
+    return 0;
+}
+```
+
 ---
 
 ## 🎨 VS Code Editor Support
@@ -515,7 +574,10 @@ Venta/
 ├── runtime/
 │   ├── vanta_rt.c                   # Lightweight C runtime (memory, panic, strings)
 │   └── libvanta_rt.a                # Static runtime library
-├── library/std/                     # Standard library (fs, io, env, string, iter)
+├── library/std/                     # Standard library (fs, io, env, string, iter, net)
+├── www/                             # Venta Showcase Web Page & Pure Venta HTTP Server
+│   ├── index.html                   # Interactive dark-theme showcase & guide
+│   └── server.va                    # Pure Venta native HTTP web server
 ├── tools/self_host/                 # Self-hosted compiler and backend verification
 │   ├── vanta_c.va                   # Self-hosting compiler in pure Vanta
 │   ├── backend.va                   # Modular native backend in pure Vanta

@@ -17,6 +17,7 @@ const EMBEDDED_STD_STRING: &str = include_str!("../../../library/std/string.va")
 const EMBEDDED_STD_IO: &str = include_str!("../../../library/std/io.va");
 const EMBEDDED_STD_FS: &str = include_str!("../../../library/std/fs.va");
 const EMBEDDED_STD_ENV: &str = include_str!("../../../library/std/env.va");
+const EMBEDDED_STD_NET: &str = include_str!("../../../library/std/net.va");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ModuleId(pub usize);
@@ -264,6 +265,7 @@ impl<'a> ModuleLoader<'a> {
             io_src,
             fs_src,
             env_src,
+            net_src,
         ) = if let Some(std_dir) = std_dir_opt {
             let mod_file = std_dir.join("mod.va");
             let canon_mod = mod_file.canonicalize().unwrap_or(mod_file);
@@ -285,8 +287,10 @@ impl<'a> ModuleLoader<'a> {
             let fs_src = fs::read_to_string(&fs_file).unwrap_or_else(|_| EMBEDDED_STD_FS.into());
             let env_file = std_dir.join("env.va");
             let env_src = fs::read_to_string(&env_file).unwrap_or_else(|_| EMBEDDED_STD_ENV.into());
+            let net_file = std_dir.join("net.va");
+            let net_src = fs::read_to_string(&net_file).unwrap_or_else(|_| EMBEDDED_STD_NET.into());
             (
-                canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src,
+                canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
             )
         } else {
             (
@@ -299,6 +303,7 @@ impl<'a> ModuleLoader<'a> {
                 EMBEDDED_STD_IO.into(),
                 EMBEDDED_STD_FS.into(),
                 EMBEDDED_STD_ENV.into(),
+                EMBEDDED_STD_NET.into(),
             )
         };
 
@@ -549,6 +554,37 @@ impl<'a> ModuleLoader<'a> {
             .insert(vec!["std".into(), "env".into()], env_id);
         self.modules[std_id.0].children.insert("env".into(), env_id);
         self.seen_canonical_paths.insert(env_path, env_id);
+
+        // 9. Add and parse std/net.va
+        let net_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("net.va");
+        let net_file_id = self
+            .source_map
+            .add_file(net_path.to_string_lossy().to_string(), net_src);
+        let net_file = self.source_map.get_file(net_file_id).unwrap();
+        let mut net_lexer = Lexer::new(&net_file);
+        let net_tokens = net_lexer.tokenize(self.diagnostics);
+        let mut net_parser = Parser::new(net_tokens);
+        let net_program = net_parser.parse_program(self.diagnostics);
+
+        let net_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: net_id,
+            name: "net".into(),
+            path: vec!["std".into(), "net".into()],
+            file_path: net_path.clone(),
+            file_id: net_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: net_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "net".into()], net_id);
+        self.modules[std_id.0].children.insert("net".into(), net_id);
+        self.seen_canonical_paths.insert(net_path, net_id);
 
         Ok(())
     }
