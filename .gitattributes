@@ -1,14 +1,34 @@
 # ============================================================================
-# GitHub Linguist Configuration for Vanta
+# GitHub Linguist Configuration for Venta / Vanta
 # ============================================================================
 
-# Treat Vanta language files as primary source
-*.va linguist-language=Vanta
+# Map .va files to 'V' (the official built-in language in GitHub Linguist)
+# so GitHub recognizes, syntax-highlights, and counts .va files in the language bar.
+*.va linguist-language=V
+*.vanta linguist-language=V
 
-# Mark Stage 0 Rust bootstrap compiler as vendored so it does not skew
-# repository language statistics, establishing Vanta as the primary language.
+# Mark all non-Vanta bootstrap code, comparative benchmarks, scripts, and runtime
+# as vendored so they are excluded from the repository language breakdown.
 crates/** linguist-vendored
+benchmarks/** linguist-vendored
+scripts/** linguist-vendored
+runtime/** linguist-vendored
+tools/** linguist-vendored
+tests/** linguist-vendored
+dist/** linguist-vendored
 
-# Mark documentation files
+# Ensure all auxiliary files (C comparison benchmarks, Python harnesses, Shell scripts, Rust bootstrap)
+# are explicitly marked as vendored code.
+*.c linguist-vendored
+*.h linguist-vendored
+*.py linguist-vendored
+*.sh linguist-vendored
+*.rs linguist-vendored
+*.toml linguist-vendored
+*.json linguist-vendored
+*.yaml linguist-vendored
+*.yml linguist-vendored
+
+# Documentation files
 docs/** linguist-documentation
 *.md linguist-documentation
