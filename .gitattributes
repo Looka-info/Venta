@@ -16,6 +16,8 @@ runtime/** linguist-vendored
 tools/** linguist-vendored
 tests/** linguist-vendored
 dist/** linguist-vendored
+packages/** linguist-vendored
+editors/** linguist-vendored
 
 # Ensure all auxiliary files (C comparison benchmarks, Python harnesses, Shell scripts, Rust bootstrap)
 # are explicitly marked as vendored code.
@@ -24,6 +26,8 @@ dist/** linguist-vendored
 *.py linguist-vendored
 *.sh linguist-vendored
 *.rs linguist-vendored
+*.js linguist-vendored
+*.mjs linguist-vendored
 *.toml linguist-vendored
 *.json linguist-vendored
 *.yaml linguist-vendored

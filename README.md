@@ -21,6 +21,7 @@
 
 ## 📖 Table of Contents
 
+- [Quick Installation](#-quick-installation)
 - [Overview](#-overview)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
@@ -29,16 +30,46 @@
   - [Optimization Speedup Highlights](#optimization-speedup-highlights)
   - [Compilation Speed & Binary Footprint Comparison](#compilation-speed--binary-footprint-comparison)
   - [Full Benchmark Execution Times](#full-benchmark-execution-times)
-- [Self-Hosted Native Compiler (`vanta_c.va`)](#-self-hosted-native-compiler-vanta_cva)
+- [Self-Hosted Native Compiler (`vanta_c.va`) & Backend (`backend.va`)](#-self-hosted-native-compiler-vanta_cva--backend-backendva)
 - [Language Tour & Examples](#-language-tour--examples)
   - [1. Ownership and Affine Borrowing](#1-ownership-and-affine-borrowing)
   - [2. Enums and Pattern Matching](#2-enums-and-pattern-matching)
   - [3. Traits and Zero-Cost Polymorphism](#3-traits-and-zero-cost-polymorphism)
   - [4. Standard Library and I/O](#4-standard-library-and-io)
+- [VS Code Editor Support](#-vs-code-editor-support)
 - [Command Line Interface (CLI)](#-command-line-interface-cli)
 - [Building and Testing](#-building-and-testing)
 - [Repository Structure](#-repository-structure)
 - [License](#-license)
+
+---
+
+## ⚡ Quick Installation
+
+Vanta can be installed globally using **Node/NPM** or a **1-line shell script**:
+
+### Option 1: Via Node / NPM (Recommended)
+```bash
+npm install -g vanta-lang
+```
+Or run immediately without installing via `npx`:
+```bash
+npx vanta-lang --version
+```
+
+### Option 2: Universal 1-Line Shell Installer (`curl | bash`)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash
+```
+
+### Option 3: Pre-built Release Tarball (GitHub Releases)
+```bash
+wget https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz
+cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
+```
+
+For more options and custom prefixes, see the [Full Installation Guide](docs/installation.md).
 
 ---
 
@@ -412,8 +443,24 @@ cargo test --test version_gate_tests
 ```
 Venta/
 ├── Cargo.toml                       # Virtual workspace root
+├── package.json                     # NPM distribution manifest (vanta-lang)
 ├── rust-toolchain.toml              # Toolchain pinning (stable 1.93.1)
-├── crates/
+├── compiler/                        # Modular Native Compiler in Pure Vanta (.va)
+│   ├── main.va                      # Pure Vanta compiler CLI driver
+│   ├── parser.va                    # Recursive descent parser & AST
+│   ├── backend.va                   # System V AMD64 ABI & x86-64 code generator
+│   ├── lexer.va                     # Lexical scanner & token matchers
+│   ├── tokens.va                    # Token definitions
+│   ├── symtab.va                    # Symbol table & stack slot offsets
+│   └── opt.va                       # Pure Vanta constant folding & reductions
+├── packages/vanta-lang/             # Official NPM distribution package
+│   ├── package.json                 # vanta-lang manifest
+│   ├── bin/                         # Node.js CLI wrappers (vanta, vantac)
+│   └── scripts/                     # Auto-provisioning release binary installer
+├── editors/vscode/                  # Official VS Code Extension & Syntax Grammar
+│   ├── syntaxes/vanta.tmLanguage.json # TextMate grammar for .va files
+│   └── language-configuration.json    # Brackets, auto-closing & comments
+├── crates/                          # Stage 0 Bootstrap Reference Compiler (Rust)
 │   ├── vanta_source                 # Source file mapping, Spans, FileId
 │   ├── vanta_diagnostics            # Terminal & JSON diagnostic emission
 │   ├── vanta_lexer                  # Tokenizer & comment stripper
@@ -427,11 +474,13 @@ Venta/
 │   ├── vanta_rt.c                   # Lightweight C runtime (memory, panic, strings)
 │   └── libvanta_rt.a                # Static runtime library
 ├── library/std/                     # Standard library (fs, io, env, string, iter)
-├── tools/self_host/
+├── tools/self_host/                 # Self-hosted compiler and backend verification
 │   ├── vanta_c.va                   # Self-hosting compiler in pure Vanta
-│   └── tests/                       # 9 native assembly verification programs
+│   ├── backend.va                   # Modular native backend in pure Vanta
+│   ├── backend_test.va              # Native backend verification test
+│   └── tests/                       # 10 native assembly verification programs
 ├── benchmarks/                      # 18 benchmark suites & JSON results
-├── scripts/                         # Packaging, CI verification, clean-prefix scripts
+├── scripts/                         # Packaging, npm build, install.sh universal script
 └── docs/                            # Formal language specs, release gates, reports
 ```
 

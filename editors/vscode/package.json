@@ -1,0 +1,49 @@
+{
+  "name": "vanta-vscode",
+  "displayName": "Vanta Language Support",
+  "description": "Official syntax highlighting, bracket matching, and editor support for the Vanta Systems Programming Language",
+  "version": "1.0.0",
+  "publisher": "vanta-lang",
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "vanta",
+    "venta",
+    "systems-programming",
+    "compiler"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Looka-info/Venta.git"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "vanta",
+        "aliases": [
+          "Vanta",
+          "vanta",
+          "Venta",
+          "venta"
+        ],
+        "extensions": [
+          ".va",
+          ".vanta"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vanta",
+        "scopeName": "source.vanta",
+        "path": "./syntaxes/vanta.tmLanguage.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+Vanta:
+  type: programming
+  color: "#7C3AED"
+  aliases:
+    - venta
+  extensions:
+    - .va
+    - .vanta
+  tm_scope: source.vanta
+  ace_mode: rust
+  codemirror_mode: rust
+  language_id: 994821034
