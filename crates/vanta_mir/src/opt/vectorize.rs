@@ -20,6 +20,8 @@ pub struct VectorizeTargetConfig {
     pub has_avx2: bool,
     /// Fused Multiply-Add (`vfmadd231pd`).
     pub has_fma: bool,
+    /// 512-bit AVX-512 Foundation (`vpaddq512`, `vfmadd231pd512`, 8-lane operations).
+    pub has_avx512f: bool,
 }
 
 /// Statistics and optimization diagnostics collected by the loop vectorizer.
@@ -56,6 +58,29 @@ enum VectorPattern {
         base_b: BaseLocation,
         base_c: BaseLocation,
     },
+    /// 8-lane 64-bit packed integer addition: out[i] = a[i] + b[i]
+    IntegerAdd512 {
+        base_out: BaseLocation,
+        base_a: BaseLocation,
+        base_b: BaseLocation,
+    },
+    /// 8-lane double-precision packed FMA: out[i] = a[i] * b[i] + c[i]
+    FloatFma512 {
+        base_out: BaseLocation,
+        base_a: BaseLocation,
+        base_b: BaseLocation,
+        base_c: BaseLocation,
+    },
+}
+
+impl VectorPattern {
+    /// Number of 64-bit lanes processed per vector iteration.
+    pub fn step(&self) -> i64 {
+        match self {
+            VectorPattern::IntegerAdd256 { .. } | VectorPattern::FloatFma256 { .. } => 4,
+            VectorPattern::IntegerAdd512 { .. } | VectorPattern::FloatFma512 { .. } => 8,
+        }
+    }
 }
 
 pub struct LoopVectorizer;
@@ -241,10 +266,10 @@ impl LoopVectorizer {
                 }
             };
 
-            // 9. Profitability check: if static trip count is known to be < 4, reject
+            // 9. Profitability check & target vector width selection
             let init_const = Self::find_const_int(func, init_val);
             let limit_const = Self::find_const_int(func, limit_val);
-            if let (Some(init_c), Some(limit_c)) = (init_const, limit_const) {
+            let pattern = if let (Some(init_c), Some(limit_c)) = (init_const, limit_const) {
                 let total = if is_lte {
                     limit_c - init_c + 1
                 } else {
@@ -254,7 +279,43 @@ impl LoopVectorizer {
                     stats.rejected_profitability += 1;
                     continue;
                 }
-            }
+                // If trip count is statically known to be 4..7, adapt 512-bit pattern to 256-bit if AVX2 is available
+                if total < 8 {
+                    match pattern {
+                        VectorPattern::IntegerAdd512 {
+                            base_out,
+                            base_a,
+                            base_b,
+                        } if target_config.has_avx2 => VectorPattern::IntegerAdd256 {
+                            base_out,
+                            base_a,
+                            base_b,
+                        },
+                        VectorPattern::FloatFma512 {
+                            base_out,
+                            base_a,
+                            base_b,
+                            base_c,
+                        } if target_config.has_avx && target_config.has_fma => {
+                            VectorPattern::FloatFma256 {
+                                base_out,
+                                base_a,
+                                base_b,
+                                base_c,
+                            }
+                        }
+                        p if total < p.step() => {
+                            stats.rejected_profitability += 1;
+                            continue;
+                        }
+                        p => p,
+                    }
+                } else {
+                    pattern
+                }
+            } else {
+                pattern
+            };
 
             // 10. Perform Strip-Mining & Vector Loop Emission
             let changed = Self::apply_strip_mining(
@@ -483,15 +544,22 @@ impl LoopVectorizer {
                 Self::match_array_load(func, loop_info, &inst_map, *rhs, iv_dest, Type::I64);
 
             if let (Some(a), Some(b)) = (base_a, base_b) {
-                if !target_config.has_avx2 {
+                if target_config.has_avx512f {
+                    return Some(VectorPattern::IntegerAdd512 {
+                        base_out,
+                        base_a: a,
+                        base_b: b,
+                    });
+                } else if target_config.has_avx2 {
+                    return Some(VectorPattern::IntegerAdd256 {
+                        base_out,
+                        base_a: a,
+                        base_b: b,
+                    });
+                } else {
                     stats.rejected_target_features += 1;
                     return None;
                 }
-                return Some(VectorPattern::IntegerAdd256 {
-                    base_out,
-                    base_a: a,
-                    base_b: b,
-                });
             }
         }
 
@@ -542,16 +610,24 @@ impl LoopVectorizer {
                     Self::match_array_load(func, loop_info, &inst_map, c_val, iv_dest, Type::F64);
 
                 if let (Some(a), Some(b), Some(c)) = (base_a, base_b, base_c) {
-                    if !target_config.has_avx || !target_config.has_fma {
+                    if target_config.has_avx512f {
+                        return Some(VectorPattern::FloatFma512 {
+                            base_out,
+                            base_a: a,
+                            base_b: b,
+                            base_c: c,
+                        });
+                    } else if target_config.has_avx && target_config.has_fma {
+                        return Some(VectorPattern::FloatFma256 {
+                            base_out,
+                            base_a: a,
+                            base_b: b,
+                            base_c: c,
+                        });
+                    } else {
                         stats.rejected_target_features += 1;
                         return None;
                     }
-                    return Some(VectorPattern::FloatFma256 {
-                        base_out,
-                        base_a: a,
-                        base_b: b,
-                        base_c: c,
-                    });
                 }
             }
         }
@@ -812,6 +888,47 @@ impl LoopVectorizer {
                     base_b: b,
                 }
             }
+            VectorPattern::IntegerAdd512 {
+                base_out,
+                base_a,
+                base_b,
+            } => {
+                let out = match Self::ensure_base_available(
+                    base_out,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let a = match Self::ensure_base_available(
+                    base_a,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let b = match Self::ensure_base_available(
+                    base_b,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                VectorPattern::IntegerAdd512 {
+                    base_out: out,
+                    base_a: a,
+                    base_b: b,
+                }
+            }
             VectorPattern::FloatFma256 {
                 base_out,
                 base_a,
@@ -865,6 +982,59 @@ impl LoopVectorizer {
                     base_c: c,
                 }
             }
+            VectorPattern::FloatFma512 {
+                base_out,
+                base_a,
+                base_b,
+                base_c,
+            } => {
+                let out = match Self::ensure_base_available(
+                    base_out,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let a = match Self::ensure_base_available(
+                    base_a,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let b = match Self::ensure_base_available(
+                    base_b,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let c = match Self::ensure_base_available(
+                    base_c,
+                    func,
+                    loop_info,
+                    &mut check_insts,
+                    &mut alloc_val,
+                ) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                VectorPattern::FloatFma512 {
+                    base_out: out,
+                    base_a: a,
+                    base_b: b,
+                    base_c: c,
+                }
+            }
         };
 
         // count = limit - init (or limit - init + 1 if <=)
@@ -897,28 +1067,30 @@ impl LoopVectorizer {
             raw_diff
         };
 
-        // can_vectorize: count >= 4
-        let const_4 = alloc_val();
+        let step = pattern.step();
+
+        // can_vectorize: count >= step
+        let const_step = alloc_val();
         check_insts.push(Instruction::ConstInt {
-            dest: const_4,
-            val: 4,
+            dest: const_step,
+            val: step,
             ty: Type::I64,
         });
 
-        let count_ge_4 = alloc_val();
+        let count_ge_step = alloc_val();
         check_insts.push(Instruction::Binary {
-            dest: count_ge_4,
+            dest: count_ge_step,
             op: MirBinaryOp::LtEq,
-            lhs: const_4,
+            lhs: const_step,
             rhs: count_val,
             ty: Type::Bool,
         });
 
-        // Compute vector_end = init + (count & -4)
+        // Compute vector_end = init + (count & -step)
         let mask_val = alloc_val();
         check_insts.push(Instruction::ConstInt {
             dest: mask_val,
-            val: -4,
+            val: -step,
             ty: Type::I64,
         });
 
@@ -945,7 +1117,7 @@ impl LoopVectorizer {
             &mut check_insts,
             &pattern,
             count_val,
-            count_ge_4,
+            count_ge_step,
             &mut alloc_val,
         );
 
@@ -1014,6 +1186,26 @@ impl LoopVectorizer {
                     ret_type: Type::Unit,
                 });
             }
+            VectorPattern::IntegerAdd512 {
+                base_out,
+                base_a,
+                base_b,
+            } => {
+                let addr_out = alloc_val();
+                let addr_a = alloc_val();
+                let addr_b = alloc_val();
+
+                vec_body_insts.push(Self::make_index_addr_inst(addr_a, base_a, i_vec_v));
+                vec_body_insts.push(Self::make_index_addr_inst(addr_b, base_b, i_vec_v));
+                vec_body_insts.push(Self::make_index_addr_inst(addr_out, base_out, i_vec_v));
+
+                vec_body_insts.push(Instruction::Call {
+                    dest: None,
+                    callee: "venta_simd_vpaddq512".to_string(),
+                    args: vec![addr_out, addr_a, addr_b],
+                    ret_type: Type::Unit,
+                });
+            }
             VectorPattern::FloatFma256 {
                 base_out,
                 base_a,
@@ -1037,20 +1229,43 @@ impl LoopVectorizer {
                     ret_type: Type::Unit,
                 });
             }
+            VectorPattern::FloatFma512 {
+                base_out,
+                base_a,
+                base_b,
+                base_c,
+            } => {
+                let addr_out = alloc_val();
+                let addr_a = alloc_val();
+                let addr_b = alloc_val();
+                let addr_c = alloc_val();
+
+                vec_body_insts.push(Self::make_index_addr_inst(addr_a, base_a, i_vec_v));
+                vec_body_insts.push(Self::make_index_addr_inst(addr_b, base_b, i_vec_v));
+                vec_body_insts.push(Self::make_index_addr_inst(addr_c, base_c, i_vec_v));
+                vec_body_insts.push(Self::make_index_addr_inst(addr_out, base_out, i_vec_v));
+
+                vec_body_insts.push(Instruction::Call {
+                    dest: None,
+                    callee: "venta_simd_vfmadd231pd512".to_string(),
+                    args: vec![addr_out, addr_a, addr_b, addr_c],
+                    ret_type: Type::Unit,
+                });
+            }
         }
 
-        // i_vec_next = i_vec + 4
-        let const_4_step = alloc_val();
+        // i_vec_next = i_vec + step
+        let const_step_val = alloc_val();
         vec_body_insts.push(Instruction::ConstInt {
-            dest: const_4_step,
-            val: 4,
+            dest: const_step_val,
+            val: step,
             ty: Type::I64,
         });
         vec_body_insts.push(Instruction::Binary {
             dest: i_vec_next_v,
             op: MirBinaryOp::Add,
             lhs: i_vec_v,
-            rhs: const_4_step,
+            rhs: const_step_val,
             ty: Type::I64,
         });
 
@@ -1106,7 +1321,7 @@ impl LoopVectorizer {
         insts: &mut Vec<Instruction>,
         pattern: &VectorPattern,
         count_val: ValueId,
-        count_ge_4_val: ValueId,
+        count_ge_step_val: ValueId,
         alloc_val: &mut F,
     ) -> ValueId
     where
@@ -1117,8 +1332,19 @@ impl LoopVectorizer {
                 base_out,
                 base_a,
                 base_b,
+            }
+            | VectorPattern::IntegerAdd512 {
+                base_out,
+                base_a,
+                base_b,
             } => (*base_out, vec![*base_a, *base_b]),
             VectorPattern::FloatFma256 {
+                base_out,
+                base_a,
+                base_b,
+                base_c,
+            }
+            | VectorPattern::FloatFma512 {
                 base_out,
                 base_a,
                 base_b,
@@ -1128,12 +1354,12 @@ impl LoopVectorizer {
 
         // If base_out is a stack slot, stack slots cannot alias other allocations
         if let BaseLocation::Slot(_) = base_out {
-            return count_ge_4_val;
+            return count_ge_step_val;
         }
 
         let out_ptr = match base_out {
             BaseLocation::Ptr(p) => p,
-            _ => return count_ge_4_val,
+            _ => return count_ge_step_val,
         };
 
         // Compute bytes = count * 8
@@ -1162,7 +1388,7 @@ impl LoopVectorizer {
             ty: Type::I64,
         });
 
-        let mut curr_ok = count_ge_4_val;
+        let mut curr_ok = count_ge_step_val;
 
         for base_in in bases_in {
             match base_in {

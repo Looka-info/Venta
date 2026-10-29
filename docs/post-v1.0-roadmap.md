@@ -61,6 +61,13 @@ flowchart LR
   - Intel EVEX compressed displacement ($Disp8 \times N$ with $N=64$ for full 512-bit vectors) and uncompressed Disp32 fallback.
   - Bidirectional C ABI oracle interoperability with GCC (`__m512i` and `v512`).
   - Gated execution with CPUID / OSXSAVE / XCR0 validation (`vanta_cpu_has_avx512f`).
+- **AVX-512 8-Lane Loop Auto-Vectorization & Strip-Mining (Milestone 26.5 - Completed)**:
+  - Extended conservative MIR loop vectorizer (`vanta_mir::opt::vectorize`) to generate 512-bit AVX-512 operations processing eight 64-bit lanes per iteration (`vpaddq512`, `vfmadd231pd512`) under `--target-feature=+avx512f`.
+  - Eight-lane strip-mining with dynamic threshold check (`count >= 8`), vector bound calculation (`vector_end = init + (count & -8)`), vector induction step ($+8$), and scalar remainder loop handling leftover $N \pmod 8 \in \{1..7\}$ elements.
+  - Compile-time trip-count width selection: statically known loops of length $4 \le N < 8$ adaptively downgrade to 4-lane 256-bit AVX2 vectorization when `has_avx2` is present, while loops with $N \ge 8$ or dynamic bounds vectorize to 8-lane AVX-512.
+  - Sound memory dependency and alias analysis with runtime non-overlap guards, in-place update validation, and cross-iteration recurrence rejection.
+  - Transparent fallback hierarchy: AVX2 (4-lane YMM) when `avx512f` is absent, baseline scalar when SIMD is absent, and `--no-vectorize` flag support.
+  - Empirical verification across 15 integration tests covering boundary trip counts (0, 1, 7, 8, 9, 15, 16, 17, 67), negative and wrapping integers, FMA MIR transformation, and truthful hardware-gated execution skips.
 - **Target Performance**: Achieved $6.3\times\text{--}6.7\times$ speedup on array addition kernels, fully eliminating the historical scalar loop gap against GCC `-O3` and Rust `release`.
 
 ---

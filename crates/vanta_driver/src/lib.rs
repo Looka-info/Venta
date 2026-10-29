@@ -160,6 +160,7 @@ impl CompilerSession {
             has_avx: options.target_features.avx,
             has_avx2: options.target_features.avx2,
             has_fma: options.target_features.fma,
+            has_avx512f: options.target_features.avx512f,
         };
         OptimizationPipeline::optimize_program_full_with_target(
             &mut mir,
@@ -245,6 +246,7 @@ impl CompilerSession {
             has_avx: options.target_features.avx,
             has_avx2: options.target_features.avx2,
             has_fma: options.target_features.fma,
+            has_avx512f: options.target_features.avx512f,
         };
         OptimizationPipeline::optimize_program_full_with_target(
             &mut mir,

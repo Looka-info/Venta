@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-10-30 (Milestone 26.5 — AVX-512 8-Lane Loop Auto-Vectorization & Strip-Mining)
+
+**Sixth Feature Milestone for v1.1 SIMD & Vectorization**
+
+### Added
+- **512-bit AVX-512 8-Lane Loop Auto-Vectorization (`crates/vanta_mir/src/opt/vectorize.rs`)**:
+  - Extended conservative MIR loop vectorizer to detect eligible counted loops and strip-mine them into 8-wide 512-bit EVEX vector operations under `--target-feature=+avx512f`.
+  - Added `VectorPattern::IntegerAdd512` (8-lane 64-bit packed integer addition emitting `venta_simd_vpaddq512`).
+  - Added `VectorPattern::FloatFma512` (8-lane double-precision FMA emitting `venta_simd_vfmadd231pd512`).
+  - Integrated `has_avx512f` into `VectorizeTargetConfig` wired directly to `CompilerOptions::target_features.avx512f`.
+- **8-Lane Strip-Mining & Scalar Remainder Handling**:
+  - Implemented dynamic threshold check $\text{count} \ge 8$ in `vector.check` block; short loop counts ($N < 8$) branch directly to `scalar_header` without executing vector code.
+  - Formulated vector bound $\text{vector\_end} = \text{init} + (\text{count} \;\&\; -8)$, preventing out-of-bounds array access in the final vector iteration.
+  - Implemented induction variable step of 8 ($i_{\text{vec}} \mathrel{+}= 8$) in `vector.body`.
+  - Wired vector termination into scalar remainder loop, correctly computing leftovers $N \pmod 8 \in \{1..7\}$.
+- **Compile-Time Trip-Count Width Adaptation**:
+  - Statically known loops of length $4 \le N < 8$ adaptively downgrade to 4-lane 256-bit AVX2 vectorization (`IntegerAdd256`) when `has_avx2` is available.
+  - Statically known loops with $N \ge 8$ or dynamic bounds vectorize to 8-lane AVX-512.
+- **Sound Memory Legality & Alias Verification**:
+  - Formulated runtime non-overlap guard for 8-lane operations: $\text{out} + 8 \times \text{count} \le a \;\lor\; a + 8 \times \text{count} \le \text{out}$.
+  - Explicitly permitted exact in-place updates ($\text{out} == a$).
+  - Rejected loops with loop-carried cross-iteration recurrences or unsupported internal calls.
+- **Hierarchical Target Gating & Fallback**:
+  - `--target-feature=+avx512f`: emits EVEX 512-bit ZMM vector loops.
+  - `--target-feature=+avx2`: emits VEX 256-bit YMM vector loops.
+  - Baseline target: preserves scalar execution with zero SIMD instructions.
+  - `--no-vectorize`: forces scalar execution regardless of target CPU features.
+- **Integration Test Suite (`crates/vanta_driver/tests/vectorize_avx512_tests.rs`)**:
+  - 15 automated integration tests covering eligibility, EVEX disassembly, fallback to AVX2, `--no-vectorize` flag, exact 8 lanes, short boundaries (0, 1, 7), remainders 1, 7, 17, in-place updates, negative/overflow semantics, FMA MIR transformation, large lengths (67), baseline fallback, recurrence rejection, and multi-length differential validation (0..33).
+- **Benchmark Suite (`benchmarks/run_vectorize_benchmarks.py`)**:
+  - Expanded benchmark comparing Scalar vs AVX2 256-bit vs AVX-512 512-bit across Short (8 lanes), Medium (64 lanes), and Long (1024 lanes).
+  - Truthfully detects host CPU hardware capabilities, skipping native ZMM execution with clear diagnostic reporting when run on non-AVX-512 hosts.
+
+---
+
 ## [1.1.0-alpha.5] - 2026-10-30 (Milestone 26.4 — AVX-512 ZMM Register Allocation, Spilling & System V Vector ABI)
 
 **Fifth Feature Milestone for v1.1 SIMD & Vectorization**

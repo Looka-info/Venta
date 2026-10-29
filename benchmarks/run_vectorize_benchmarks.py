@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Venta Milestone 26.3 Loop Auto-Vectorization Benchmark.
+Venta Milestone 26.5 Loop Auto-Vectorization Benchmark.
 
-Measures computational throughput of scalar loops (--no-vectorize) vs
-auto-vectorized loops (--target-feature=+avx2) for array vector addition
-across Short (8 elements), Medium (64 elements), and Long (1024 elements).
+Measures computational throughput across:
+1. Scalar execution (--no-vectorize)
+2. 256-bit AVX2 vectorization (--target-feature=+avx2)
+3. 512-bit AVX-512 8-lane vectorization (--target-feature=+avx512f)
+
+Truthfully reports host CPU model, hardware feature support, and only executes
+512-bit binaries if native AVX-512F hardware is detected.
 """
 
 import os
@@ -34,6 +38,24 @@ BENCH_CONFIGS = [
     },
 ]
 
+def detect_cpu_info():
+    cpu_model = "Unknown x86-64"
+    has_avx2 = False
+    has_avx512f = False
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    cpu_model = line.split(":", 1)[1].strip()
+                elif line.startswith("flags"):
+                    flags = line.split(":", 1)[1].split()
+                    has_avx2 = "avx2" in flags
+                    has_avx512f = "avx512f" in flags
+                    break
+    except Exception:
+        pass
+    return cpu_model, has_avx2, has_avx512f
+
 def generate_source(length, reps):
     init_a = ", ".join(str(i % 100 + 1) for i in range(length))
     init_b = ", ".join(str((i * 3) % 100 + 2) for i in range(length))
@@ -59,8 +81,11 @@ fn main() -> i64 {{
 
     run_kernel({reps}, &a, &b, &mut out);
 
-    // Return element to verify correctness and prevent elimination
-    out[0]
+    // Return 0 on success, verify element to prevent dead-code elimination
+    if out[0] == 0 {{
+        return 1;
+    }}
+    0
 }}
 """
 
@@ -78,6 +103,8 @@ def time_bin(exe_path, runs=5):
         t0 = time.perf_counter()
         res = subprocess.run([exe_path], capture_output=True)
         t1 = time.perf_counter()
+        if res.returncode != 0:
+            raise RuntimeError(f"Execution failed for {exe_path}")
         timings.append((t1 - t0) * 1000.0) # ms
     return statistics.mean(timings), statistics.stdev(timings) if len(timings) > 1 else 0.0
 
@@ -85,12 +112,15 @@ def main():
     os.makedirs(TEMP_DIR, exist_ok=True)
     results = []
 
-    print("=" * 80)
-    print("Venta v1.1 SIMD Loop Auto-Vectorization Benchmark (Kernel Throughput)")
-    print("Target Architecture: x86_64-unknown-linux-gnu (AVX2 / 256-bit YMM)")
-    print("=" * 80)
-    print(f"{'Workload':<24} | {'Scalar Time (ms)':<18} | {'SIMD Time (ms)':<18} | {'Speedup':<10}")
-    print("-" * 80)
+    cpu_model, has_avx2, has_avx512f = detect_cpu_info()
+
+    print("=" * 96)
+    print("Venta v1.1 SIMD Loop Auto-Vectorization Benchmark (Milestone 26.5)")
+    print(f"Host CPU: {cpu_model}")
+    print(f"Hardware Feature Support: AVX2={has_avx2}, AVX-512F={has_avx512f}")
+    print("=" * 96)
+    print(f"{'Workload':<20} | {'Scalar (ms)':<16} | {'AVX2 256-bit':<16} | {'AVX-512 512-bit':<20} | {'AVX2 Speedup':<12}")
+    print("-" * 96)
 
     for cfg in BENCH_CONFIGS:
         name = cfg["name"]
@@ -99,34 +129,53 @@ def main():
 
         src_file = os.path.join(TEMP_DIR, f"kernel_{length}.va")
         scalar_exe = os.path.join(TEMP_DIR, f"scalar_k_{length}")
-        simd_exe = os.path.join(TEMP_DIR, f"simd_k_{length}")
+        avx2_exe = os.path.join(TEMP_DIR, f"avx2_k_{length}")
+        avx512_exe = os.path.join(TEMP_DIR, f"avx512_k_{length}")
 
         with open(src_file, "w") as f:
             f.write(generate_source(length, reps))
 
+        # 1. Compile all targets
         compile_bin(src_file, scalar_exe, ["--no-vectorize"])
-        compile_bin(src_file, simd_exe, ["--target-feature=+avx2"])
+        compile_bin(src_file, avx2_exe, ["--target-feature=+avx2"])
+        compile_bin(src_file, avx512_exe, ["--target-feature=+avx512f"])
 
+        # 2. Benchmark Scalar & AVX2
         scalar_mean, scalar_std = time_bin(scalar_exe, runs=5)
-        simd_mean, simd_std = time_bin(simd_exe, runs=5)
-        speedup = scalar_mean / simd_mean if simd_mean > 0 else 1.0
+        avx2_mean, avx2_std = time_bin(avx2_exe, runs=5)
+        avx2_speedup = scalar_mean / avx2_mean if avx2_mean > 0 else 1.0
+
+        # 3. Benchmark AVX-512 if native hardware available
+        if has_avx512f:
+            avx512_mean, avx512_std = time_bin(avx512_exe, runs=5)
+            avx512_speedup = scalar_mean / avx512_mean if avx512_mean > 0 else 1.0
+            avx512_str = f"{avx512_mean:.1f} ± {avx512_std:.1f} ms"
+        else:
+            avx512_mean, avx512_std = None, None
+            avx512_speedup = None
+            avx512_str = "N/A (no AVX-512F CPU)"
 
         results.append({
             "workload": name,
             "length": length,
             "reps": reps,
+            "cpu_model": cpu_model,
             "scalar_ms": scalar_mean,
             "scalar_std": scalar_std,
-            "simd_ms": simd_mean,
-            "simd_std": simd_std,
-            "speedup": speedup
+            "avx2_ms": avx2_mean,
+            "avx2_std": avx2_std,
+            "avx2_speedup": avx2_speedup,
+            "avx512_ms": avx512_mean,
+            "avx512_std": avx512_std,
+            "avx512_speedup": avx512_speedup,
+            "avx512_hardware_present": has_avx512f
         })
 
         scalar_str = f"{scalar_mean:.1f} ± {scalar_std:.1f} ms"
-        simd_str = f"{simd_mean:.1f} ± {simd_std:.1f} ms"
-        print(f"{name:<24} | {scalar_str:<18} | {simd_str:<18} | {speedup:.2f}x")
+        avx2_str = f"{avx2_mean:.1f} ± {avx2_std:.1f} ms"
+        print(f"{name:<20} | {scalar_str:<16} | {avx2_str:<16} | {avx512_str:<20} | {avx2_speedup:.2f}x")
 
-    print("=" * 80)
+    print("=" * 96)
 
     results_path = "benchmarks/results/vectorize_benchmark.json"
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
