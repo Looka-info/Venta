@@ -29,6 +29,11 @@ pub struct MirLowerer<'a> {
     loop_scope_depths: Vec<usize>,
     string_literals: Vec<StringLiteral>,
     current_fn_ret_type: Type,
+    current_fn_span: Span,
+    slot_spans: HashMap<SlotId, Span>,
+    val_spans: HashMap<ValueId, Span>,
+    terminator_spans: HashMap<BlockId, Span>,
+    current_span: Span,
 }
 
 impl<'a> MirLowerer<'a> {
@@ -48,6 +53,11 @@ impl<'a> MirLowerer<'a> {
             loop_scope_depths: Vec::new(),
             string_literals: Vec::new(),
             current_fn_ret_type: Type::Unit,
+            current_fn_span: Span::dummy(),
+            slot_spans: HashMap::new(),
+            val_spans: HashMap::new(),
+            terminator_spans: HashMap::new(),
+            current_span: Span::dummy(),
         }
     }
 
@@ -69,6 +79,9 @@ impl<'a> MirLowerer<'a> {
     fn new_value(&mut self) -> ValueId {
         let v = ValueId(self.next_val);
         self.next_val += 1;
+        if !self.current_span.is_dummy() {
+            self.val_spans.insert(v, self.current_span);
+        }
         v
     }
 
@@ -85,6 +98,9 @@ impl<'a> MirLowerer<'a> {
             align,
         });
         self.var_map.last_mut().unwrap().insert(name, s);
+        if !self.current_span.is_dummy() {
+            self.slot_spans.insert(s, self.current_span);
+        }
         s
     }
 
@@ -126,6 +142,10 @@ impl<'a> MirLowerer<'a> {
             .terminator
             .is_none()
         {
+            let b_id = self.current_blocks[self.current_block_idx].id;
+            if !self.current_span.is_dummy() {
+                self.terminator_spans.insert(b_id, self.current_span);
+            }
             self.current_blocks[self.current_block_idx].terminator = Some(term);
         }
     }
@@ -479,6 +499,10 @@ impl<'a> MirLowerer<'a> {
             ret_type: opt_ty,
             slots: std::mem::take(&mut self.current_slots),
             blocks: std::mem::take(&mut self.current_blocks),
+            span: Span::dummy(),
+            slot_spans: HashMap::new(),
+            val_spans: HashMap::new(),
+            terminator_spans: HashMap::new(),
         }
     }
 
@@ -493,6 +517,11 @@ impl<'a> MirLowerer<'a> {
         self.loop_exit_blocks.clear();
         self.loop_cond_blocks.clear();
         self.loop_scope_depths.clear();
+        self.slot_spans.clear();
+        self.val_spans.clear();
+        self.terminator_spans.clear();
+        self.current_fn_span = f.span;
+        self.current_span = f.span;
 
         let sig = self.sema.functions.get(mangled_name).unwrap();
         self.current_fn_ret_type = sig.ret_type.clone();
@@ -501,8 +530,13 @@ impl<'a> MirLowerer<'a> {
         let entry_block = self.new_block("entry");
         self.switch_to_block(entry_block);
 
-        for (p_name, p_ty, _) in &sig.params {
+        for (i, (p_name, p_ty, _)) in sig.params.iter().enumerate() {
+            let p_span = f.params.get(i).map(|p| p.span).unwrap_or(f.span);
+            let prev_span = self.current_span;
+            self.current_span = p_span;
             let slot = self.new_slot(p_name.clone(), p_ty.clone());
+            self.slot_spans.insert(slot, p_span);
+            self.current_span = prev_span;
             params.push((slot, p_ty.clone()));
             if p_ty.needs_drop(&self.sema.structs, &self.sema.enums) {
                 if let Some(scope) = self.drop_scopes.first_mut() {
@@ -546,6 +580,10 @@ impl<'a> MirLowerer<'a> {
             ret_type: sig.ret_type.clone(),
             slots: std::mem::take(&mut self.current_slots),
             blocks: std::mem::take(&mut self.current_blocks),
+            span: self.current_fn_span,
+            slot_spans: std::mem::take(&mut self.slot_spans),
+            val_spans: std::mem::take(&mut self.val_spans),
+            terminator_spans: std::mem::take(&mut self.terminator_spans),
         }
     }
 
@@ -1014,6 +1052,20 @@ impl<'a> MirLowerer<'a> {
     }
 
     fn lower_stmt(&mut self, stmt: &Stmt) {
+        let s_span = match stmt {
+            Stmt::Let { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::Loop { span, .. }
+            | Stmt::For { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::Break { span }
+            | Stmt::Continue { span } => *span,
+            Stmt::Expr(e) => e.span,
+        };
+        if !s_span.is_dummy() {
+            self.current_span = s_span;
+        }
         match stmt {
             Stmt::Let {
                 name,
@@ -1932,7 +1984,11 @@ impl<'a> MirLowerer<'a> {
     }
 
     fn lower_expr(&mut self, expr: &Expr) -> ValueId {
-        match &expr.kind {
+        let prev_span = self.current_span;
+        if !expr.span.is_dummy() {
+            self.current_span = expr.span;
+        }
+        let res = match &expr.kind {
             ExprKind::Int(n) => {
                 let dest = self.new_value();
                 self.emit(Instruction::ConstInt {
@@ -3338,7 +3394,9 @@ impl<'a> MirLowerer<'a> {
                     })
                 }
             }
-        }
+        };
+        self.current_span = prev_span;
+        res
     }
 
     fn lower_slice_expr(&mut self, expr: &Expr) -> (ValueId, ValueId) {

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use vanta_sema::{EnumDef, StructDef, Type};
+use vanta_source::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValueId(pub u32);
@@ -177,9 +178,32 @@ pub struct MirFunction {
     pub ret_type: Type,
     pub slots: Vec<LocalSlot>,
     pub blocks: Vec<BasicBlock>,
+    pub span: Span,
+    pub slot_spans: HashMap<SlotId, Span>,
+    pub val_spans: HashMap<ValueId, Span>,
+    pub terminator_spans: HashMap<BlockId, Span>,
 }
 
 impl MirFunction {
+    pub fn new(
+        name: String,
+        params: Vec<(SlotId, Type)>,
+        ret_type: Type,
+        slots: Vec<LocalSlot>,
+        blocks: Vec<BasicBlock>,
+    ) -> Self {
+        Self {
+            name,
+            params,
+            ret_type,
+            slots,
+            blocks,
+            span: Span::dummy(),
+            slot_spans: HashMap::new(),
+            val_spans: HashMap::new(),
+            terminator_spans: HashMap::new(),
+        }
+    }
     pub fn max_value_id(&self) -> u32 {
         let mut max = 0;
         for block in &self.blocks {

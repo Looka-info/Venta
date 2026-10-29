@@ -128,6 +128,7 @@ fn handle_run(args: &[String]) {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut debug_info = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -139,6 +140,8 @@ fn handle_run(args: &[String]) {
             opt_level = OptLevel::None;
         } else if arg == "-O1" || arg == "-O" || arg == "--opt" {
             opt_level = OptLevel::O1;
+        } else if arg == "-g" || arg == "--debug" {
+            debug_info = true;
         } else if arg == "--json" {
             diagnostic_format = DiagnosticFormat::Json;
         } else if let Some(fmt) = arg.strip_prefix("--diagnostics=") {
@@ -331,6 +334,7 @@ fn handle_run(args: &[String]) {
         enable_block_layout,
         enable_code_align,
         target_features,
+        debug_info,
     };
 
     let mut session = CompilerSession::new();
@@ -397,6 +401,7 @@ fn handle_compile(args: &[String]) {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut debug_info = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -405,6 +410,8 @@ fn handle_compile(args: &[String]) {
             opt_level = OptLevel::None;
         } else if arg == "-O1" || arg == "-O" || arg == "--opt" {
             opt_level = OptLevel::O1;
+        } else if arg == "-g" || arg == "--debug" {
+            debug_info = true;
         } else if arg == "--json" {
             diagnostic_format = DiagnosticFormat::Json;
         } else if let Some(fmt) = arg.strip_prefix("--diagnostics=") {
@@ -609,6 +616,7 @@ fn handle_compile(args: &[String]) {
         enable_block_layout,
         enable_code_align,
         target_features,
+        debug_info,
     };
 
     let mut session = CompilerSession::new();
@@ -732,6 +740,7 @@ fn handle_check(args: &[String]) {
         enable_block_layout: false,
         enable_code_align: false,
         target_features: TargetFeatures::baseline(),
+        debug_info: false,
     };
 
     let mut session = CompilerSession::new();

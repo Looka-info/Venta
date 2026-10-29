@@ -16,12 +16,22 @@ pub struct RodataSymbol {
     pub size: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DebugSections {
+    pub debug_info: Vec<u8>,
+    pub debug_abbrev: Vec<u8>,
+    pub debug_line: Vec<u8>,
+    pub rela_debug_info: Vec<Relocation>,
+    pub rela_debug_line: Vec<Relocation>,
+}
+
 pub struct Elf64Writer {
     text_section: Vec<u8>,
     rodata_section: Vec<u8>,
     relocations: Vec<Relocation>,
     functions: Vec<FunctionSymbol>,
     rodata_symbols: Vec<RodataSymbol>,
+    debug_sections: Option<DebugSections>,
 }
 
 impl Elf64Writer {
@@ -38,7 +48,13 @@ impl Elf64Writer {
             relocations,
             functions,
             rodata_symbols,
+            debug_sections: None,
         }
+    }
+
+    pub fn with_debug(mut self, debug_sections: Option<DebugSections>) -> Self {
+        self.debug_sections = debug_sections;
+        self
     }
 
     pub fn write(self) -> Vec<u8> {
@@ -57,6 +73,11 @@ impl Elf64Writer {
         let sh_text_name = add_shstr(".text");
         let sh_rodata_name = add_shstr(".rodata");
         let sh_rela_text_name = add_shstr(".rela.text");
+        let sh_debug_info_name = add_shstr(".debug_info");
+        let sh_rela_debug_info_name = add_shstr(".rela.debug_info");
+        let sh_debug_abbrev_name = add_shstr(".debug_abbrev");
+        let sh_debug_line_name = add_shstr(".debug_line");
+        let sh_rela_debug_line_name = add_shstr(".rela.debug_line");
         let sh_symtab_name = add_shstr(".symtab");
         let sh_strtab_name = add_shstr(".strtab");
         let sh_shstrtab_name = add_shstr(".shstrtab");
@@ -70,11 +91,78 @@ impl Elf64Writer {
             offset
         };
 
+        // Determine section indices
+        let has_rela_text = !self.relocations.is_empty();
+        let sec_text = 1u32;
+        let sec_rodata = 2u32;
+        let mut next_sec = 3u32;
+
+        let sec_rela_text = if has_rela_text {
+            let s = next_sec;
+            next_sec += 1;
+            Some(s)
+        } else {
+            None
+        };
+
+        let (
+            sec_debug_info,
+            sec_rela_debug_info,
+            sec_debug_abbrev,
+            sec_debug_line,
+            sec_rela_debug_line,
+        ) = if let Some(ref dbg) = self.debug_sections {
+            let s_info = next_sec;
+            next_sec += 1;
+
+            let s_rela_info = if !dbg.rela_debug_info.is_empty() {
+                let s = next_sec;
+                next_sec += 1;
+                Some(s)
+            } else {
+                None
+            };
+
+            let s_abbrev = next_sec;
+            next_sec += 1;
+
+            let s_line = next_sec;
+            next_sec += 1;
+
+            let s_rela_line = if !dbg.rela_debug_line.is_empty() {
+                let s = next_sec;
+                next_sec += 1;
+                Some(s)
+            } else {
+                None
+            };
+
+            (
+                Some(s_info),
+                s_rela_info,
+                Some(s_abbrev),
+                Some(s_line),
+                s_rela_line,
+            )
+        } else {
+            (None, None, None, None, None)
+        };
+
+        let sec_symtab = next_sec;
+        next_sec += 1;
+        let sec_strtab = next_sec;
+        next_sec += 1;
+        let sec_shstrtab = next_sec;
+        next_sec += 1;
+
+        let num_sections = next_sec as usize;
+        let shstr_idx = sec_shstrtab as u16;
+
         // Construct symbols (.symtab)
         let mut symtab_entries = Vec::new();
         let mut sym_indices: HashMap<String, u32> = HashMap::new();
 
-        // Symbol 0: always undefined NULL symbol (STB_LOCAL)
+        // Symbol 0: NULL symbol (STB_LOCAL)
         symtab_entries.push(ElfSym {
             st_name: 0,
             st_info: 0,
@@ -89,20 +177,62 @@ impl Elf64Writer {
             st_name: 0,
             st_info: 0x03, // (STB_LOCAL << 4) | STT_SECTION
             st_other: 0,
-            st_shndx: 1, // .text section index
+            st_shndx: sec_text as u16,
             st_value: 0,
             st_size: 0,
         });
+        sym_indices.insert(".text".to_string(), 1);
 
         // Symbol 2: section symbol for .rodata (STT_SECTION, STB_LOCAL)
         symtab_entries.push(ElfSym {
             st_name: 0,
             st_info: 0x03, // (STB_LOCAL << 4) | STT_SECTION
             st_other: 0,
-            st_shndx: 2, // .rodata section index
+            st_shndx: sec_rodata as u16,
             st_value: 0,
             st_size: 0,
         });
+        sym_indices.insert(".rodata".to_string(), 2);
+
+        // Section symbols for debug sections (if present)
+        if let Some(s_info) = sec_debug_info {
+            let sym_idx = symtab_entries.len() as u32;
+            symtab_entries.push(ElfSym {
+                st_name: 0,
+                st_info: 0x03,
+                st_other: 0,
+                st_shndx: s_info as u16,
+                st_value: 0,
+                st_size: 0,
+            });
+            sym_indices.insert(".debug_info".to_string(), sym_idx);
+        }
+
+        if let Some(s_abbrev) = sec_debug_abbrev {
+            let sym_idx = symtab_entries.len() as u32;
+            symtab_entries.push(ElfSym {
+                st_name: 0,
+                st_info: 0x03,
+                st_other: 0,
+                st_shndx: s_abbrev as u16,
+                st_value: 0,
+                st_size: 0,
+            });
+            sym_indices.insert(".debug_abbrev".to_string(), sym_idx);
+        }
+
+        if let Some(s_line) = sec_debug_line {
+            let sym_idx = symtab_entries.len() as u32;
+            symtab_entries.push(ElfSym {
+                st_name: 0,
+                st_info: 0x03,
+                st_other: 0,
+                st_shndx: s_line as u16,
+                st_value: 0,
+                st_size: 0,
+            });
+            sym_indices.insert(".debug_line".to_string(), sym_idx);
+        }
 
         // Local symbols for .rodata string literals (STB_LOCAL, STT_OBJECT)
         for sym in &self.rodata_symbols {
@@ -112,7 +242,7 @@ impl Elf64Writer {
                 st_name,
                 st_info: 0x01, // (STB_LOCAL << 4) | STT_OBJECT
                 st_other: 0,
-                st_shndx: 2, // .rodata section index
+                st_shndx: sec_rodata as u16,
                 st_value: sym.offset as u64,
                 st_size: sym.size as u64,
             });
@@ -128,7 +258,7 @@ impl Elf64Writer {
                     st_name,
                     st_info: 0x02, // (STB_LOCAL << 4) | STT_FUNC
                     st_other: 0,
-                    st_shndx: 1, // .text section index
+                    st_shndx: sec_text as u16,
                     st_value: func.offset as u64,
                     st_size: func.size as u64,
                 });
@@ -148,7 +278,7 @@ impl Elf64Writer {
                     st_name,
                     st_info: 0x12, // (STB_GLOBAL << 4) | STT_FUNC
                     st_other: 0,
-                    st_shndx: 1, // .text section index
+                    st_shndx: sec_text as u16,
                     st_value: func.offset as u64,
                     st_size: func.size as u64,
                 });
@@ -156,7 +286,7 @@ impl Elf64Writer {
             }
         }
 
-        // Undefined / external symbols referenced in relocations (STB_GLOBAL, STT_NOTYPE)
+        // External / undefined symbols referenced in text relocations
         for rel in &self.relocations {
             if !sym_indices.contains_key(&rel.symbol) {
                 let st_name = add_str(&rel.symbol);
@@ -173,8 +303,8 @@ impl Elf64Writer {
             }
         }
 
-        // Relocations (.rela.text)
-        let mut rela_entries = Vec::new();
+        // Build .rela.text entries
+        let mut rela_text_entries = Vec::new();
         for rel in &self.relocations {
             let sym_idx = *sym_indices.get(&rel.symbol).unwrap_or_else(|| {
                 panic!(
@@ -183,75 +313,150 @@ impl Elf64Writer {
                 );
             });
             let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
-            rela_entries.push(ElfRela {
+            rela_text_entries.push(ElfRela {
                 r_offset: rel.offset as u64,
                 r_info,
                 r_addend: rel.addend,
             });
         }
 
-        // Layout the ELF file sections:
-        // 0: Header (64 bytes)
-        // 1: .text
-        // 2: .rodata
-        // 3: .rela.text (if any relocations)
-        // 4: .symtab
-        // 5: .strtab
-        // 6: .shstrtab
-        // 7: Section Header Table
+        // Build .rela.debug_info entries
+        let mut rela_debug_info_entries = Vec::new();
+        if let Some(ref dbg) = self.debug_sections {
+            for rel in &dbg.rela_debug_info {
+                let sym_idx = *sym_indices.get(&rel.symbol).unwrap_or_else(|| {
+                    panic!("Debug info relocation symbol '{}' must exist", rel.symbol);
+                });
+                let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
+                rela_debug_info_entries.push(ElfRela {
+                    r_offset: rel.offset as u64,
+                    r_info,
+                    r_addend: rel.addend,
+                });
+            }
+        }
 
-        let has_rela = !rela_entries.is_empty();
-        let num_sections = if has_rela { 7 } else { 6 };
-        let shstr_idx = if has_rela { 6u16 } else { 5u16 };
+        // Build .rela.debug_line entries
+        let mut rela_debug_line_entries = Vec::new();
+        if let Some(ref dbg) = self.debug_sections {
+            for rel in &dbg.rela_debug_line {
+                let sym_idx = *sym_indices.get(&rel.symbol).unwrap_or_else(|| {
+                    panic!("Debug line relocation symbol '{}' must exist", rel.symbol);
+                });
+                let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
+                rela_debug_line_entries.push(ElfRela {
+                    r_offset: rel.offset as u64,
+                    r_info,
+                    r_addend: rel.addend,
+                });
+            }
+        }
 
+        // Layout offsets in the ELF file
         let header_size = 64usize;
         let mut current_offset = header_size;
 
-        // .text section (align 16)
+        // .text (align 16)
         current_offset = (current_offset + 15) & !15;
         let text_offset = current_offset;
         let text_size = self.text_section.len();
         current_offset += text_size;
 
-        // .rodata section (align 16)
+        // .rodata (align 16)
         current_offset = (current_offset + 15) & !15;
         let rodata_offset = current_offset;
         let rodata_size = self.rodata_section.len();
         current_offset += rodata_size;
 
-        // .rela.text section (align 8)
-        let (rela_offset, rela_size) = if has_rela {
+        // .rela.text (align 8)
+        let (rela_text_offset, rela_text_size) = if sec_rela_text.is_some() {
             current_offset = (current_offset + 7) & !7;
             let off = current_offset;
-            let sz = rela_entries.len() * 24;
+            let sz = rela_text_entries.len() * 24;
             current_offset += sz;
             (off, sz)
         } else {
             (0, 0)
         };
 
-        // .symtab section (align 8)
+        // Debug sections layout
+        let (
+            dbg_info_offset,
+            dbg_info_size,
+            rela_dbg_info_offset,
+            rela_dbg_info_size,
+            dbg_abbrev_offset,
+            dbg_abbrev_size,
+            dbg_line_offset,
+            dbg_line_size,
+            rela_dbg_line_offset,
+            rela_dbg_line_size,
+        ) = if let Some(ref dbg) = self.debug_sections {
+            // .debug_info (align 1)
+            let i_off = current_offset;
+            let i_sz = dbg.debug_info.len();
+            current_offset += i_sz;
+
+            // .rela.debug_info (align 8)
+            let (ri_off, ri_sz) = if sec_rela_debug_info.is_some() {
+                current_offset = (current_offset + 7) & !7;
+                let off = current_offset;
+                let sz = rela_debug_info_entries.len() * 24;
+                current_offset += sz;
+                (off, sz)
+            } else {
+                (0, 0)
+            };
+
+            // .debug_abbrev (align 1)
+            let a_off = current_offset;
+            let a_sz = dbg.debug_abbrev.len();
+            current_offset += a_sz;
+
+            // .debug_line (align 1)
+            let l_off = current_offset;
+            let l_sz = dbg.debug_line.len();
+            current_offset += l_sz;
+
+            // .rela.debug_line (align 8)
+            let (rl_off, rl_sz) = if sec_rela_debug_line.is_some() {
+                current_offset = (current_offset + 7) & !7;
+                let off = current_offset;
+                let sz = rela_debug_line_entries.len() * 24;
+                current_offset += sz;
+                (off, sz)
+            } else {
+                (0, 0)
+            };
+
+            (
+                i_off, i_sz, ri_off, ri_sz, a_off, a_sz, l_off, l_sz, rl_off, rl_sz,
+            )
+        } else {
+            (0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        };
+
+        // .symtab (align 8)
         current_offset = (current_offset + 7) & !7;
         let symtab_offset = current_offset;
         let symtab_size = symtab_entries.len() * 24;
         current_offset += symtab_size;
 
-        // .strtab section (align 1)
+        // .strtab (align 1)
         let strtab_offset = current_offset;
         let strtab_size = strtab.len();
         current_offset += strtab_size;
 
-        // .shstrtab section (align 1)
+        // .shstrtab (align 1)
         let shstrtab_offset = current_offset;
         let shstrtab_size = shstrtab.len();
         current_offset += shstrtab_size;
 
-        // Section header table (align 8)
+        // Section Header Table (align 8)
         current_offset = (current_offset + 7) & !7;
         let sh_offset = current_offset;
 
-        // Write ELF Header
-        // e_ident
+        // --- Write ELF Header (64 bytes) ---
         out.extend_from_slice(&[0x7F, b'E', b'L', b'F']); // magic
         out.push(2); // 64-bit
         out.push(1); // little-endian
@@ -286,14 +491,59 @@ impl Elf64Writer {
         out.extend_from_slice(&self.rodata_section);
 
         // .rela.text
-        if has_rela {
-            while out.len() < rela_offset {
+        if sec_rela_text.is_some() {
+            while out.len() < rela_text_offset {
                 out.push(0);
             }
-            for rela in &rela_entries {
+            for rela in &rela_text_entries {
                 out.extend_from_slice(&rela.r_offset.to_le_bytes());
                 out.extend_from_slice(&rela.r_info.to_le_bytes());
                 out.extend_from_slice(&rela.r_addend.to_le_bytes());
+            }
+        }
+
+        // Debug sections
+        if let Some(ref dbg) = self.debug_sections {
+            // .debug_info
+            while out.len() < dbg_info_offset {
+                out.push(0);
+            }
+            out.extend_from_slice(&dbg.debug_info);
+
+            // .rela.debug_info
+            if sec_rela_debug_info.is_some() {
+                while out.len() < rela_dbg_info_offset {
+                    out.push(0);
+                }
+                for rela in &rela_debug_info_entries {
+                    out.extend_from_slice(&rela.r_offset.to_le_bytes());
+                    out.extend_from_slice(&rela.r_info.to_le_bytes());
+                    out.extend_from_slice(&rela.r_addend.to_le_bytes());
+                }
+            }
+
+            // .debug_abbrev
+            while out.len() < dbg_abbrev_offset {
+                out.push(0);
+            }
+            out.extend_from_slice(&dbg.debug_abbrev);
+
+            // .debug_line
+            while out.len() < dbg_line_offset {
+                out.push(0);
+            }
+            out.extend_from_slice(&dbg.debug_line);
+
+            // .rela.debug_line
+            if sec_rela_debug_line.is_some() {
+                while out.len() < rela_dbg_line_offset {
+                    out.push(0);
+                }
+                for rela in &rela_debug_line_entries {
+                    out.extend_from_slice(&rela.r_offset.to_le_bytes());
+                    out.extend_from_slice(&rela.r_info.to_le_bytes());
+                    out.extend_from_slice(&rela.r_addend.to_le_bytes());
+                }
             }
         }
 
@@ -322,7 +572,7 @@ impl Elf64Writer {
         }
         out.extend_from_slice(&shstrtab);
 
-        // Section Header Table
+        // --- Section Header Table ---
         while out.len() < sh_offset {
             out.push(0);
         }
@@ -348,10 +598,10 @@ impl Elf64Writer {
             out.extend_from_slice(&entsize.to_le_bytes());
         };
 
-        // 0: NULL section
+        // Section 0: NULL
         write_shdr(sh_null_name, 0, 0, 0, 0, 0, 0, 0, 0);
 
-        // 1: .text section (SHT_PROGBITS = 1, SHF_ALLOC | SHF_EXECINSTR = 6)
+        // Section 1: .text (SHT_PROGBITS = 1, SHF_ALLOC | SHF_EXECINSTR = 6, align 16)
         write_shdr(
             sh_text_name,
             1,
@@ -364,7 +614,7 @@ impl Elf64Writer {
             0,
         );
 
-        // 2: .rodata section (SHT_PROGBITS = 1, SHF_ALLOC = 2)
+        // Section 2: .rodata (SHT_PROGBITS = 1, SHF_ALLOC = 2, align 16)
         write_shdr(
             sh_rodata_name,
             1,
@@ -377,38 +627,107 @@ impl Elf64Writer {
             0,
         );
 
-        // 3: .rela.text section (if present) (SHT_RELA = 4, SHF_INFO_LINK = 0x40)
-        let (_symtab_sec_idx, strtab_sec_idx) = if has_rela {
+        // Section 3 (optional): .rela.text (SHT_RELA = 4, SHF_INFO_LINK = 0x40, align 8)
+        if sec_rela_text.is_some() {
             write_shdr(
                 sh_rela_text_name,
                 4,
                 0x40,
-                rela_offset as u64,
-                rela_size as u64,
-                4, // sh_link: symbol table index (.symtab is 4)
-                1, // sh_info: target section index (.text is 1)
+                rela_text_offset as u64,
+                rela_text_size as u64,
+                sec_symtab, // sh_link: .symtab index
+                sec_text,   // sh_info: target section (.text)
                 8,
                 24,
             );
-            (4, 5)
-        } else {
-            (3, 4)
-        };
+        }
 
-        // .symtab (SHT_SYMTAB = 2)
+        // Debug sections
+        if self.debug_sections.is_some() {
+            // .debug_info (SHT_PROGBITS = 1, flags = 0, align 1)
+            write_shdr(
+                sh_debug_info_name,
+                1,
+                0,
+                dbg_info_offset as u64,
+                dbg_info_size as u64,
+                0,
+                0,
+                1,
+                0,
+            );
+
+            // .rela.debug_info (SHT_RELA = 4, flags = 0x40, align 8)
+            if sec_rela_debug_info.is_some() {
+                write_shdr(
+                    sh_rela_debug_info_name,
+                    4,
+                    0x40,
+                    rela_dbg_info_offset as u64,
+                    rela_dbg_info_size as u64,
+                    sec_symtab,              // sh_link: .symtab
+                    sec_debug_info.unwrap(), // sh_info: target section (.debug_info)
+                    8,
+                    24,
+                );
+            }
+
+            // .debug_abbrev (SHT_PROGBITS = 1, flags = 0, align 1)
+            write_shdr(
+                sh_debug_abbrev_name,
+                1,
+                0,
+                dbg_abbrev_offset as u64,
+                dbg_abbrev_size as u64,
+                0,
+                0,
+                1,
+                0,
+            );
+
+            // .debug_line (SHT_PROGBITS = 1, flags = 0, align 1)
+            write_shdr(
+                sh_debug_line_name,
+                1,
+                0,
+                dbg_line_offset as u64,
+                dbg_line_size as u64,
+                0,
+                0,
+                1,
+                0,
+            );
+
+            // .rela.debug_line (SHT_RELA = 4, flags = 0x40, align 8)
+            if sec_rela_debug_line.is_some() {
+                write_shdr(
+                    sh_rela_debug_line_name,
+                    4,
+                    0x40,
+                    rela_dbg_line_offset as u64,
+                    rela_dbg_line_size as u64,
+                    sec_symtab,              // sh_link: .symtab
+                    sec_debug_line.unwrap(), // sh_info: target section (.debug_line)
+                    8,
+                    24,
+                );
+            }
+        }
+
+        // .symtab (SHT_SYMTAB = 2, align 8)
         write_shdr(
             sh_symtab_name,
             2,
             0,
             symtab_offset as u64,
             symtab_size as u64,
-            strtab_sec_idx,          // sh_link: .strtab index
+            sec_strtab,              // sh_link: .strtab index
             first_non_local_sym_idx, // sh_info: first non-local symbol index
             8,
             24,
         );
 
-        // .strtab (SHT_STRTAB = 3)
+        // .strtab (SHT_STRTAB = 3, align 1)
         write_shdr(
             sh_strtab_name,
             3,
@@ -421,7 +740,7 @@ impl Elf64Writer {
             0,
         );
 
-        // .shstrtab (SHT_STRTAB = 3)
+        // .shstrtab (SHT_STRTAB = 3, align 1)
         write_shdr(
             sh_shstrtab_name,
             3,

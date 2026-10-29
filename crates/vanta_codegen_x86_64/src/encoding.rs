@@ -59,12 +59,22 @@ pub struct Relocation {
     pub r_type: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineEntry {
+    pub code_offset: usize,
+    pub file_idx: u32,
+    pub line: u32,
+    pub column: u32,
+    pub is_stmt: bool,
+}
+
 pub struct CodeEmitter {
     pub bytes: Vec<u8>,
     pub label_offsets: HashMap<String, usize>,
     pub label_fixups: Vec<(usize, String)>, // (offset_of_rel32, target_label)
     pub relocations: Vec<Relocation>,
     pub target_features: TargetFeatures,
+    pub line_entries: Vec<LineEntry>,
 }
 
 impl Default for CodeEmitter {
@@ -81,6 +91,7 @@ impl CodeEmitter {
             label_fixups: Vec::new(),
             relocations: Vec::new(),
             target_features: TargetFeatures::baseline(),
+            line_entries: Vec::new(),
         }
     }
 
@@ -91,7 +102,32 @@ impl CodeEmitter {
             label_fixups: Vec::new(),
             relocations: Vec::new(),
             target_features,
+            line_entries: Vec::new(),
         }
+    }
+
+    pub fn record_source_loc(&mut self, file_id: u32, line: u32, column: u32) {
+        let code_offset = self.bytes.len();
+        if let Some(last) = self.line_entries.last() {
+            if last.code_offset == code_offset {
+                if let Some(last_mut) = self.line_entries.last_mut() {
+                    last_mut.file_idx = file_id;
+                    last_mut.line = line;
+                    last_mut.column = column;
+                }
+                return;
+            }
+            if last.file_idx == file_id && last.line == line && last.column == column {
+                return;
+            }
+        }
+        self.line_entries.push(LineEntry {
+            code_offset,
+            file_idx: file_id,
+            line,
+            column,
+            is_stmt: true,
+        });
     }
 
     pub fn emit_u8(&mut self, b: u8) {
@@ -349,6 +385,14 @@ impl CodeEmitter {
         target: &TargetFeatures,
     ) -> Result<(), CodegenError> {
         match inst {
+            MachineInst::SourceLoc {
+                file_id,
+                line,
+                column,
+            } => {
+                self.record_source_loc(*file_id, *line, *column);
+                return Ok(());
+            }
             MachineInst::Label(name) => {
                 self.label_offsets.insert(name.clone(), self.bytes.len());
             }

@@ -468,13 +468,13 @@ fn test_auto_vectorize_avx512_float_fma_mir_transformation() {
 
     // Construct a MIR function with a loop:
     // for i = 0..16 { out[i] = a[i] * b[i] + c[i]; }
-    let mut func = MirFunction {
-        name: "test_fma".into(),
-        params: Vec::new(),
-        ret_type: Type::Unit,
-        slots: Vec::new(),
-        blocks: Vec::new(),
-    };
+    let mut func = MirFunction::new(
+        "test_fma".into(),
+        Vec::new(),
+        Type::Unit,
+        Vec::new(),
+        Vec::new(),
+    );
 
     let b0 = BlockId(0); // preheader
     let b1 = BlockId(1); // header

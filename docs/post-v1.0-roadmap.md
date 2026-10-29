@@ -74,9 +74,17 @@ flowchart LR
 
 ### Version 1.2 — DWARF 5 Debug Symbols & Language Server Protocol (LSP)
 **Target Focus**: Professional developer experience and interactive debugging.
-- **DWARF 5 Section Emission**:
-  - Generate `.debug_info`, `.debug_line`, `.debug_abbrev`, and `.debug_frame` directly into ELF64 object files.
-  - Map source coordinates to machine instruction offsets for seamless source stepping in GDB and LLDB.
+- **Native DWARF 5 Debug Information Emission (Milestone 27 - Completed)**:
+  - Custom pure-Rust emission of standard DWARF 5 sections directly into relocatable ELF64 object files and linked executables: `.debug_info`, `.debug_abbrev`, `.debug_line`, and corresponding ELF relocations (`.rela.debug_info`, `.rela.debug_line`).
+  - Standard DWARF 5 compilation unit header with `DW_UT_compile` (0x01), 64-bit address size, and version 5.
+  - Registered official Venta language identifier `DW_LANG_Venta = 0x8001` (32769) within DWARF 5 user-defined language range.
+  - DWARF 5 line table with 0-indexed directory and file format descriptors (`DW_LNCT_path`, `DW_LNCT_directory_index`), mapping machine code addresses to source line and column numbers.
+  - Function subprogram DIEs (`DW_TAG_subprogram`) with `DW_AT_low_pc`, `DW_AT_high_pc`, `DW_AT_frame_base = [DW_OP_reg6]` (`%rbp`), and return type links.
+  - Formal parameter (`DW_TAG_formal_parameter`) and local variable (`DW_TAG_variable`) DIEs with stack-relative evaluation via `DW_OP_fbreg (-offset)`.
+  - Base type DIEs (`DW_TAG_base_type`) for primitive scalar types (`i64`, `i32`, `i16`, `i8`, `u64`, `u32`, `u16`, `u8`, `f64`, `f32`, `bool`).
+  - CLI integration: `-g` and `--debug` flags in `ventac`, `vanta build`, and `vanta run`.
+  - Opt-in behavior with zero binary code difference and zero debug section overhead when disabled.
+  - Verified live source breakpoint, stepping, variable inspection, and call stack backtrace unwinding in GDB 17.1 and LLDB 21.1.8.
 - **Vanta Language Server (`vanta-lsp`)**:
   - Provide an official LSP daemon supporting VS Code, Neovim, and Zed.
   - Features: real-time syntax checking, live borrow checker error markers, hover type inspection, go-to-definition, and canonical formatting (`vanta fmt`).

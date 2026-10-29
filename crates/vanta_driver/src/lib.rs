@@ -58,6 +58,7 @@ pub struct CompilerOptions {
     pub enable_block_layout: bool,
     pub enable_code_align: bool,
     pub target_features: TargetFeatures,
+    pub debug_info: bool,
 }
 
 impl CompilerOptions {
@@ -89,6 +90,7 @@ impl CompilerOptions {
             enable_block_layout: true,
             enable_code_align: true,
             target_features: TargetFeatures::baseline(),
+            debug_info: false,
         }
     }
 }
@@ -279,13 +281,19 @@ impl CompilerSession {
         }
 
         // Native Code Generation & ELF64 Emission
-        let elf_bytes = match X86_64Backend::compile_to_elf_full_with_target(
+        let elf_bytes = match X86_64Backend::compile_to_elf_full_with_debug(
             &mir,
             options.enable_reg_alloc,
             options.enable_tail_calls,
             options.enable_block_layout,
             options.enable_code_align,
             options.target_features,
+            options.debug_info,
+            if options.debug_info {
+                Some(&self.source_map)
+            } else {
+                None
+            },
         ) {
             Ok(bytes) => bytes,
             Err(e) => {

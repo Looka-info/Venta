@@ -449,12 +449,12 @@ mod tests {
         // v2 = v1 + 5   (v1 dies here)
         // v3 = 20       (can reuse v1's register)
         // return v3
-        let func = MirFunction {
-            name: "test_share".into(),
-            params: vec![],
-            ret_type: Type::I64,
-            slots: vec![],
-            blocks: vec![BasicBlock {
+        let func = MirFunction::new(
+            "test_share".into(),
+            vec![],
+            Type::I64,
+            vec![],
+            vec![BasicBlock {
                 id: BlockId(0),
                 name: "entry".into(),
                 instructions: vec![
@@ -478,7 +478,7 @@ mod tests {
                 ],
                 terminator: Some(Terminator::Return(Some(ValueId(3)))),
             }],
-        };
+        );
 
         let res = RegisterAllocator::allocate(&func);
         assert_eq!(res.num_spills, 0, "No values should spill");
@@ -494,12 +494,12 @@ mod tests {
         // call foo()  (v1 is live across this call)
         // v2 = v1 + 5
         // return v2
-        let func = MirFunction {
-            name: "test_call_cross".into(),
-            params: vec![],
-            ret_type: Type::I64,
-            slots: vec![],
-            blocks: vec![BasicBlock {
+        let func = MirFunction::new(
+            "test_call_cross".into(),
+            vec![],
+            Type::I64,
+            vec![],
+            vec![BasicBlock {
                 id: BlockId(0),
                 name: "entry".into(),
                 instructions: vec![
@@ -524,7 +524,7 @@ mod tests {
                 ],
                 terminator: Some(Terminator::Return(Some(ValueId(2)))),
             }],
-        };
+        );
 
         let res = RegisterAllocator::allocate(&func);
         let loc1 = res.assignments.get(&ValueId(1)).unwrap();
@@ -570,18 +570,18 @@ mod tests {
             final_id = next;
         }
 
-        let func = MirFunction {
-            name: "test_exhaustion".into(),
-            params: vec![],
-            ret_type: Type::I64,
-            slots: vec![],
-            blocks: vec![BasicBlock {
+        let func = MirFunction::new(
+            "test_exhaustion".into(),
+            vec![],
+            Type::I64,
+            vec![],
+            vec![BasicBlock {
                 id: BlockId(0),
                 name: "entry".into(),
                 instructions: insts,
                 terminator: Some(Terminator::Return(Some(final_id))),
             }],
-        };
+        );
 
         let res = RegisterAllocator::allocate(&func);
         assert!(

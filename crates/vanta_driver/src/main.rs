@@ -46,6 +46,7 @@ COMMANDS:
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
+    -g, --debug           Emit DWARF 5 source-level debug information
     -O0, --no-opt         Disable all optimizations
     -O1, -O, --opt        Enable standard optimizations (default)
     --no-inline           Disable function inlining
@@ -133,6 +134,7 @@ fn main() {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut debug_info = false;
 
     let mut idx = 1;
 
@@ -208,6 +210,9 @@ fn main() {
             }
             "-O1" | "-O" | "--opt" => {
                 opt_level = OptLevel::O1;
+            }
+            "-g" | "--debug" => {
+                debug_info = true;
             }
             "--no-regalloc" => {
                 enable_reg_alloc = false;
@@ -489,6 +494,7 @@ fn main() {
         enable_block_layout,
         enable_code_align,
         target_features,
+        debug_info,
     };
 
     let mut session = CompilerSession::new();

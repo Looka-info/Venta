@@ -1,6 +1,7 @@
 //! Custom x86-64 native code generator and ELF64 object writer for Vanta.
 
 pub mod abi;
+pub mod dwarf;
 pub mod elf_writer;
 pub mod encoding;
 pub mod frame;
@@ -11,6 +12,12 @@ pub mod register;
 pub mod simd_alloc;
 pub mod target;
 
+use crate::dwarf::{
+    DwarfAbbrevTable, DwarfInfoWriter, DwarfLineTable, DwarfRelocTarget, FunctionDebugInfo,
+    VariableDebugInfo,
+};
+use crate::elf_writer::DebugSections;
+use crate::encoding::Relocation;
 pub use abi::{classify_type, AbiClass};
 pub use elf_writer::{Elf64Writer, FunctionSymbol, RodataSymbol};
 pub use encoding::{CodeEmitter, CodegenError};
@@ -79,8 +86,33 @@ impl X86_64Backend {
         enable_code_align: bool,
         target_features: TargetFeatures,
     ) -> Result<Vec<u8>, CodegenError> {
+        Self::compile_to_elf_full_with_debug(
+            program,
+            enable_reg_alloc,
+            enable_tail_calls,
+            enable_block_layout,
+            enable_code_align,
+            target_features,
+            false,
+            None,
+        )
+    }
+
+    /// Compiles a MIR program into an ELF64 object with fine-grained backend controls,
+    /// explicit target feature validation, and optional DWARF 5 source-level debug information.
+    pub fn compile_to_elf_full_with_debug(
+        program: &MirProgram,
+        enable_reg_alloc: bool,
+        enable_tail_calls: bool,
+        enable_block_layout: bool,
+        enable_code_align: bool,
+        target_features: TargetFeatures,
+        emit_debug: bool,
+        source_map: Option<&vanta_source::SourceMap>,
+    ) -> Result<Vec<u8>, CodegenError> {
         let mut emitter = CodeEmitter::with_target(target_features);
         let mut functions = Vec::new();
+        let mut func_debug_infos = Vec::new();
 
         let mut fn_signatures: HashMap<String, (Vec<Type>, Type)> = HashMap::new();
         for f in &program.functions {
@@ -191,7 +223,9 @@ impl X86_64Backend {
                 Some(&fn_signatures),
                 enable_tail_calls,
                 enable_block_layout,
-            );
+            )
+            .with_source_map(if emit_debug { source_map } else { None });
+
             let insts = selector.select_instructions();
 
             for inst in &insts {
@@ -208,12 +242,102 @@ impl X86_64Backend {
             }
 
             let func_end = emitter.bytes.len();
+            let func_size = func_end - func_start;
             functions.push(FunctionSymbol {
                 name: func.name.clone(),
                 offset: func_start,
-                size: func_end - func_start,
+                size: func_size,
                 is_global: true, // Mark all top-level functions global for C linkage
             });
+
+            if emit_debug {
+                let (file_idx, decl_line) = if !func.span.is_dummy() {
+                    if let Some(f) = source_map.and_then(|sm| sm.get_file(func.span.file_id)) {
+                        let (l, _) = f.line_col(func.span.start);
+                        (func.span.file_id.0, l as u32)
+                    } else {
+                        (1, 1)
+                    }
+                } else {
+                    (1, 1)
+                };
+
+                let mut variables = Vec::new();
+                // Formal parameters
+                for (slot_id, ty) in &func.params {
+                    let slot = func.slots.iter().find(|s| s.id == *slot_id);
+                    let name = slot
+                        .map(|s| s.name.clone())
+                        .unwrap_or_else(|| format!("p_{}", slot_id.0));
+                    let (var_file, var_line) = if let Some(sp) = func.slot_spans.get(slot_id) {
+                        if let Some(f) = source_map.and_then(|sm| sm.get_file(sp.file_id)) {
+                            let (l, _) = f.line_col(sp.start);
+                            (sp.file_id.0, l as u32)
+                        } else {
+                            (file_idx, decl_line)
+                        }
+                    } else {
+                        (file_idx, decl_line)
+                    };
+                    let stack_offset = frame.slot_offsets.get(slot_id).copied().unwrap_or(8);
+                    variables.push(VariableDebugInfo {
+                        name,
+                        type_name: format!("{}", ty),
+                        file_idx: var_file,
+                        line: var_line,
+                        stack_offset,
+                        is_param: true,
+                    });
+                }
+
+                // Local variables
+                for slot in &func.slots {
+                    if func.params.iter().any(|(p_id, _)| *p_id == slot.id) {
+                        continue;
+                    }
+                    if slot.name.starts_with('.')
+                        || slot.name.starts_with("_iter_tmp_")
+                        || slot.name.starts_with("_res_")
+                        || (slot.name.starts_with('_') && slot.name.contains("tmp"))
+                    {
+                        continue;
+                    }
+                    let (var_file, var_line) = if let Some(sp) = func.slot_spans.get(&slot.id) {
+                        if let Some(f) = source_map.and_then(|sm| sm.get_file(sp.file_id)) {
+                            let (l, _) = f.line_col(sp.start);
+                            (sp.file_id.0, l as u32)
+                        } else {
+                            (file_idx, decl_line)
+                        }
+                    } else {
+                        (file_idx, decl_line)
+                    };
+                    let stack_offset = frame.slot_offsets.get(&slot.id).copied().unwrap_or(8);
+                    variables.push(VariableDebugInfo {
+                        name: slot.name.clone(),
+                        type_name: format!("{}", slot.ty),
+                        file_idx: var_file,
+                        line: var_line,
+                        stack_offset,
+                        is_param: false,
+                    });
+                }
+
+                let ret_ty_str = match &func.ret_type {
+                    Type::Unit => None,
+                    other => Some(format!("{}", other)),
+                };
+
+                func_debug_infos.push(FunctionDebugInfo {
+                    name: func.name.clone(),
+                    file_idx,
+                    line: decl_line,
+                    code_offset: func_start,
+                    size: func_size,
+                    return_type: ret_ty_str,
+                    variables,
+                });
+            }
         }
 
         // Patch local jumps
@@ -238,6 +362,88 @@ impl X86_64Backend {
             rodata_section.push(0);
         }
 
+        // Generate DWARF 5 debug sections if enabled
+        let debug_sections = if emit_debug {
+            let comp_dir = std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| ".".to_string());
+
+            let mut files_list = Vec::new();
+            if let Some(sm) = source_map {
+                let mut fid = 1u32;
+                while let Some(file) = sm.get_file(vanta_source::FileId(fid)) {
+                    files_list.push(file.path.clone());
+                    fid += 1;
+                }
+            }
+            if files_list.is_empty() {
+                files_list.push("main.va".to_string());
+            }
+            let primary_source = &files_list[0];
+
+            let line_table = DwarfLineTable::build(
+                &comp_dir,
+                &files_list,
+                &emitter.line_entries,
+                emitter.bytes.len(),
+            );
+            let abbrev_table = DwarfAbbrevTable::build();
+            let info_writer = DwarfInfoWriter::build(
+                primary_source,
+                &comp_dir,
+                &func_debug_infos,
+                emitter.bytes.len(),
+            );
+
+            let rela_debug_info: Vec<Relocation> = info_writer
+                .relocations
+                .into_iter()
+                .map(|r| {
+                    let symbol = match r.target {
+                        DwarfRelocTarget::Text => ".text",
+                        DwarfRelocTarget::DebugAbbrev => ".debug_abbrev",
+                        DwarfRelocTarget::DebugLine => ".debug_line",
+                        DwarfRelocTarget::DebugInfo => ".debug_info",
+                    };
+                    Relocation {
+                        offset: r.offset,
+                        symbol: symbol.to_string(),
+                        addend: r.addend,
+                        r_type: r.r_type,
+                    }
+                })
+                .collect();
+
+            let rela_debug_line: Vec<Relocation> = line_table
+                .relocations
+                .into_iter()
+                .map(|r| {
+                    let symbol = match r.target {
+                        DwarfRelocTarget::Text => ".text",
+                        DwarfRelocTarget::DebugAbbrev => ".debug_abbrev",
+                        DwarfRelocTarget::DebugLine => ".debug_line",
+                        DwarfRelocTarget::DebugInfo => ".debug_info",
+                    };
+                    Relocation {
+                        offset: r.offset,
+                        symbol: symbol.to_string(),
+                        addend: r.addend,
+                        r_type: r.r_type,
+                    }
+                })
+                .collect();
+
+            Some(DebugSections {
+                debug_info: info_writer.section_data,
+                debug_abbrev: abbrev_table,
+                debug_line: line_table.section_data,
+                rela_debug_info,
+                rela_debug_line,
+            })
+        } else {
+            None
+        };
+
         // Write complete ELF64 object file
         let writer = Elf64Writer::new(
             emitter.bytes,
@@ -245,7 +451,9 @@ impl X86_64Backend {
             emitter.relocations,
             functions,
             rodata_symbols,
-        );
+        )
+        .with_debug(debug_sections);
+
         Ok(writer.write())
     }
 }

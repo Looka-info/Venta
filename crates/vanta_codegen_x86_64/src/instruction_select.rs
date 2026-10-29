@@ -23,6 +23,7 @@ pub struct InstructionSelector<'a> {
     enable_tail_calls: bool,
     enable_block_layout: bool,
     stack_ptrs: std::collections::HashSet<ValueId>,
+    source_map: Option<&'a vanta_source::SourceMap>,
 }
 
 impl<'a> InstructionSelector<'a> {
@@ -127,7 +128,13 @@ impl<'a> InstructionSelector<'a> {
             enable_tail_calls,
             enable_block_layout,
             stack_ptrs,
+            source_map: None,
         }
+    }
+
+    pub fn with_source_map(mut self, source_map: Option<&'a vanta_source::SourceMap>) -> Self {
+        self.source_map = source_map;
+        self
     }
 
     fn get_simd_loc(&self, val: ValueId) -> Option<SimdLocation> {
@@ -137,6 +144,20 @@ impl<'a> InstructionSelector<'a> {
 
     pub fn select_instructions(&self) -> Vec<MachineInst> {
         let mut insts = Vec::new();
+
+        // Emit source location for function declaration at function entry (code offset 0)
+        if let Some(sm) = self.source_map {
+            if !self.func.span.is_dummy() {
+                if let Some(file) = sm.get_file(self.func.span.file_id) {
+                    let (line, col) = file.line_col(self.func.span.start);
+                    insts.push(MachineInst::SourceLoc {
+                        file_id: self.func.span.file_id.0,
+                        line: line as u32,
+                        column: col as u32,
+                    });
+                }
+            }
+        }
 
         // 1. Function Prologue
         self.frame
@@ -232,10 +253,78 @@ impl<'a> InstructionSelector<'a> {
             let num_instructions = block.instructions.len();
             for (inst_idx, inst) in block.instructions.iter().enumerate() {
                 let is_last_inst = inst_idx + 1 == num_instructions;
+
+                if let Some(sm) = self.source_map {
+                    let span_opt = match inst {
+                        Instruction::ConstInt { dest, .. }
+                        | Instruction::ConstBool { dest, .. }
+                        | Instruction::SlotAddr { dest, .. }
+                        | Instruction::Load { dest, .. }
+                        | Instruction::Binary { dest, .. }
+                        | Instruction::Unary { dest, .. }
+                        | Instruction::IndexAddr { dest, .. }
+                        | Instruction::IndexPtrAddr { dest, .. }
+                        | Instruction::FieldAddr { dest, .. }
+                        | Instruction::LoadIndirect { dest, .. }
+                        | Instruction::Phi { dest, .. }
+                        | Instruction::Copy { dest, .. } => self.func.val_spans.get(dest).copied(),
+                        Instruction::Call { dest, args, .. } => dest
+                            .and_then(|d| self.func.val_spans.get(&d).copied())
+                            .or_else(|| {
+                                args.first()
+                                    .and_then(|a| self.func.val_spans.get(a).copied())
+                            }),
+                        Instruction::Store { slot, val, .. } => self
+                            .func
+                            .val_spans
+                            .get(val)
+                            .copied()
+                            .or_else(|| self.func.slot_spans.get(slot).copied()),
+                        _ => None,
+                    };
+                    if let Some(span) = span_opt {
+                        if !span.is_dummy() {
+                            if let Some(file) = sm.get_file(span.file_id) {
+                                let (line, col) = file.line_col(span.start);
+                                insts.push(MachineInst::SourceLoc {
+                                    file_id: span.file_id.0,
+                                    line: line as u32,
+                                    column: col as u32,
+                                });
+                            }
+                        }
+                    }
+                }
+
                 self.select_instruction(inst, block, is_last_inst, &mut insts);
             }
 
             if let Some(term) = &block.terminator {
+                if let Some(sm) = self.source_map {
+                    let term_span =
+                        self.func
+                            .terminator_spans
+                            .get(&block.id)
+                            .copied()
+                            .or_else(|| match term {
+                                Terminator::Return(Some(val)) => {
+                                    self.func.val_spans.get(val).copied()
+                                }
+                                _ => None,
+                            });
+                    if let Some(span) = term_span {
+                        if !span.is_dummy() {
+                            if let Some(file) = sm.get_file(span.file_id) {
+                                let (line, col) = file.line_col(span.start);
+                                insts.push(MachineInst::SourceLoc {
+                                    file_id: span.file_id.0,
+                                    line: line as u32,
+                                    column: col as u32,
+                                });
+                            }
+                        }
+                    }
+                }
                 self.select_terminator(
                     block.id,
                     term,

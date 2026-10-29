@@ -104,6 +104,12 @@ pub enum MachineInst {
     Ret,
     /// Local label
     Label(String),
+    /// Source location marker for DWARF debug line emission (emits 0 bytes into .text).
+    SourceLoc {
+        file_id: u32,
+        line: u32,
+        column: u32,
+    },
     /// vmovups dest, src (unaligned packed load, store, or register copy)
     Vmovups {
         width: VectorWidth,

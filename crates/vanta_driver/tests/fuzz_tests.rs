@@ -173,41 +173,41 @@ fn test_fuzz_mir_verifier_catches_invalid_inputs_no_panic() {
     let mut diags = DiagnosticBag::new();
 
     // 1. Function without basic blocks
-    let empty_func = MirFunction {
-        name: "empty".into(),
-        params: vec![],
-        ret_type: vanta_sema::Type::Unit,
-        slots: vec![],
-        blocks: vec![],
-    };
+    let empty_func = MirFunction::new(
+        "empty".into(),
+        vec![],
+        vanta_sema::Type::Unit,
+        vec![],
+        vec![],
+    );
     MirVerifier::verify_function(&empty_func, &mut diags);
     assert!(diags.has_errors());
     diags = DiagnosticBag::new();
 
     // 2. Block with missing terminator
-    let unterminated_func = MirFunction {
-        name: "unterminated".into(),
-        params: vec![],
-        ret_type: vanta_sema::Type::Unit,
-        slots: vec![],
-        blocks: vec![BasicBlock {
+    let unterminated_func = MirFunction::new(
+        "unterminated".into(),
+        vec![],
+        vanta_sema::Type::Unit,
+        vec![],
+        vec![BasicBlock {
             id: BlockId(0),
             name: "entry".into(),
             instructions: vec![],
             terminator: None,
         }],
-    };
+    );
     MirVerifier::verify_function(&unterminated_func, &mut diags);
     assert!(diags.has_errors());
     diags = DiagnosticBag::new();
 
     // 3. Instruction using an undefined SSA ValueId
-    let unbound_val_func = MirFunction {
-        name: "unbound_val".into(),
-        params: vec![],
-        ret_type: vanta_sema::Type::Unit,
-        slots: vec![],
-        blocks: vec![BasicBlock {
+    let unbound_val_func = MirFunction::new(
+        "unbound_val".into(),
+        vec![],
+        vanta_sema::Type::Unit,
+        vec![],
+        vec![BasicBlock {
             id: BlockId(0),
             name: "entry".into(),
             instructions: vec![Instruction::Binary {
@@ -219,18 +219,18 @@ fn test_fuzz_mir_verifier_catches_invalid_inputs_no_panic() {
             }],
             terminator: Some(Terminator::Return(None)),
         }],
-    };
+    );
     MirVerifier::verify_function(&unbound_val_func, &mut diags);
     assert!(diags.has_errors());
     diags = DiagnosticBag::new();
 
     // 4. Phi instruction referencing non-existent predecessor block
-    let invalid_phi_func = MirFunction {
-        name: "invalid_phi".into(),
-        params: vec![],
-        ret_type: vanta_sema::Type::Unit,
-        slots: vec![],
-        blocks: vec![BasicBlock {
+    let invalid_phi_func = MirFunction::new(
+        "invalid_phi".into(),
+        vec![],
+        vanta_sema::Type::Unit,
+        vec![],
+        vec![BasicBlock {
             id: BlockId(0),
             name: "entry".into(),
             instructions: vec![Instruction::Phi {
@@ -240,18 +240,18 @@ fn test_fuzz_mir_verifier_catches_invalid_inputs_no_panic() {
             }],
             terminator: Some(Terminator::Return(None)),
         }],
-    };
+    );
     MirVerifier::verify_function(&invalid_phi_func, &mut diags);
     assert!(diags.has_errors());
     diags = DiagnosticBag::new();
 
     // 5. Phi instruction placed after non-Phi instruction
-    let misordered_phi_func = MirFunction {
-        name: "misordered_phi".into(),
-        params: vec![],
-        ret_type: vanta_sema::Type::Unit,
-        slots: vec![],
-        blocks: vec![BasicBlock {
+    let misordered_phi_func = MirFunction::new(
+        "misordered_phi".into(),
+        vec![],
+        vanta_sema::Type::Unit,
+        vec![],
+        vec![BasicBlock {
             id: BlockId(0),
             name: "entry".into(),
             instructions: vec![
@@ -268,7 +268,7 @@ fn test_fuzz_mir_verifier_catches_invalid_inputs_no_panic() {
             ],
             terminator: Some(Terminator::Return(None)),
         }],
-    };
+    );
     MirVerifier::verify_function(&misordered_phi_func, &mut diags);
     assert!(diags.has_errors());
 }

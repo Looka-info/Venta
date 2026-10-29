@@ -7,7 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-10-30 (Milestone 26.5 — AVX-512 8-Lane Loop Auto-Vectorization & Strip-Mining)
+## [Unreleased] - 2026-10-30 (Milestone 27 — Native DWARF 5 Debug Information for GDB/LLDB)
+
+**First Feature Milestone for v1.2 Debugging & Tooling**
+
+### Added
+- **Native DWARF 5 Section Generation (`crates/vanta_codegen_x86_64/src/dwarf.rs`)**:
+  - Implemented pure-Rust DWARF 5 generator emitting `.debug_info`, `.debug_abbrev`, `.debug_line`, and associated relocations (`.rela.debug_info`, `.rela.debug_line`) directly into relocatable ELF64 objects and executables without external backends.
+  - Implemented standard DWARF 5 compilation unit header (`DW_UT_compile = 0x01`, version 5, pointer size 8).
+  - Assigned registered language code `DW_LANG_Venta = 0x8001` (32769) within the DWARF 5 user-defined vendor range (`0x8000`–`0xffff`).
+- **DWARF 5 Line Number Program (`DwarfLineTable`)**:
+  - Emitted DWARF 5 line table with 0-indexed directory and file format descriptors (`DW_LNCT_path` via `DW_FORM_string`, `DW_LNCT_directory_index` via `DW_FORM_udata`).
+  - Implemented standard and extended line program opcodes: `DW_LNE_set_address`, `DW_LNS_advance_pc`, `DW_LNS_advance_line`, `DW_LNS_set_file`, `DW_LNS_set_column`, `DW_LNS_copy`, and `DW_LNE_end_sequence`.
+  - Mapped machine instruction code offsets directly to source lines and columns.
+- **Function & Variable DIE Emission (`DwarfInfoWriter`)**:
+  - Emitted `DW_TAG_subprogram` DIEs for functions with `DW_AT_name`, `DW_AT_decl_file`, `DW_AT_decl_line`, `DW_AT_low_pc`, `DW_AT_high_pc`, `DW_AT_type`, and `DW_AT_frame_base = [DW_OP_reg6]` (`%rbp`).
+  - Emitted `DW_TAG_formal_parameter` and `DW_TAG_variable` DIEs with `DW_AT_name`, `DW_AT_decl_file`, `DW_AT_decl_line`, `DW_AT_type`, and stack-relative evaluation via `DW_AT_location = [DW_OP_fbreg, -offset]`.
+  - Emitted `DW_TAG_base_type` DIEs for primitive scalar types (`i64`, `i32`, `i16`, `i8`, `u64`, `u32`, `u16`, `u8`, `f64`, `f32`, `bool`).
+- **Source Span Propagation in MIR & Machine IR**:
+  - Extended `MirFunction` to retain `span`, `slot_spans`, `val_spans`, and `terminator_spans`.
+  - Added `MachineInst::SourceLoc { file_id, line, column }` pseudo-instruction, emitting source coordinates into the line table at function entry, statement boundaries, and block terminators without emitting bytes into `.text`.
+- **ELF64 Writer Debug Extensions (`crates/vanta_codegen_x86_64/src/elf_writer.rs`)**:
+  - Added support for `.debug_info`, `.debug_abbrev`, `.debug_line`, `.rela.debug_info`, and `.rela.debug_line` sections with proper section symbols and relocation linkages.
+  - Zero debug overhead when debug info is disabled, preserving identical release ELF outputs.
+- **CLI Options**:
+  - Added `-g` and `--debug` flags to `ventac`, `vanta build`, and `vanta run`.
+- **Comprehensive Debugger Verification Test Suite (`crates/vanta_driver/tests/dwarf5_tests.rs`)**:
+  - 7 automated tests covering ELF section structure, `readelf --debug-dump=info` DWARF 5 validation, line table format verification, default no-debug omission, GDB source line breakpoints, GDB stepping, GDB local/argument inspection (`print`, `info args`, `info locals`), GDB 3-frame call stack unwinding (`bt`), and LLDB batch debugging with source listing.
+- **Documentation (`docs/dwarf5-debugging-guide.md`)**:
+  - Comprehensive debugging guide for GDB and LLDB covering breakpoints, source stepping, variable inspection, stack backtraces, and known limitations.
+
+---
+
+## [1.1.0-alpha.6] - 2026-10-30 (Milestone 26.5 — AVX-512 8-Lane Loop Auto-Vectorization & Strip-Mining)
 
 **Sixth Feature Milestone for v1.1 SIMD & Vectorization**
 
