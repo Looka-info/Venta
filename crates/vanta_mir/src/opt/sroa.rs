@@ -230,6 +230,15 @@ impl Sroa {
             return false;
         }
 
+        // 256-bit vector types are native SIMD registers and must not be decomposed into scalars
+        if s_def.name == "v256"
+            || s_def.name == "Simd256"
+            || s_def.name.ends_with("__v256")
+            || s_def.name.ends_with("__Simd256")
+        {
+            return false;
+        }
+
         for f in &s_def.fields {
             // Must not need drop
             if f.ty.needs_drop(structs, enums) {
@@ -261,6 +270,20 @@ impl Sroa {
         slot_id: SlotId,
         s_def: &StructDef,
     ) -> bool {
+        // Direct loads or stores to the slot mean the aggregate is accessed as a whole
+        for block in &func.blocks {
+            for inst in &block.instructions {
+                match inst {
+                    Instruction::Store { slot, .. } | Instruction::Load { slot, .. } => {
+                        if *slot == slot_id {
+                            return false;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let mut base_ptrs = HashSet::new();
 
         // 1. Find all base pointers produced for this slot

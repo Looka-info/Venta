@@ -87,6 +87,10 @@ impl StructDef {
         let mut max_align = 1;
         let mut all_copy = true;
 
+        if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+            max_align = max_align.max(32);
+        }
+
         for (fname, fty, is_pub) in raw_fields {
             let align = fty.alignment_with_context(struct_defs, enum_defs).max(1);
             let size = fty.size_with_context(struct_defs, enum_defs);
@@ -376,7 +380,9 @@ impl Type {
             Type::Ref { is_mut, .. } => !*is_mut,
             Type::Array { inner, .. } => inner.is_copy_with_context(structs, enums),
             Type::Struct(name) => {
-                if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
+                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                    true
+                } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     false
                 } else {
                     structs.get(name).map(|s| s.is_copy).unwrap_or(false)
@@ -475,7 +481,9 @@ impl Type {
             }
             Type::Array { inner, len } => inner.size_with_context(structs, enums) * len,
             Type::Struct(name) => {
-                if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
+                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                    32
+                } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     24
                 } else {
                     structs.get(name).map(|s| s.total_size).unwrap_or(8)
@@ -499,7 +507,9 @@ impl Type {
             Type::Ref { .. } => 8,
             Type::Array { inner, .. } => inner.alignment_with_context(structs, enums),
             Type::Struct(name) => {
-                if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
+                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                    32
+                } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     8
                 } else {
                     structs.get(name).map(|s| s.alignment).unwrap_or(8)

@@ -1143,34 +1143,52 @@ impl<'a> MirLowerer<'a> {
                             len: len_v,
                         });
                     } else if let Type::Struct(sname) = &ty {
-                        let base_ptr = self.new_value();
-                        self.emit(Instruction::SlotAddr {
-                            dest: base_ptr,
-                            slot,
-                        });
-                        if let ExprKind::StructLiteral { fields, .. } = &init_expr.kind {
-                            self.lower_init_struct_fields(base_ptr, sname, fields);
-                        } else if let ExprKind::MethodCall {
-                            target: m_target,
-                            method,
-                            ..
-                        } = &init_expr.kind
-                        {
-                            if method.name == "clone" && ty.is_string() {
-                                let (src_ptr, _) = self.lower_place_addr(m_target);
-                                self.emit(Instruction::Call {
-                                    dest: None,
-                                    callee: "vanta_str_clone".to_string(),
-                                    args: vec![base_ptr, src_ptr],
-                                    ret_type: Type::Unit,
+                        let is_vec = sname == "v256"
+                            || sname == "Simd256"
+                            || sname.ends_with("__v256")
+                            || sname.ends_with("__Simd256");
+                        if is_vec {
+                            if let ExprKind::StructLiteral { fields, .. } = &init_expr.kind {
+                                let base_ptr = self.new_value();
+                                self.emit(Instruction::SlotAddr {
+                                    dest: base_ptr,
+                                    slot,
                                 });
+                                self.lower_init_struct_fields(base_ptr, sname, fields);
+                            } else {
+                                let val = self.lower_expr(init_expr);
+                                self.emit(Instruction::Store { slot, val });
+                            }
+                        } else {
+                            let base_ptr = self.new_value();
+                            self.emit(Instruction::SlotAddr {
+                                dest: base_ptr,
+                                slot,
+                            });
+                            if let ExprKind::StructLiteral { fields, .. } = &init_expr.kind {
+                                self.lower_init_struct_fields(base_ptr, sname, fields);
+                            } else if let ExprKind::MethodCall {
+                                target: m_target,
+                                method,
+                                ..
+                            } = &init_expr.kind
+                            {
+                                if method.name == "clone" && ty.is_string() {
+                                    let (src_ptr, _) = self.lower_place_addr(m_target);
+                                    self.emit(Instruction::Call {
+                                        dest: None,
+                                        callee: "vanta_str_clone".to_string(),
+                                        args: vec![base_ptr, src_ptr],
+                                        ret_type: Type::Unit,
+                                    });
+                                } else {
+                                    let (src_ptr, _) = self.lower_place_addr(init_expr);
+                                    self.copy_struct_bytes(src_ptr, base_ptr, sname);
+                                }
                             } else {
                                 let (src_ptr, _) = self.lower_place_addr(init_expr);
                                 self.copy_struct_bytes(src_ptr, base_ptr, sname);
                             }
-                        } else {
-                            let (src_ptr, _) = self.lower_place_addr(init_expr);
-                            self.copy_struct_bytes(src_ptr, base_ptr, sname);
                         }
                     } else if let Type::Enum(ename) = &ty {
                         let base_ptr = self.new_value();
@@ -1320,6 +1338,32 @@ impl<'a> MirLowerer<'a> {
                                     args: vec![dst_ptr, arg_ptr, arg_len],
                                     ret_type: Type::Unit,
                                 });
+                            } else if sname == "v256"
+                                || sname == "Simd256"
+                                || sname.ends_with("__v256")
+                                || sname.ends_with("__Simd256")
+                            {
+                                if let ExprKind::Ident(target_name) = &target.kind {
+                                    if let Some(target_slot) = self.lookup_slot(target_name) {
+                                        let val = self.lower_expr(value);
+                                        self.emit(Instruction::Store {
+                                            slot: target_slot,
+                                            val,
+                                        });
+                                    } else {
+                                        let val = self.lower_expr(value);
+                                        self.emit(Instruction::StoreIndirect {
+                                            addr: dst_ptr,
+                                            val,
+                                        });
+                                    }
+                                } else {
+                                    let val = self.lower_expr(value);
+                                    self.emit(Instruction::StoreIndirect {
+                                        addr: dst_ptr,
+                                        val,
+                                    });
+                                }
                             } else {
                                 let (src_ptr, _) = self.lower_place_addr(value);
                                 self.copy_struct_bytes(src_ptr, dst_ptr, sname);
@@ -1341,6 +1385,32 @@ impl<'a> MirLowerer<'a> {
                             } else {
                                 let (src_ptr, _) = self.lower_place_addr(value);
                                 self.copy_struct_bytes(src_ptr, dst_ptr, sname);
+                            }
+                        } else if sname == "v256"
+                            || sname == "Simd256"
+                            || sname.ends_with("__v256")
+                            || sname.ends_with("__Simd256")
+                        {
+                            if let ExprKind::Ident(target_name) = &target.kind {
+                                if let Some(target_slot) = self.lookup_slot(target_name) {
+                                    let val = self.lower_expr(value);
+                                    self.emit(Instruction::Store {
+                                        slot: target_slot,
+                                        val,
+                                    });
+                                } else {
+                                    let val = self.lower_expr(value);
+                                    self.emit(Instruction::StoreIndirect {
+                                        addr: dst_ptr,
+                                        val,
+                                    });
+                                }
+                            } else {
+                                let val = self.lower_expr(value);
+                                self.emit(Instruction::StoreIndirect {
+                                    addr: dst_ptr,
+                                    val,
+                                });
                             }
                         } else {
                             let (src_ptr, _) = self.lower_place_addr(value);

@@ -1,4 +1,4 @@
-//! Unified developer CLI for Vanta (`vanta`).
+// Unified developer CLI for Venta (`venta`).
 
 use std::env;
 use std::fs;
@@ -6,23 +6,27 @@ use std::path::PathBuf;
 use std::process::{self, Command};
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel,
+    OptLevel, TargetFeatures,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
+    let invoked = env::args().next().unwrap_or_default();
+    let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let bin_name = if file_name == "vanta" { "vanta" } else { "venta" };
+    let lang_name = if file_name == "vanta" { "Vanta" } else { "Venta" };
     format!(
-        r#"Vanta Toolchain Driver (vanta) v{version}
+        r#"{lang_name} Toolchain Driver ({bin_name}) v{version}
 
 USAGE:
-    vanta <COMMAND> [OPTIONS]
+    {bin_name} <COMMAND> [OPTIONS]
 
 COMMANDS:
-    run <file.va> [-- <args>...]   Compile and run a Vanta program immediately
-    compile <file.va> [-o <out>] [--json]   Compile a Vanta program to a native binary
+    run <file.va> [-- <args>...]   Compile and run a {lang_name} program immediately
+    compile <file.va> [-o <out>] [--json]   Compile a {lang_name} program to a native binary
     check <file.va> [--json]                Verify syntax, types, borrows, and MIR without compiling
-    fmt [files...] [--check]       Format Vanta source files canonically
+    fmt [files...] [--check]       Format {lang_name} source files canonically
 
 OPTIONS:
     -V, --version                  Print version information
@@ -49,7 +53,10 @@ fn main() {
 
     match args[1].as_str() {
         "-V" | "--version" => {
-            println!("vanta {}", VERSION);
+            let invoked = env::args().next().unwrap_or_default();
+            let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let bin_name = if file_name == "vanta" { "vanta" } else { "venta" };
+            println!("{} {}", bin_name, VERSION);
             process::exit(0);
         }
         "-h" | "--help" => {
@@ -101,6 +108,7 @@ fn handle_run(args: &[String]) {
     let mut enable_tail_calls = true;
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
+    let mut target_features = TargetFeatures::baseline();
 
     let mut i = 0;
     while i < args.len() {
@@ -182,6 +190,70 @@ fn handle_run(args: &[String]) {
                 process::exit(2);
             }
             runtime_path = Some(PathBuf::from(&args[i]));
+        } else if let Some(f) = arg.strip_prefix("--target-feature=") {
+            if let Err(e) = target_features.parse_feature_list(f) {
+                eprintln!("Error: {}", e);
+                process::exit(2);
+            }
+        } else if arg == "--target-feature" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target-feature requires an argument");
+                process::exit(2);
+            }
+            if let Err(e) = target_features.parse_feature_list(&args[i]) {
+                eprintln!("Error: {}", e);
+                process::exit(2);
+            }
+        } else if let Some(cpu) = arg.strip_prefix("--target-cpu=") {
+            match TargetFeatures::from_target_cpu(cpu) {
+                Ok(feats) => target_features = feats,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg == "--target-cpu" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target-cpu requires an argument");
+                process::exit(2);
+            }
+            match TargetFeatures::from_target_cpu(&args[i]) {
+                Ok(feats) => target_features = feats,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg.starts_with("-C") {
+            let c_arg = if arg == "-C" {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -C requires an argument");
+                    process::exit(2);
+                }
+                args[i].as_str()
+            } else {
+                &arg[2..]
+            };
+            if let Some(feat) = c_arg.strip_prefix("target-feature=") {
+                if let Err(e) = target_features.parse_feature_list(feat) {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
+                match TargetFeatures::from_target_cpu(cpu) {
+                    Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            } else {
+                eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
+                process::exit(2);
+            }
         } else if arg.starts_with('-') {
             eprintln!("Error: Unknown flag '{}' for 'vanta run'", arg);
             process::exit(2);
@@ -230,6 +302,7 @@ fn handle_run(args: &[String]) {
         enable_tail_calls,
         enable_block_layout,
         enable_code_align,
+        target_features,
     };
 
     let mut session = CompilerSession::new();
@@ -294,6 +367,7 @@ fn handle_compile(args: &[String]) {
     let mut enable_tail_calls = true;
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
+    let mut target_features = TargetFeatures::baseline();
 
     let mut i = 0;
     while i < args.len() {
@@ -379,6 +453,70 @@ fn handle_compile(args: &[String]) {
                 process::exit(2);
             }
             runtime_path = Some(PathBuf::from(&args[i]));
+        } else if let Some(f) = arg.strip_prefix("--target-feature=") {
+            if let Err(e) = target_features.parse_feature_list(f) {
+                eprintln!("Error: {}", e);
+                process::exit(2);
+            }
+        } else if arg == "--target-feature" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target-feature requires an argument");
+                process::exit(2);
+            }
+            if let Err(e) = target_features.parse_feature_list(&args[i]) {
+                eprintln!("Error: {}", e);
+                process::exit(2);
+            }
+        } else if let Some(cpu) = arg.strip_prefix("--target-cpu=") {
+            match TargetFeatures::from_target_cpu(cpu) {
+                Ok(feats) => target_features = feats,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg == "--target-cpu" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target-cpu requires an argument");
+                process::exit(2);
+            }
+            match TargetFeatures::from_target_cpu(&args[i]) {
+                Ok(feats) => target_features = feats,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg.starts_with("-C") {
+            let c_arg = if arg == "-C" {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -C requires an argument");
+                    process::exit(2);
+                }
+                args[i].as_str()
+            } else {
+                &arg[2..]
+            };
+            if let Some(feat) = c_arg.strip_prefix("target-feature=") {
+                if let Err(e) = target_features.parse_feature_list(feat) {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
+                match TargetFeatures::from_target_cpu(cpu) {
+                    Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            } else {
+                eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
+                process::exit(2);
+            }
         } else if arg.starts_with('-') {
             eprintln!("Error: Unknown option '{}' for 'vanta compile'", arg);
             process::exit(2);
@@ -432,6 +570,7 @@ fn handle_compile(args: &[String]) {
         enable_tail_calls,
         enable_block_layout,
         enable_code_align,
+        target_features,
     };
 
     let mut session = CompilerSession::new();
@@ -547,6 +686,7 @@ fn handle_check(args: &[String]) {
         enable_tail_calls: false,
         enable_block_layout: false,
         enable_code_align: false,
+        target_features: TargetFeatures::baseline(),
     };
 
     let mut session = CompilerSession::new();

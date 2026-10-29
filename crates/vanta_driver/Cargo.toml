@@ -6,6 +6,14 @@ authors.workspace = true
 license.workspace = true
 
 [[bin]]
+name = "ventac"
+path = "src/ventac.rs"
+
+[[bin]]
+name = "venta"
+path = "src/venta_cli.rs"
+
+[[bin]]
 name = "vantac"
 path = "src/main.rs"
 

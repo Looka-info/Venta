@@ -40,6 +40,7 @@ fn run_layout_differential_test(
         enable_tail_calls: true,
         enable_block_layout: true,
         enable_code_align: true,
+        ..Default::default()
     };
     let mut session1 = CompilerSession::new();
     let res1 = session1.compile(&opts_layout);
@@ -79,6 +80,7 @@ fn run_layout_differential_test(
         enable_tail_calls: true,
         enable_block_layout: false,
         enable_code_align: true,
+        ..Default::default()
     };
     let mut session2 = CompilerSession::new();
     let res2 = session2.compile(&opts_no_layout);
@@ -118,6 +120,7 @@ fn run_layout_differential_test(
         enable_tail_calls: true,
         enable_block_layout: true,
         enable_code_align: false,
+        ..Default::default()
     };
     let mut session3 = CompilerSession::new();
     let res3 = session3.compile(&opts_no_align);

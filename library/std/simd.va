@@ -1,0 +1,88 @@
+pub fn has_avx() -> bool {
+    vanta_cpu_has_avx() != 0
+}
+
+pub fn has_avx2() -> bool {
+    vanta_cpu_has_avx2() != 0
+}
+
+pub fn has_fma() -> bool {
+    vanta_cpu_has_fma() != 0
+}
+
+pub fn has_avx512f() -> bool {
+    vanta_cpu_has_avx512f() != 0
+}
+
+pub fn vmovups_load256(dest_ptr: i64, src_ptr: i64) {
+    venta_simd_vmovups_load256(dest_ptr, src_ptr);
+}
+
+pub fn vmovups_store256(dest_ptr: i64, src_ptr: i64) {
+    venta_simd_vmovups_store256(dest_ptr, src_ptr);
+}
+
+pub fn vpaddq256(dest_ptr: i64, a_ptr: i64, b_ptr: i64) {
+    venta_simd_vpaddq256(dest_ptr, a_ptr, b_ptr);
+}
+
+pub fn vfmadd231pd256(dest_ptr: i64, a_ptr: i64, b_ptr: i64, c_ptr: i64) {
+    venta_simd_vfmadd231pd256(dest_ptr, a_ptr, b_ptr, c_ptr);
+}
+
+// Value-based virtual SIMD register operations (Milestone 26.1)
+pub fn reg_load256(src_ptr: i64) -> i64 {
+    venta_simd_reg_load256(src_ptr)
+}
+
+pub fn reg_store256(dest_ptr: i64, handle: i64) {
+    venta_simd_reg_store256(dest_ptr, handle);
+}
+
+pub fn reg_add256(a: i64, b: i64) -> i64 {
+    venta_simd_reg_add256(a, b)
+}
+
+pub fn reg_fma256(acc: i64, a: i64, b: i64) -> i64 {
+    venta_simd_reg_fma256(acc, a, b)
+}
+
+// 256-bit Vector Type and Direct ABI Operations (Milestone 26.2)
+pub struct v256 {
+    pub q0: i64,
+    pub q1: i64,
+    pub q2: i64,
+    pub q3: i64,
+}
+
+pub fn vec_load256(src_ptr: i64) -> v256 {
+    venta_simd_vec_load256(src_ptr)
+}
+
+pub fn vec_store256(dest_ptr: i64, val: v256) {
+    venta_simd_vec_store256(dest_ptr, val);
+}
+
+pub fn vec_add256(a: v256, b: v256) -> v256 {
+    venta_simd_vec_add256(a, b)
+}
+
+pub fn vec_fma256(acc: v256, a: v256, b: v256) -> v256 {
+    venta_simd_vec_fma256(acc, a, b)
+}
+
+pub fn vmovups_load512(dest_ptr: i64, src_ptr: i64) {
+    venta_simd_vmovups_load512(dest_ptr, src_ptr);
+}
+
+pub fn vmovups_store512(dest_ptr: i64, src_ptr: i64) {
+    venta_simd_vmovups_store512(dest_ptr, src_ptr);
+}
+
+pub fn vpaddq512(dest_ptr: i64, a_ptr: i64, b_ptr: i64) {
+    venta_simd_vpaddq512(dest_ptr, a_ptr, b_ptr);
+}
+
+pub fn vfmadd231pd512(dest_ptr: i64, a_ptr: i64, b_ptr: i64, c_ptr: i64) {
+    venta_simd_vfmadd231pd512(dest_ptr, a_ptr, b_ptr, c_ptr);
+}

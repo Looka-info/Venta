@@ -30,10 +30,24 @@ flowchart LR
 
 ### Version 1.1 — SIMD & Loop Vectorization Engine
 **Target Focus**: Numerical throughput and high-performance computing workloads.
-- **AVX2 & SSE4.2 Instruction Emission**:
-  - Extend `vanta_codegen_x86_64` with support for VEX-encoded 256-bit SIMD instructions (`vmovups`, `vpaddq`, `vpmuldq`, `vfmadd231pd`).
-  - Introduce vector registers `ymm0`–`ymm15` into the physical register allocator.
-- **Loop Auto-Vectorization Pass**:
+- **SIMD Instruction Emission (Milestone 26 - Completed)**:
+  - Extended project-owned pure-Rust backend `vanta_codegen_x86_64` with VEX (2-byte, 3-byte) and EVEX (4-byte) binary encoders.
+  - Implemented `vmovups` (128-bit, 256-bit AVX, 512-bit EVEX), `vpaddq` (128-bit, 256-bit AVX2, 512-bit EVEX), and `vfmadd231pd` (128-bit, 256-bit AVX+FMA, 512-bit EVEX).
+  - Built CPU target-feature validation (`TargetFeatures`: `baseline`, `avx`, `avx2`, `fma`, `avx512f`) and CLI configuration (`--target-feature`, `--target-cpu`).
+  - Added CPUID hardware detection in `vanta_rt.c` and initial standard library module `std::simd`.
+  - Zero external backend dependencies (no LLVM, no Cranelift).
+- **Physical Vector Register Allocation & Spill Alignment (Milestone 26.1 - Completed)**:
+  - Deterministic linear scan allocator over `ymm0`–`ymm13` (14 physical allocatable registers) with dedicated `ymm14` and `ymm15` scratch registers for spill/reload codegen.
+  - Dedicated virtual SIMD representation (`SimdValueId`, `SimdOperand::Val`) keeping vector values distinct from scalar integer registers and preventing GPR register file corruption.
+  - Dynamic 32-byte stack frame alignment in function prologues (`and rsp, -32`) guaranteeing runtime 32-byte alignment for vector spill slots (`[rsp + 32*k]`) with frame restoration via `rbp` on epilogue.
+  - Full System V AMD64 caller-saved volatility compliance with automatic forced spills for vector values live across function call boundaries.
+- **System V AMD64 Vector ABI Classification (Milestone 26.2 - Completed)**:
+  - Complete 256-bit vector classification (`AbiClass::Vector256`) for passing vector arguments in `%ymm0`–`%ymm7` and returning in `%ymm0`.
+  - Orthogonal integer and vector register banks allowing mixed integer and vector parameters without interference.
+  - Vector register exhaustion fallback: parameters exceeding 8 vectors pass on the stack aligned to 32 bytes (`offset = (offset + 31) & !31; offset += 32`).
+  - Dynamic 32-byte stack realignment (`and rsp, -32`) and callee parameter ingestion/epilogue return.
+  - Verified bidirectional C calling convention interoperability against GCC.
+- **Loop Auto-Vectorization Pass (Next Focus)**:
   - Detect parallel loop iterations operating on contiguous slices and vectors.
   - Apply vector strip-mining to process 4 64-bit integer or double-precision floating-point operations per cycle.
 - **Target Performance**: Eliminate the $5\times\text{--}8\times$ performance gap on kernels like `lsr_workload`, reaching parity with GCC `-O3` and Rust `release`.

@@ -1,0 +1,23 @@
+{
+  "$schema": "vscode://schemas/icon-theme",
+  "iconDefinitions": {
+    "_venta_file": {
+      "iconPath": "./venta-file-icon.svg"
+    },
+    "_venta_file_light": {
+      "iconPath": "./venta-file-icon-light.svg"
+    }
+  },
+  "fileExtensions": {
+    "va": "_venta_file",
+    "venta": "_venta_file",
+    "vanta": "_venta_file"
+  },
+  "light": {
+    "fileExtensions": {
+      "va": "_venta_file_light",
+      "venta": "_venta_file_light",
+      "vanta": "_venta_file_light"
+    }
+  }
+}

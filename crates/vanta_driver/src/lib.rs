@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+pub use vanta_codegen_x86_64::TargetFeatures;
 use vanta_codegen_x86_64::X86_64Backend;
 use vanta_diagnostics::DiagnosticBag;
 use vanta_lexer::Lexer;
@@ -55,6 +56,7 @@ pub struct CompilerOptions {
     pub enable_tail_calls: bool,
     pub enable_block_layout: bool,
     pub enable_code_align: bool,
+    pub target_features: TargetFeatures,
 }
 
 impl CompilerOptions {
@@ -84,6 +86,7 @@ impl CompilerOptions {
             enable_tail_calls: true,
             enable_block_layout: true,
             enable_code_align: true,
+            target_features: TargetFeatures::baseline(),
         }
     }
 }
@@ -258,13 +261,19 @@ impl CompilerSession {
         }
 
         // Native Code Generation & ELF64 Emission
-        let elf_bytes = X86_64Backend::compile_to_elf_full(
+        let elf_bytes = match X86_64Backend::compile_to_elf_full_with_target(
             &mir,
             options.enable_reg_alloc,
             options.enable_tail_calls,
             options.enable_block_layout,
             options.enable_code_align,
-        );
+            options.target_features,
+        ) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Err(format!("Backend code generation failed: {}", e));
+            }
+        };
 
         if options.emit_target == EmitTarget::Obj {
             fs::write(&options.output_file, &elf_bytes)

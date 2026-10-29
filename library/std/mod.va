@@ -7,3 +7,4 @@ pub mod fs;
 pub mod env;
 pub mod net;
 pub mod gpu;
+pub mod simd;

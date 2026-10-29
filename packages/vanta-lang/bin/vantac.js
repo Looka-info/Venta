@@ -15,11 +15,17 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 function getCandidates() {
   const home = os.homedir();
   return [
+    path.join(PKG_ROOT, 'dist', 'bin', 'ventac'),
     path.join(PKG_ROOT, 'dist', 'bin', 'vantac'),
+    path.join(PKG_ROOT, 'dist', 'ventac'),
     path.join(PKG_ROOT, 'dist', 'vantac'),
+    path.join(home, '.venta', 'bin', 'ventac'),
     path.join(home, '.vanta', 'bin', 'vantac'),
+    path.join(home, '.local', 'bin', 'ventac'),
     path.join(home, '.local', 'bin', 'vantac'),
+    path.join(PKG_ROOT, '..', '..', 'target', 'release', 'ventac'),
     path.join(PKG_ROOT, '..', '..', 'target', 'release', 'vantac'),
+    path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'ventac'),
     path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'vantac'),
   ];
 }

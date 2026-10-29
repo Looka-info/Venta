@@ -154,6 +154,13 @@ impl SemanticContext {
         if from == to {
             return true;
         }
+        if let (Type::Struct(f_name), Type::Struct(t_name)) = (from, to) {
+            let f_base = f_name.rsplit("__").next().unwrap_or(f_name);
+            let t_base = t_name.rsplit("__").next().unwrap_or(t_name);
+            if (f_base == "v256" || f_base == "Simd256") && (t_base == "v256" || t_base == "Simd256") {
+                return true;
+            }
+        }
         if from.is_integer() && to.is_integer() {
             return true;
         }
@@ -509,6 +516,438 @@ impl SemanticContext {
             },
         );
 
+        // CPU feature detection intrinsics
+        functions.insert(
+            "vanta_cpu_has_avx".into(),
+            FnSignature {
+                name: "vanta_cpu_has_avx".into(),
+                params: vec![],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_cpu_has_avx2".into(),
+            FnSignature {
+                name: "vanta_cpu_has_avx2".into(),
+                params: vec![],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_cpu_has_fma".into(),
+            FnSignature {
+                name: "vanta_cpu_has_fma".into(),
+                params: vec![],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+        functions.insert(
+            "vanta_cpu_has_avx512f".into(),
+            FnSignature {
+                name: "vanta_cpu_has_avx512f".into(),
+                params: vec![],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+
+        // 256-bit SIMD intrinsics
+        for name in &[
+            "venta_simd_vmovups_load256",
+            "simd_vmovups_load256",
+            "venta_simd_vmovups_store256",
+            "simd_vmovups_store256",
+        ] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "src".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vpaddq256", "simd_vpaddq256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "a".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "b".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vfmadd231pd256", "simd_vfmadd231pd256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "a".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "b".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "c".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        // Value-based virtual SIMD register intrinsics (Milestone 26.1)
+        for name in &["venta_simd_reg_load256", "simd_reg_load256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![(
+                        "src".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Unit),
+                        },
+                        false,
+                    )],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_store256", "simd_reg_store256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        ("val".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_add256", "simd_reg_add256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("a".into(), Type::I64, false),
+                        ("b".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_fma256", "simd_reg_fma256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("acc".into(), Type::I64, false),
+                        ("a".into(), Type::I64, false),
+                        ("b".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        // 256-bit Vector ABI Intrinsics (Milestone 26.2)
+        for name in &["venta_simd_vec_load256", "simd_vec_load256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![(
+                        "src".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Unit),
+                        },
+                        false,
+                    )],
+                    ret_type: Type::Struct("v256".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_store256", "simd_vec_store256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        ("val".into(), Type::Struct("v256".into()), false),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_add256", "simd_vec_add256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("a".into(), Type::Struct("v256".into()), false),
+                        ("b".into(), Type::Struct("v256".into()), false),
+                    ],
+                    ret_type: Type::Struct("v256".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_fma256", "simd_vec_fma256"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("acc".into(), Type::Struct("v256".into()), false),
+                        ("a".into(), Type::Struct("v256".into()), false),
+                        ("b".into(), Type::Struct("v256".into()), false),
+                    ],
+                    ret_type: Type::Struct("v256".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        // C Vector ABI Oracle Test Hook (Milestone 26.2)
+        functions.insert(
+            "vanta_c_vector_add".into(),
+            FnSignature {
+                name: "vanta_c_vector_add".into(),
+                params: vec![
+                    ("a".into(), Type::Struct("v256".into()), false),
+                    ("b".into(), Type::Struct("v256".into()), false),
+                ],
+                ret_type: Type::Struct("v256".into()),
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+
+        // 512-bit SIMD intrinsics
+        for name in &[
+            "venta_simd_vmovups_load512",
+            "simd_vmovups_load512",
+            "venta_simd_vmovups_store512",
+            "simd_vmovups_store512",
+        ] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "src".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vpaddq512", "simd_vpaddq512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "a".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "b".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vfmadd231pd512", "simd_vfmadd231pd512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "a".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "b".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        (
+                            "c".into(),
+                            Type::Ref {
+                                is_mut: false,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
         let mut generic_structs = HashMap::new();
         generic_structs.insert(
             "Vec".to_string(),
@@ -634,6 +1073,53 @@ impl SemanticContext {
         structs.insert("std__string__String".to_string(), string_def);
         declared_struct_names.insert("String".to_string());
         declared_struct_names.insert("std__string__String".to_string());
+
+        let v256_def = StructDef {
+            name: "v256".to_string(),
+            fields: vec![
+                StructField {
+                    name: "q0".into(),
+                    ty: Type::I64,
+                    offset: 0,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q1".into(),
+                    ty: Type::I64,
+                    offset: 8,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q2".into(),
+                    ty: Type::I64,
+                    offset: 16,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q3".into(),
+                    ty: Type::I64,
+                    offset: 24,
+                    size: 8,
+                    is_pub: true,
+                },
+            ],
+            total_size: 32,
+            alignment: 32,
+            is_copy: true,
+            defining_module: String::new(),
+            span: Span::new(vanta_source::FileId(0), 0, 0),
+        };
+        structs.insert("v256".to_string(), v256_def.clone());
+        structs.insert("std__simd__v256".to_string(), v256_def.clone());
+        structs.insert("Simd256".to_string(), v256_def.clone());
+        structs.insert("std__simd__Simd256".to_string(), v256_def);
+        declared_struct_names.insert("v256".to_string());
+        declared_struct_names.insert("std__simd__v256".to_string());
+        declared_struct_names.insert("Simd256".to_string());
+        declared_struct_names.insert("std__simd__Simd256".to_string());
 
         Self {
             functions,
@@ -4810,7 +5296,13 @@ impl SemanticAnalyzer {
                                 self.mark_var_moved(src_name, arg.span, diags);
                             }
                         }
-                        if !self.ctx.can_coerce(&arg_ty, param_ty) {
+                        let is_simd_intrinsic = callee.starts_with("venta_simd_") || callee.starts_with("simd_");
+                    let is_compatible = if is_simd_intrinsic {
+                        matches!(arg_ty, Type::Ref { .. }) || arg_ty.is_integer() || self.ctx.can_coerce(&arg_ty, param_ty)
+                    } else {
+                        self.ctx.can_coerce(&arg_ty, param_ty)
+                    };
+                    if !is_compatible {
                             diags.emit(
                                 Diagnostic::error(format!(
                                     "Argument {} to function '{}' expects {}, found {}",
@@ -4869,7 +5361,13 @@ impl SemanticAnalyzer {
                             self.mark_var_moved(src_name, arg.span, diags);
                         }
                     }
-                    if !self.ctx.can_coerce(&arg_ty, param_ty) {
+                    let is_simd_intrinsic = callee.starts_with("venta_simd_") || callee.starts_with("simd_");
+                    let is_compatible = if is_simd_intrinsic {
+                        matches!(arg_ty, Type::Ref { .. }) || arg_ty.is_integer() || self.ctx.can_coerce(&arg_ty, param_ty)
+                    } else {
+                        self.ctx.can_coerce(&arg_ty, param_ty)
+                    };
+                    if !is_compatible {
                         let mut diag = Diagnostic::error(format!(
                             "Argument {} to function '{}' expects {}, found {}",
                             idx + 1,

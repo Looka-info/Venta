@@ -1,8 +1,55 @@
 //! Pure Rust x86-64 machine code instruction encoder.
 
-use crate::machine_ir::{ConditionCode, MachineInst, Operand};
-use crate::register::Reg;
+use crate::machine_ir::{ConditionCode, MachineInst, Operand, SimdOperand};
+use crate::register::{Reg, VectorWidth};
+use crate::target::TargetFeatures;
 use std::collections::HashMap;
+use std::fmt;
+
+/// Backend code generation and SIMD encoding error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodegenError {
+    /// Target CPU feature is missing for the requested instruction.
+    MissingTargetFeature {
+        instruction: &'static str,
+        feature: &'static str,
+        width: VectorWidth,
+    },
+    /// Unsupported operand combination for instruction form.
+    UnsupportedOperandCombination(&'static str),
+    /// Register number exceeds architectural limits for instruction form.
+    InvalidRegisterNumber(u8),
+}
+
+impl fmt::Display for CodegenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CodegenError::MissingTargetFeature {
+                instruction,
+                feature,
+                width,
+            } => {
+                write!(
+                    f,
+                    "SIMD instruction '{}' ({}) requires target feature '+{}'",
+                    instruction, width, feature
+                )
+            }
+            CodegenError::UnsupportedOperandCombination(msg) => {
+                write!(f, "unsupported operand combination: {}", msg)
+            }
+            CodegenError::InvalidRegisterNumber(reg) => {
+                write!(
+                    f,
+                    "invalid register number {} for target instruction encoding",
+                    reg
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CodegenError {}
 
 #[derive(Debug, Clone)]
 pub struct Relocation {
@@ -17,6 +64,7 @@ pub struct CodeEmitter {
     pub label_offsets: HashMap<String, usize>,
     pub label_fixups: Vec<(usize, String)>, // (offset_of_rel32, target_label)
     pub relocations: Vec<Relocation>,
+    pub target_features: TargetFeatures,
 }
 
 impl Default for CodeEmitter {
@@ -32,6 +80,17 @@ impl CodeEmitter {
             label_offsets: HashMap::new(),
             label_fixups: Vec::new(),
             relocations: Vec::new(),
+            target_features: TargetFeatures::baseline(),
+        }
+    }
+
+    pub fn with_target(target_features: TargetFeatures) -> Self {
+        Self {
+            bytes: Vec::new(),
+            label_offsets: HashMap::new(),
+            label_fixups: Vec::new(),
+            relocations: Vec::new(),
+            target_features,
         }
     }
 
@@ -81,12 +140,20 @@ impl CodeEmitter {
 
     fn emit_mem_operand(&mut self, reg_field: u8, base: Reg, offset: i32) {
         let base_hw = base.hw_encoding();
-        if (-128..=127).contains(&offset) {
+        if offset == 0 && base_hw != 5 {
+            // mod = 00 (no displacement, except RBP/R13 where rm=5 encodes RIP-relative)
+            let mod_rm = Self::mod_rm(0b00, reg_field, base_hw);
+            self.emit_u8(mod_rm);
+            if base_hw == 4 {
+                // RSP / R12 requires SIB byte
+                self.emit_u8(Self::sib(0, 4, 4));
+            }
+        } else if (-128..=127).contains(&offset) {
             // mod = 01 (disp8)
             let mod_rm = Self::mod_rm(0b01, reg_field, base_hw);
             self.emit_u8(mod_rm);
             if base_hw == 4 {
-                // RSP requires SIB byte
+                // RSP / R12 requires SIB byte
                 self.emit_u8(Self::sib(0, 4, 4));
             }
             self.emit_u8(offset as i8 as u8);
@@ -101,7 +168,146 @@ impl CodeEmitter {
         }
     }
 
-    pub fn encode_instruction(&mut self, inst: &MachineInst) {
+    /// Emit 2-byte (0xC5) or 3-byte (0xC4) VEX prefix.
+    ///
+    /// - `map`: 1 for 0F, 2 for 0F38, 3 for 0F3A
+    /// - `w`: true for 64-bit operand or FMA double-precision
+    /// - `r_bit`: reg register extended bit (bit 3)
+    /// - `x_bit`: SIB index extended bit (bit 3)
+    /// - `b_bit`: r/m or base register extended bit (bit 3)
+    /// - `vvvv`: non-destructive register index (0..15)
+    /// - `use_vvvv`: whether vvvv is used
+    /// - `l_bit`: true for 256-bit vector, false for 128-bit
+    /// - `pp`: 0 for None, 1 for 66, 2 for F3, 3 for F2
+    pub fn emit_vex(
+        &mut self,
+        map: u8,
+        w: bool,
+        r_bit: bool,
+        x_bit: bool,
+        b_bit: bool,
+        vvvv: u8,
+        use_vvvv: bool,
+        l_bit: bool,
+        pp: u8,
+    ) {
+        let not_r = !r_bit;
+        let not_x = !x_bit;
+        let not_b = !b_bit;
+        let not_vvvv = if use_vvvv { (!vvvv) & 0x0F } else { 0x0F };
+
+        // 2-byte VEX (0xC5) is architecturally valid ONLY if:
+        // map == 1 (0F), w == false, not_x == true, not_b == true
+        if map == 1 && !w && not_x && not_b {
+            let mut b1 = 0u8;
+            if not_r {
+                b1 |= 0x80;
+            }
+            b1 |= (not_vvvv & 0x0F) << 3;
+            if l_bit {
+                b1 |= 0x04;
+            }
+            b1 |= pp & 0x03;
+            self.emit_u8(0xC5);
+            self.emit_u8(b1);
+        } else {
+            // 3-byte VEX (0xC4)
+            let mut b1 = 0u8;
+            if not_r {
+                b1 |= 0x80;
+            }
+            if not_x {
+                b1 |= 0x40;
+            }
+            if not_b {
+                b1 |= 0x20;
+            }
+            b1 |= map & 0x1F;
+
+            let mut b2 = 0u8;
+            if w {
+                b2 |= 0x80;
+            }
+            b2 |= (not_vvvv & 0x0F) << 3;
+            if l_bit {
+                b2 |= 0x04;
+            }
+            b2 |= pp & 0x03;
+
+            self.emit_u8(0xC4);
+            self.emit_u8(b1);
+            self.emit_u8(b2);
+        }
+    }
+
+    /// Emit EVEX prefix (0x62) for 512-bit AVX-512 operations.
+    pub fn emit_evex(
+        &mut self,
+        map: u8,
+        w: bool,
+        reg: u8,
+        _rm_reg: u8,
+        rm_is_extended: bool,
+        vvvv: u8,
+        use_vvvv: bool,
+        width: VectorWidth,
+        pp: u8,
+    ) {
+        self.emit_u8(0x62);
+
+        // Byte 1: [~R:1][~X:1][~B:1][~R':1][00:2][mm:2]
+        let not_r = (reg & 0b1000) == 0;
+        let not_x = true;
+        let not_b = !rm_is_extended;
+        let not_r_prime = (reg & 0b10000) == 0;
+
+        let mut b1 = 0u8;
+        if not_r {
+            b1 |= 0x80;
+        }
+        if not_x {
+            b1 |= 0x40;
+        }
+        if not_b {
+            b1 |= 0x20;
+        }
+        if not_r_prime {
+            b1 |= 0x10;
+        }
+        b1 |= map & 0x03;
+        self.emit_u8(b1);
+
+        // Byte 2: [W:1][~vvvv:4][1:1][pp:2]
+        let not_vvvv = if use_vvvv { (!(vvvv & 0x0F)) & 0x0F } else { 0x0F };
+        let mut b2 = 0u8;
+        if w {
+            b2 |= 0x80;
+        }
+        b2 |= not_vvvv << 3;
+        b2 |= 0x04; // fixed 1 bit
+        b2 |= pp & 0x03;
+        self.emit_u8(b2);
+
+        // Byte 3: [z:1][L'L:2][b:1][~V':1][aaa:3]
+        let ll_bits = match width {
+            VectorWidth::V128 => 0b00,
+            VectorWidth::V256 => 0b01,
+            VectorWidth::V512 => 0b10,
+        };
+        let not_v_prime = if use_vvvv { (vvvv & 0b10000) == 0 } else { true };
+        let mut b3 = 0u8;
+        b3 |= (ll_bits & 0x03) << 5;
+        if not_v_prime {
+            b3 |= 0x08;
+        }
+        self.emit_u8(b3);
+    }
+
+    pub fn encode_instruction_checked(
+        &mut self,
+        inst: &MachineInst,
+        target: &TargetFeatures,
+    ) -> Result<(), CodegenError> {
         match inst {
             MachineInst::Label(name) => {
                 self.label_offsets.insert(name.clone(), self.bytes.len());
@@ -259,6 +465,18 @@ impl CodeEmitter {
                     self.emit_u8(Self::rex(true, s.is_extended(), false, dst.is_extended()));
                     self.emit_u8(0x21);
                     self.emit_u8(Self::mod_rm(0b11, s.hw_encoding(), dst.hw_encoding()));
+                }
+                (Operand::Reg(dst), Operand::Imm(val)) => {
+                    self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
+                    if (-128..=127).contains(val) {
+                        self.emit_u8(0x83);
+                        self.emit_u8(Self::mod_rm(0b11, 4, dst.hw_encoding()));
+                        self.emit_u8(*val as i8 as u8);
+                    } else {
+                        self.emit_u8(0x81);
+                        self.emit_u8(Self::mod_rm(0b11, 4, dst.hw_encoding()));
+                        self.emit_i32(*val as i32);
+                    }
                 }
                 (Operand::Reg(dst), Operand::Mem { base, offset }) => {
                     self.emit_u8(Self::rex(
@@ -496,6 +714,377 @@ impl CodeEmitter {
                     r_type: 4, // R_X86_64_PLT32
                 });
             }
+            MachineInst::Vmovups { width, dest, src } => {
+                match width {
+                    VectorWidth::V128 | VectorWidth::V256 => {
+                        if !target.avx {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vmovups",
+                                feature: "avx",
+                                width: *width,
+                            });
+                        }
+                    }
+                    VectorWidth::V512 => {
+                        if !target.avx512f {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vmovups",
+                                feature: "avx512f",
+                                width: *width,
+                            });
+                        }
+                    }
+                }
+
+                let is_512 = *width == VectorWidth::V512;
+                let l_bit = *width == VectorWidth::V256;
+
+                match (dest, src) {
+                    (SimdOperand::Reg(dst), SimdOperand::Reg(s)) => {
+                        if !is_512 && (dst.index() >= 16 || s.index() >= 16) {
+                            return Err(CodegenError::InvalidRegisterNumber(
+                                dst.index().max(s.index()),
+                            ));
+                        }
+                        if is_512 {
+                            self.emit_evex(
+                                1,
+                                false,
+                                dst.0,
+                                s.0,
+                                s.is_extended(),
+                                0,
+                                false,
+                                *width,
+                                0,
+                            );
+                        } else {
+                            self.emit_vex(
+                                1,
+                                false,
+                                dst.is_extended(),
+                                false,
+                                s.is_extended(),
+                                0,
+                                false,
+                                l_bit,
+                                0,
+                            );
+                        }
+                        self.emit_u8(0x10);
+                        self.emit_u8(Self::mod_rm(0b11, dst.hw_encoding(), s.hw_encoding()));
+                    }
+                    (SimdOperand::Reg(dst), SimdOperand::Mem { base, offset }) => {
+                        if !is_512 && dst.index() >= 16 {
+                            return Err(CodegenError::InvalidRegisterNumber(dst.index()));
+                        }
+                        if is_512 {
+                            self.emit_evex(
+                                1,
+                                false,
+                                dst.0,
+                                *base as u8,
+                                base.is_extended(),
+                                0,
+                                false,
+                                *width,
+                                0,
+                            );
+                        } else {
+                            self.emit_vex(
+                                1,
+                                false,
+                                dst.is_extended(),
+                                false,
+                                base.is_extended(),
+                                0,
+                                false,
+                                l_bit,
+                                0,
+                            );
+                        }
+                        self.emit_u8(0x10);
+                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
+                    }
+                    (SimdOperand::Mem { base, offset }, SimdOperand::Reg(s)) => {
+                        if !is_512 && s.index() >= 16 {
+                            return Err(CodegenError::InvalidRegisterNumber(s.index()));
+                        }
+                        if is_512 {
+                            self.emit_evex(
+                                1,
+                                false,
+                                s.0,
+                                *base as u8,
+                                base.is_extended(),
+                                0,
+                                false,
+                                *width,
+                                0,
+                            );
+                        } else {
+                            self.emit_vex(
+                                1,
+                                false,
+                                s.is_extended(),
+                                false,
+                                base.is_extended(),
+                                0,
+                                false,
+                                l_bit,
+                                0,
+                            );
+                        }
+                        self.emit_u8(0x11);
+                        self.emit_mem_operand(s.hw_encoding(), *base, *offset);
+                    }
+                    _ => {
+                        return Err(CodegenError::UnsupportedOperandCombination(
+                            "vmovups does not support memory-to-memory encoding",
+                        ));
+                    }
+                }
+            }
+            MachineInst::Vpaddq {
+                width,
+                dest,
+                src1,
+                src2,
+            } => {
+                let dest = match dest {
+                    SimdOperand::Reg(r) => *r,
+                    _ => panic!("Expected allocated physical SIMD register for dest in Vpaddq"),
+                };
+                let src1 = match src1 {
+                    SimdOperand::Reg(r) => *r,
+                    _ => panic!("Expected allocated physical SIMD register for src1 in Vpaddq"),
+                };
+
+                match width {
+                    VectorWidth::V128 | VectorWidth::V256 => {
+                        if !target.avx2 {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vpaddq",
+                                feature: "avx2",
+                                width: *width,
+                            });
+                        }
+                    }
+                    VectorWidth::V512 => {
+                        if !target.avx512f {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vpaddq",
+                                feature: "avx512f",
+                                width: *width,
+                            });
+                        }
+                    }
+                }
+
+                let is_512 = *width == VectorWidth::V512;
+                let l_bit = *width == VectorWidth::V256;
+
+                if !is_512 && (dest.index() >= 16 || src1.index() >= 16) {
+                    return Err(CodegenError::InvalidRegisterNumber(
+                        dest.index().max(src1.index()),
+                    ));
+                }
+
+                match src2 {
+                    SimdOperand::Reg(s2) => {
+                        if !is_512 && s2.index() >= 16 {
+                            return Err(CodegenError::InvalidRegisterNumber(s2.index()));
+                        }
+                        if is_512 {
+                            self.emit_evex(
+                                1,
+                                true,
+                                dest.0,
+                                s2.0,
+                                s2.is_extended(),
+                                src1.0,
+                                true,
+                                *width,
+                                1,
+                            );
+                        } else {
+                            self.emit_vex(
+                                1,
+                                false,
+                                dest.is_extended(),
+                                false,
+                                s2.is_extended(),
+                                src1.0,
+                                true,
+                                l_bit,
+                                1,
+                            );
+                        }
+                        self.emit_u8(0xD4);
+                        self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), s2.hw_encoding()));
+                    }
+                    SimdOperand::Mem { base, offset } => {
+                        if is_512 {
+                            self.emit_evex(
+                                1,
+                                true,
+                                dest.0,
+                                *base as u8,
+                                base.is_extended(),
+                                src1.0,
+                                true,
+                                *width,
+                                1,
+                            );
+                        } else {
+                            self.emit_vex(
+                                1,
+                                false,
+                                dest.is_extended(),
+                                false,
+                                base.is_extended(),
+                                src1.0,
+                                true,
+                                l_bit,
+                                1,
+                            );
+                        }
+                        self.emit_u8(0xD4);
+                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
+                    }
+                    SimdOperand::Val(_) => {
+                        panic!("Virtual SIMD operand in vpaddq was not allocated prior to code emission");
+                    }
+                }
+            }
+            MachineInst::Vfmadd231pd {
+                width,
+                dest,
+                src1,
+                src2,
+            } => {
+                let dest = match dest {
+                    SimdOperand::Reg(r) => *r,
+                    _ => panic!("Expected allocated physical SIMD register for dest in Vfmadd231pd"),
+                };
+                let src1 = match src1 {
+                    SimdOperand::Reg(r) => *r,
+                    _ => panic!("Expected allocated physical SIMD register for src1 in Vfmadd231pd"),
+                };
+
+                match width {
+                    VectorWidth::V128 | VectorWidth::V256 => {
+                        if !target.avx {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vfmadd231pd",
+                                feature: "avx",
+                                width: *width,
+                            });
+                        }
+                        if !target.fma {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vfmadd231pd",
+                                feature: "fma",
+                                width: *width,
+                            });
+                        }
+                    }
+                    VectorWidth::V512 => {
+                        if !target.avx512f {
+                            return Err(CodegenError::MissingTargetFeature {
+                                instruction: "vfmadd231pd",
+                                feature: "avx512f",
+                                width: *width,
+                            });
+                        }
+                    }
+                }
+
+                let is_512 = *width == VectorWidth::V512;
+                let l_bit = *width == VectorWidth::V256;
+
+                if !is_512 && (dest.index() >= 16 || src1.index() >= 16) {
+                    return Err(CodegenError::InvalidRegisterNumber(
+                        dest.index().max(src1.index()),
+                    ));
+                }
+
+                match src2 {
+                    SimdOperand::Reg(s2) => {
+                        if !is_512 && s2.index() >= 16 {
+                            return Err(CodegenError::InvalidRegisterNumber(s2.index()));
+                        }
+                        if is_512 {
+                            self.emit_evex(
+                                2,
+                                true,
+                                dest.0,
+                                s2.0,
+                                s2.is_extended(),
+                                src1.0,
+                                true,
+                                *width,
+                                1,
+                            );
+                        } else {
+                            self.emit_vex(
+                                2,
+                                true,
+                                dest.is_extended(),
+                                false,
+                                s2.is_extended(),
+                                src1.0,
+                                true,
+                                l_bit,
+                                1,
+                            );
+                        }
+                        self.emit_u8(0xB8);
+                        self.emit_u8(Self::mod_rm(0b11, dest.hw_encoding(), s2.hw_encoding()));
+                    }
+                    SimdOperand::Mem { base, offset } => {
+                        if is_512 {
+                            self.emit_evex(
+                                2,
+                                true,
+                                dest.0,
+                                *base as u8,
+                                base.is_extended(),
+                                src1.0,
+                                true,
+                                *width,
+                                1,
+                            );
+                        } else {
+                            self.emit_vex(
+                                2,
+                                true,
+                                dest.is_extended(),
+                                false,
+                                base.is_extended(),
+                                src1.0,
+                                true,
+                                l_bit,
+                                1,
+                            );
+                        }
+                        self.emit_u8(0xB8);
+                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
+                    }
+                    SimdOperand::Val(_) => {
+                        panic!("Virtual SIMD operand in vfmadd231pd was not allocated prior to code emission");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Encode instruction using the emitter's configured target features.
+    pub fn encode_instruction(&mut self, inst: &MachineInst) {
+        let target = self.target_features;
+        if let Err(err) = self.encode_instruction_checked(inst, &target) {
+            panic!("Code emission error: {}", err);
         }
     }
 

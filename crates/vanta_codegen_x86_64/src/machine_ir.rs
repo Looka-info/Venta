@@ -1,6 +1,7 @@
 //! x86-64 Machine Intermediate Representation (MIR / LIR).
 
-use crate::register::Reg;
+use crate::register::{Reg, SimdReg, VectorWidth};
+use crate::simd_alloc::SimdValueId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConditionCode {
@@ -26,6 +27,20 @@ pub enum Operand {
         base: Reg,
         index: Reg,
         scale: u8,
+        offset: i32,
+    },
+}
+
+/// Operand for SIMD vector instructions (register, virtual value, or base+offset memory).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SimdOperand {
+    /// Physical SIMD register (after allocation).
+    Reg(SimdReg),
+    /// Virtual SIMD vector value (before allocation).
+    Val(SimdValueId),
+    /// Memory address: base + offset.
+    Mem {
+        base: Reg,
         offset: i32,
     },
 }
@@ -92,4 +107,24 @@ pub enum MachineInst {
     Ret,
     /// Local label
     Label(String),
+    /// vmovups dest, src (unaligned packed load, store, or register copy)
+    Vmovups {
+        width: VectorWidth,
+        dest: SimdOperand,
+        src: SimdOperand,
+    },
+    /// vpaddq dest, src1, src2 (packed 64-bit integer addition)
+    Vpaddq {
+        width: VectorWidth,
+        dest: SimdOperand,
+        src1: SimdOperand,
+        src2: SimdOperand,
+    },
+    /// vfmadd231pd dest, src1, src2 (packed double precision fused multiply-add: dest += src1 * src2)
+    Vfmadd231pd {
+        width: VectorWidth,
+        dest: SimdOperand,
+        src1: SimdOperand,
+        src2: SimdOperand,
+    },
 }

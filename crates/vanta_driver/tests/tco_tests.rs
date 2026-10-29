@@ -65,6 +65,7 @@ fn run_executable_test(
         enable_tail_calls,
         enable_block_layout: true,
         enable_code_align: true,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();

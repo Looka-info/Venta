@@ -1,9 +1,9 @@
 {
-  "name": "vanta-vscode",
-  "displayName": "Vanta Language Support",
-  "description": "Official syntax highlighting, bracket matching, and editor support for the Vanta Systems Programming Language",
+  "name": "venta-vscode",
+  "displayName": "Venta Language Support",
+  "description": "Official syntax highlighting, bracket matching, and editor support for the Venta Systems Programming Language",
   "version": "1.0.0",
-  "publisher": "vanta-lang",
+  "publisher": "venta-lang",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -12,8 +12,8 @@
     "Snippets"
   ],
   "keywords": [
-    "vanta",
     "venta",
+    "vanta",
     "systems-programming",
     "compiler"
   ],
@@ -21,40 +21,41 @@
     "type": "git",
     "url": "https://github.com/Looka-info/Venta.git"
   },
-  "icon": "./icons/vanta-logo-512.png",
+  "icon": "./icons/venta-logo-512.png",
   "contributes": {
     "languages": [
       {
-        "id": "vanta",
+        "id": "venta",
         "aliases": [
-          "Vanta",
-          "vanta",
           "Venta",
-          "venta"
+          "venta",
+          "Vanta",
+          "vanta"
         ],
         "extensions": [
           ".va",
+          ".venta",
           ".vanta"
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/vanta-file-icon-light.svg",
-          "dark": "./icons/vanta-file-icon-dark.svg"
+          "light": "./icons/venta-file-icon-light.svg",
+          "dark": "./icons/venta-file-icon-dark.svg"
         }
       }
     ],
     "grammars": [
       {
-        "language": "vanta",
-        "scopeName": "source.vanta",
-        "path": "./syntaxes/vanta.tmLanguage.json"
+        "language": "venta",
+        "scopeName": "source.va",
+        "path": "./syntaxes/venta.tmLanguage.json"
       }
     ],
     "iconThemes": [
       {
-        "id": "vanta-icons",
-        "label": "Vanta File Icons",
-        "path": "./icons/vanta-icon-theme.json"
+        "id": "venta-icons",
+        "label": "Venta File Icons",
+        "path": "./icons/venta-icon-theme.json"
       }
     ]
   }

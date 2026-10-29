@@ -1,11 +1,11 @@
-//! The Vanta Compiler CLI (`vantac`).
+// The Venta Compiler CLI (`ventac`).
 
 use std::env;
 use std::path::PathBuf;
 use std::process;
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel,
+    OptLevel, TargetFeatures,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,16 +18,20 @@ enum CommandMode {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
+    let invoked = env::args().next().unwrap_or_default();
+    let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
+    let lang_name = if file_name == "vantac" { "Vanta" } else { "Venta" };
     format!(
-        r#"Vanta Compiler (vantac) v{version}
+        r#"{lang_name} Compiler ({bin_name}) v{version}
 
 USAGE:
-    vantac [COMMAND] [OPTIONS] <input.va...>
+    {bin_name} [COMMAND] [OPTIONS] <input.va...>
 
 COMMANDS:
     compile               Compile the input file (default)
     check                 Quickly verify syntax, types, borrows, and MIR without linking
-    fmt                   Format Vanta source files canonically
+    fmt                   Format {lang_name} source files canonically
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
@@ -60,6 +64,8 @@ OPTIONS:
     --format=<fmt>        Alias for --diagnostics
     --std-path=<path>     Path to standard library root
     --runtime-path=<path> Path to precompiled libvanta_rt.a archive
+    --target-feature=<f>  Target CPU features (e.g. +avx2,+fma, or -avx512f)
+    --target-cpu=<cpu>    Target CPU architecture (baseline, x86-64-v3, x86-64-v4, native)
     --check               Check formatting without modifying files (fmt mode)
     --stdout              Write formatted file to stdout (fmt mode)
     -v, --verbose         Enable verbose diagnostic output
@@ -113,6 +119,7 @@ fn main() {
     let mut enable_tail_calls = true;
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
+    let mut target_features = TargetFeatures::baseline();
 
     let mut idx = 1;
 
@@ -132,7 +139,10 @@ fn main() {
                 idx += 1;
             }
             "-V" | "--version" => {
-                println!("vantac {}", VERSION);
+                let invoked = env::args().next().unwrap_or_default();
+                let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
+                println!("{} {}", bin_name, VERSION);
                 process::exit(0);
             }
             "-h" | "--help" => {
@@ -147,7 +157,10 @@ fn main() {
         let arg = &args[idx];
         match arg.as_str() {
             "-V" | "--version" => {
-                println!("vantac {}", VERSION);
+                let invoked = env::args().next().unwrap_or_default();
+                let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
+                println!("{} {}", bin_name, VERSION);
                 process::exit(0);
             }
             "-h" | "--help" => {
@@ -283,6 +296,77 @@ fn main() {
                 }
                 runtime_path = Some(PathBuf::from(&args[idx]));
             }
+            s if s.starts_with("--target-feature=") => {
+                let feat_str = &s["--target-feature=".len()..];
+                if let Err(e) = target_features.parse_feature_list(feat_str) {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+            "--target-feature" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --target-feature requires an argument");
+                    process::exit(2);
+                }
+                if let Err(e) = target_features.parse_feature_list(&args[idx]) {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+            s if s.starts_with("--target-cpu=") => {
+                let cpu_str = &s["--target-cpu=".len()..];
+                match TargetFeatures::from_target_cpu(cpu_str) {
+                    Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            }
+            "--target-cpu" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --target-cpu requires an argument");
+                    process::exit(2);
+                }
+                match TargetFeatures::from_target_cpu(&args[idx]) {
+                    Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            }
+            s if s.starts_with("-C") => {
+                let c_arg = if s == "-C" {
+                    idx += 1;
+                    if idx >= args.len() {
+                        eprintln!("Error: -C requires an argument");
+                        process::exit(2);
+                    }
+                    args[idx].as_str()
+                } else {
+                    &s[2..]
+                };
+                if let Some(feat) = c_arg.strip_prefix("target-feature=") {
+                    if let Err(e) = target_features.parse_feature_list(feat) {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
+                    match TargetFeatures::from_target_cpu(cpu) {
+                        Ok(feats) => target_features = feats,
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            process::exit(2);
+                        }
+                    }
+                } else {
+                    eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
+                    process::exit(2);
+                }
+            }
             s if s.starts_with('-') => {
                 eprintln!("Error: Unknown option '{}'", s);
                 process::exit(2);
@@ -373,6 +457,7 @@ fn main() {
         enable_tail_calls,
         enable_block_layout,
         enable_code_align,
+        target_features,
     };
 
     let mut session = CompilerSession::new();

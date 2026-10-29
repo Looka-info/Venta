@@ -730,3 +730,60 @@ int64_t vanta_net_close(int64_t fd) {
     }
     return 0;
 }
+
+#if defined(__x86_64__) || defined(_M_X64)
+#include <cpuid.h>
+
+int64_t vanta_cpu_has_avx(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        if ((ecx & (1 << 28)) && (ecx & (1 << 27))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int64_t vanta_cpu_has_avx2(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+        if (ebx & (1 << 5)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int64_t vanta_cpu_has_fma(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        if (ecx & (1 << 12)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int64_t vanta_cpu_has_avx512f(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+        if (ebx & (1 << 16)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+#include <immintrin.h>
+
+__attribute__((target("avx2")))
+__m256i vanta_c_vector_add(__m256i a, __m256i b) {
+    return _mm256_add_epi64(a, b);
+}
+#else
+int64_t vanta_cpu_has_avx(void) { return 0; }
+int64_t vanta_cpu_has_avx2(void) { return 0; }
+int64_t vanta_cpu_has_fma(void) { return 0; }
+int64_t vanta_cpu_has_avx512f(void) { return 0; }
+#endif
+

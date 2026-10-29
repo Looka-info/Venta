@@ -8,24 +8,40 @@ pub mod instruction_select;
 pub mod machine_ir;
 pub mod reg_alloc;
 pub mod register;
+pub mod simd_alloc;
+pub mod target;
 
 pub use abi::{classify_type, AbiClass};
 pub use elf_writer::{Elf64Writer, FunctionSymbol, RodataSymbol};
-pub use encoding::CodeEmitter;
+pub use encoding::{CodeEmitter, CodegenError};
 pub use frame::FrameLayout;
 pub use instruction_select::InstructionSelector;
-pub use machine_ir::MachineInst;
+pub use machine_ir::{MachineInst, Operand, SimdOperand};
 pub use reg_alloc::{AllocationResult, Location, RegisterAllocator};
-pub use register::Reg;
+pub use register::{Reg, SimdReg, VectorWidth};
+pub use simd_alloc::{
+    SimdAllocResult, SimdLiveInterval, SimdLocation, SimdRegisterAllocator, SimdValueId,
+};
+pub use target::TargetFeatures;
+use std::collections::HashMap;
 use vanta_mir::MirProgram;
+use vanta_sema::Type;
 
 pub struct X86_64Backend;
 
 impl X86_64Backend {
     /// Compiles a MIR program into a valid Linux ELF64 relocatable object file (.o) byte buffer,
-    /// with physical register allocation enabled by default.
+    /// with physical register allocation enabled by default on baseline target.
     pub fn compile_to_elf(program: &MirProgram) -> Vec<u8> {
         Self::compile_to_elf_with_options(program, true)
+    }
+
+    /// Compiles a MIR program with specified target features.
+    pub fn compile_to_elf_with_target(
+        program: &MirProgram,
+        target_features: TargetFeatures,
+    ) -> Result<Vec<u8>, CodegenError> {
+        Self::compile_to_elf_full_with_target(program, true, true, true, true, target_features)
     }
 
     /// Compiles a MIR program into an ELF64 object with an explicit register allocation flag.
@@ -42,8 +58,43 @@ impl X86_64Backend {
         enable_block_layout: bool,
         enable_code_align: bool,
     ) -> Vec<u8> {
-        let mut emitter = CodeEmitter::new();
+        Self::compile_to_elf_full_with_target(
+            program,
+            enable_reg_alloc,
+            enable_tail_calls,
+            enable_block_layout,
+            enable_code_align,
+            TargetFeatures::baseline(),
+        )
+        .expect("backend code generation failed")
+    }
+
+    /// Compiles a MIR program into an ELF64 object with fine-grained backend controls
+    /// and explicit target feature validation.
+    pub fn compile_to_elf_full_with_target(
+        program: &MirProgram,
+        enable_reg_alloc: bool,
+        enable_tail_calls: bool,
+        enable_block_layout: bool,
+        enable_code_align: bool,
+        target_features: TargetFeatures,
+    ) -> Result<Vec<u8>, CodegenError> {
+        let mut emitter = CodeEmitter::with_target(target_features);
         let mut functions = Vec::new();
+
+        let mut fn_signatures: HashMap<String, (Vec<Type>, Type)> = HashMap::new();
+        for f in &program.functions {
+            let p_types: Vec<Type> = f.params.iter().map(|(_, ty)| ty.clone()).collect();
+            fn_signatures.insert(f.name.clone(), (p_types, f.ret_type.clone()));
+        }
+        // Well-known external C functions
+        fn_signatures.insert(
+            "vanta_c_vector_add".into(),
+            (
+                vec![Type::Struct("v256".into()), Type::Struct("v256".into())],
+                Type::Struct("v256".into()),
+            ),
+        );
 
         for func in &program.functions {
             // Align function entry to 16 bytes
@@ -52,23 +103,59 @@ impl X86_64Backend {
             }
 
             let func_start = emitter.bytes.len();
+
+            // 1. Compute CFG dataflow intervals for function
+            let scalar_intervals = RegisterAllocator::compute_live_intervals(func);
+
+            // 2. Identify virtual SIMD values
+            let simd_val_map = simd_alloc::identify_simd_values(func, &program.structs, &program.enums);
+
+            // 3. Construct SIMD intervals and allocate physical YMM registers
+            let mut simd_intervals = Vec::new();
+            for iv in &scalar_intervals {
+                if let Some(&simd_id) = simd_val_map.get(&iv.val) {
+                    simd_intervals.push(SimdLiveInterval {
+                        val: simd_id,
+                        width: VectorWidth::V256,
+                        start: iv.start,
+                        end: iv.end,
+                        does_cross_call: iv.does_cross_call,
+                    });
+                }
+            }
+            let simd_alloc_res = SimdRegisterAllocator::allocate(simd_intervals);
+
+            // 4. Separate scalar intervals from SIMD intervals so GPR allocator
+            // does not allocate general-purpose registers to SIMD values
+            let non_simd_intervals: Vec<reg_alloc::LiveInterval> = scalar_intervals
+                .into_iter()
+                .filter(|iv| !simd_val_map.contains_key(&iv.val))
+                .collect();
             let alloc_res = if enable_reg_alloc {
-                Some(RegisterAllocator::allocate(func))
+                Some(RegisterAllocator::allocate_intervals(non_simd_intervals))
             } else {
                 None
             };
-            let frame = FrameLayout::compute(
+
+            // 5. Compute FrameLayout accounting for 32-byte SIMD spill slots
+            let frame = FrameLayout::compute_with_simd(
                 func,
                 &program.structs,
                 &program.enums,
                 alloc_res.as_ref(),
+                Some(&simd_alloc_res),
             );
-            let selector = InstructionSelector::with_options(
+
+            // 6. Lower to machine instructions with SIMD register allocation
+            let selector = InstructionSelector::with_simd(
                 func,
                 &frame,
                 &program.structs,
                 &program.enums,
                 alloc_res.as_ref(),
+                Some(&simd_alloc_res),
+                Some(&simd_val_map),
+                Some(&fn_signatures),
                 enable_tail_calls,
                 enable_block_layout,
             );
@@ -84,7 +171,7 @@ impl X86_64Backend {
                         }
                     }
                 }
-                emitter.encode_instruction(inst);
+                emitter.encode_instruction_checked(inst, &target_features)?;
             }
 
             let func_end = emitter.bytes.len();
@@ -126,7 +213,7 @@ impl X86_64Backend {
             functions,
             rodata_symbols,
         );
-        writer.write()
+        Ok(writer.write())
     }
 }
 

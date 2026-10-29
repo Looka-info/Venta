@@ -62,6 +62,7 @@ fn run_executable_test(name: &str, src: &str, expected_exit_code: i32, enable_gl
         enable_tail_calls: true,
         enable_block_layout: true,
         enable_code_align: true,
+        ..Default::default()
     };
 
     let mut session = CompilerSession::new();

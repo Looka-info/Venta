@@ -1,23 +1,25 @@
 {
-  "name": "vanta-lang",
+  "name": "venta-lang",
   "version": "1.0.0-rc.2",
-  "description": "Vanta - Performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM)",
-  "main": "packages/vanta-lang/bin/vanta.js",
+  "description": "Venta - Performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM)",
+  "main": "packages/vanta-lang/bin/venta.js",
   "bin": {
+    "venta": "packages/vanta-lang/bin/venta.js",
+    "ventac": "packages/vanta-lang/bin/ventac.js",
     "vanta": "packages/vanta-lang/bin/vanta.js",
     "vantac": "packages/vanta-lang/bin/vantac.js"
   },
   "scripts": {
-    "start": "node packages/vanta-lang/bin/vanta.js run www/server.va",
-    "serve": "node packages/vanta-lang/bin/vanta.js run www/server.va",
-    "page": "node packages/vanta-lang/bin/vanta.js run www/main.va",
-    "ventanext": "node packages/vanta-lang/bin/vanta.js run ventanext/main.va",
+    "start": "node packages/vanta-lang/bin/venta.js run www/server.va",
+    "serve": "node packages/vanta-lang/bin/venta.js run www/server.va",
+    "page": "node packages/vanta-lang/bin/venta.js run www/main.va",
+    "ventanext": "node packages/vanta-lang/bin/venta.js run ventanext/main.va",
     "postinstall": "node packages/vanta-lang/scripts/install-binary.js",
-    "test": "node packages/vanta-lang/bin/vanta.js --version"
+    "test": "node packages/vanta-lang/bin/venta.js --version"
   },
   "keywords": [
-    "vanta",
     "venta",
+    "vanta",
     "compiler",
     "systems-programming",
     "x86-64",
@@ -26,7 +28,7 @@
     "no-gc",
     "programming-language"
   ],
-  "author": "Vanta Language Contributors",
+  "author": "Venta Language Contributors",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",

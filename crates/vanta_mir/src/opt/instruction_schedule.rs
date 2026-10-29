@@ -158,7 +158,9 @@ impl InstructionScheduler {
                             (MemEffect::WriteIndirect, MemEffect::ReadSlot(_))
                             | (MemEffect::WriteIndirect, MemEffect::WriteSlot(_))
                             | (MemEffect::ReadSlot(_), MemEffect::WriteIndirect)
-                            | (MemEffect::WriteSlot(_), MemEffect::WriteIndirect) => {
+                            | (MemEffect::WriteSlot(_), MemEffect::WriteIndirect)
+                            | (MemEffect::WriteSlot(_), MemEffect::ReadIndirect)
+                            | (MemEffect::ReadIndirect, MemEffect::WriteSlot(_)) => {
                                 // Conservative aliasing between stack and indirect memory
                                 has_mem_dep = true;
                             }

@@ -1,0 +1,40 @@
+{
+  "name": "venta-lang",
+  "version": "1.0.0-rc.2",
+  "description": "Venta - Performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM)",
+  "main": "bin/venta.js",
+  "bin": {
+    "venta": "bin/venta.js",
+    "ventac": "bin/ventac.js",
+    "vanta": "bin/vanta.js",
+    "vantac": "bin/vantac.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-binary.js",
+    "test": "node bin/venta.js --version"
+  },
+  "keywords": [
+    "venta",
+    "vanta",
+    "compiler",
+    "systems-programming",
+    "x86-64",
+    "native",
+    "no-llvm",
+    "no-gc",
+    "programming-language"
+  ],
+  "author": "Venta Language Contributors",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Looka-info/Venta.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Looka-info/Venta/issues"
+  },
+  "homepage": "https://github.com/Looka-info/Venta#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

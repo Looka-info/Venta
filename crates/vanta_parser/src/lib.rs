@@ -1486,11 +1486,14 @@ impl Parser {
                                 span,
                             ));
                         }
-                    } else if last
+                    } else if (last
                         .name
                         .chars()
                         .next()
                         .is_some_and(|c| c.is_ascii_uppercase())
+                        || last.name == "v256"
+                        || last.name == "v512"
+                        || last.name == "v128")
                         && self.check(&TokenKind::LBrace)
                     {
                         // Qualified struct literal: models::Point { x: 10, y: 20 }
@@ -1576,7 +1579,10 @@ impl Parser {
                 }
 
                 // Check if this is a struct literal: Name { field: expr, ... } or Name<T> { ... }
-                let is_capitalized = name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+                let is_capitalized = name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                    || name == "v256"
+                    || name == "v512"
+                    || name == "v128";
                 let looks_like_struct_init = if (is_capitalized || !type_args.is_empty())
                     && self.check(&TokenKind::LBrace)
                 {

@@ -38,6 +38,11 @@ impl RegisterAllocator {
         Self::linear_scan(intervals)
     }
 
+    /// Allocates physical registers for a pre-filtered list of live intervals.
+    pub fn allocate_intervals(intervals: Vec<LiveInterval>) -> AllocationResult {
+        Self::linear_scan(intervals)
+    }
+
     /// Computes dataflow liveness over the CFG and constructs live intervals for all ValueIds.
     pub fn compute_live_intervals(func: &MirFunction) -> Vec<LiveInterval> {
         let mut block_def: HashMap<BlockId, HashSet<ValueId>> = HashMap::new();
