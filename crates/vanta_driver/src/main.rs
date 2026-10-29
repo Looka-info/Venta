@@ -19,9 +19,20 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
     let invoked = env::args().next().unwrap_or_default();
-    let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
-    let lang_name = if file_name == "vantac" { "Vanta" } else { "Venta" };
+    let file_name = std::path::Path::new(&invoked)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let bin_name = if file_name == "vantac" {
+        "vantac"
+    } else {
+        "ventac"
+    };
+    let lang_name = if file_name == "vantac" {
+        "Vanta"
+    } else {
+        "Venta"
+    };
     format!(
         r#"{lang_name} Compiler ({bin_name}) v{version}
 
@@ -45,6 +56,7 @@ OPTIONS:
     --no-sroa             Disable Scalar Replacement of Aggregates (SROA)
     --no-loop-peel        Disable Loop Peeling
     --no-loop-unroll      Disable Loop Unrolling
+    --no-vectorize        Disable Loop Auto-Vectorization (SIMD)
     --no-instruction-schedule Disable Instruction Scheduling
     --no-global-dce       Disable Global Dead Code Elimination
     --no-tail-calls       Disable Safe Tail-Call Optimization
@@ -114,6 +126,7 @@ fn main() {
     let mut enable_sroa = true;
     let mut enable_loop_peel = true;
     let mut enable_loop_unroll = true;
+    let mut enable_vectorize = true;
     let mut enable_instruction_schedule = true;
     let mut enable_global_dce = true;
     let mut enable_tail_calls = true;
@@ -140,8 +153,15 @@ fn main() {
             }
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
-                let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
+                let file_name = std::path::Path::new(&invoked)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                let bin_name = if file_name == "vantac" {
+                    "vantac"
+                } else {
+                    "ventac"
+                };
                 println!("{} {}", bin_name, VERSION);
                 process::exit(0);
             }
@@ -158,8 +178,15 @@ fn main() {
         match arg.as_str() {
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
-                let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let bin_name = if file_name == "vantac" { "vantac" } else { "ventac" };
+                let file_name = std::path::Path::new(&invoked)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                let bin_name = if file_name == "vantac" {
+                    "vantac"
+                } else {
+                    "ventac"
+                };
                 println!("{} {}", bin_name, VERSION);
                 process::exit(0);
             }
@@ -214,6 +241,9 @@ fn main() {
             }
             "--no-loop-unroll" | "--no-unroll" => {
                 enable_loop_unroll = false;
+            }
+            "--no-vectorize" | "--no-vec" => {
+                enable_vectorize = false;
             }
             "--no-instruction-schedule" | "--no-sched" => {
                 enable_instruction_schedule = false;
@@ -452,6 +482,7 @@ fn main() {
         enable_sroa,
         enable_loop_peel,
         enable_loop_unroll,
+        enable_vectorize,
         enable_instruction_schedule,
         enable_global_dce,
         enable_tail_calls,

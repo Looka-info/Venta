@@ -302,7 +302,11 @@ impl FrameLayout {
                     current_stack_offset = (current_stack_offset + 31) & !31;
                     let stack_off = current_stack_offset as i32;
                     current_stack_offset += 32;
-                    if let Operand::Mem { base, offset: slot_off } = slot_op {
+                    if let Operand::Mem {
+                        base,
+                        offset: slot_off,
+                    } = slot_op
+                    {
                         insts.push(MachineInst::Vmovups {
                             width: VectorWidth::V256,
                             dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
@@ -313,7 +317,10 @@ impl FrameLayout {
                         });
                         insts.push(MachineInst::Vmovups {
                             width: VectorWidth::V256,
-                            dest: SimdOperand::Mem { base, offset: slot_off },
+                            dest: SimdOperand::Mem {
+                                base,
+                                offset: slot_off,
+                            },
                             src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
                         });
                     }

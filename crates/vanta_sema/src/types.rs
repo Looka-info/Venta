@@ -87,7 +87,11 @@ impl StructDef {
         let mut max_align = 1;
         let mut all_copy = true;
 
-        if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+        if name == "v256"
+            || name == "Simd256"
+            || name.ends_with("__v256")
+            || name.ends_with("__Simd256")
+        {
             max_align = max_align.max(32);
         }
 
@@ -380,7 +384,11 @@ impl Type {
             Type::Ref { is_mut, .. } => !*is_mut,
             Type::Array { inner, .. } => inner.is_copy_with_context(structs, enums),
             Type::Struct(name) => {
-                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                if name == "v256"
+                    || name == "Simd256"
+                    || name.ends_with("__v256")
+                    || name.ends_with("__Simd256")
+                {
                     true
                 } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     false
@@ -481,7 +489,11 @@ impl Type {
             }
             Type::Array { inner, len } => inner.size_with_context(structs, enums) * len,
             Type::Struct(name) => {
-                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                if name == "v256"
+                    || name == "Simd256"
+                    || name.ends_with("__v256")
+                    || name.ends_with("__Simd256")
+                {
                     32
                 } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     24
@@ -507,7 +519,11 @@ impl Type {
             Type::Ref { .. } => 8,
             Type::Array { inner, .. } => inner.alignment_with_context(structs, enums),
             Type::Struct(name) => {
-                if name == "v256" || name == "Simd256" || name.ends_with("__v256") || name.ends_with("__Simd256") {
+                if name == "v256"
+                    || name == "Simd256"
+                    || name.ends_with("__v256")
+                    || name.ends_with("__Simd256")
+                {
                     32
                 } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
                     8

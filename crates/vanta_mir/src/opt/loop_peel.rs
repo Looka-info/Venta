@@ -71,7 +71,10 @@ impl LoopPeeling {
                             break;
                         }
                     }
-                    if matches!(b.terminator, Some(Terminator::Return(_)) | Some(Terminator::Unreachable)) {
+                    if matches!(
+                        b.terminator,
+                        Some(Terminator::Return(_)) | Some(Terminator::Unreachable)
+                    ) {
                         has_forbidden = true;
                     }
                 }
@@ -92,8 +95,15 @@ impl LoopPeeling {
                 };
 
                 match &header_block.terminator {
-                    Some(Terminator::CondBranch { cond, then_block, else_block }) => {
-                        if loop_info.blocks.contains(then_block) && !loop_info.blocks.contains(else_block) && *else_block == loop_info.exits[0].1 {
+                    Some(Terminator::CondBranch {
+                        cond,
+                        then_block,
+                        else_block,
+                    }) => {
+                        if loop_info.blocks.contains(then_block)
+                            && !loop_info.blocks.contains(else_block)
+                            && *else_block == loop_info.exits[0].1
+                        {
                             (*cond, *then_block, *else_block)
                         } else {
                             stats.candidates_rejected += 1;
@@ -108,7 +118,11 @@ impl LoopPeeling {
             };
 
             // 4. Header non-phi instructions must all be pure side-effect-free instructions
-            let header_idx = func.blocks.iter().position(|b| b.id == loop_info.header).unwrap();
+            let header_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == loop_info.header)
+                .unwrap();
             let mut header_pure = true;
             for inst in &func.blocks[header_idx].instructions {
                 match inst {
@@ -132,9 +146,14 @@ impl LoopPeeling {
             }
 
             // 5. Obtain or create a dedicated preheader
-            let (preheader_id, _) = NaturalLoop::get_or_create_preheader(func, loop_info, &dom_tree);
+            let (preheader_id, _) =
+                NaturalLoop::get_or_create_preheader(func, loop_info, &dom_tree);
 
-            let header_idx = func.blocks.iter().position(|b| b.id == loop_info.header).unwrap();
+            let header_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == loop_info.header)
+                .unwrap();
             let mut phi_nodes: Vec<(ValueId, ValueId, ValueId, Type)> = Vec::new();
             let mut phi_init_map: HashMap<ValueId, ValueId> = HashMap::new();
             let mut phi_latch_map: HashMap<ValueId, ValueId> = HashMap::new();
@@ -167,7 +186,9 @@ impl LoopPeeling {
             }
 
             // 6. Body blocks to clone for iteration 0
-            let body_block_ids: Vec<BlockId> = func.blocks.iter()
+            let body_block_ids: Vec<BlockId> = func
+                .blocks
+                .iter()
                 .map(|b| b.id)
                 .filter(|b_id| *b_id != loop_info.header && loop_info.blocks.contains(b_id))
                 .collect();
@@ -211,7 +232,10 @@ impl LoopPeeling {
                 preheader_cloned_insts.push(cl);
             }
 
-            let init_cond_val = preheader_val_map.get(&cond_val).copied().unwrap_or(cond_val);
+            let init_cond_val = preheader_val_map
+                .get(&cond_val)
+                .copied()
+                .unwrap_or(cond_val);
 
             // 8. Block and value mapping for peeled body
             let mut block_map: HashMap<BlockId, BlockId> = HashMap::new();
@@ -245,8 +269,12 @@ impl LoopPeeling {
                             peeled_val_map.insert(*dest, ValueId(next_val_id));
                             next_val_id += 1;
                         }
-                        Instruction::StrSlice { dest_ptr, dest_len, .. }
-                        | Instruction::LoadSlice { dest_ptr, dest_len, .. } => {
+                        Instruction::StrSlice {
+                            dest_ptr, dest_len, ..
+                        }
+                        | Instruction::LoadSlice {
+                            dest_ptr, dest_len, ..
+                        } => {
                             peeled_val_map.insert(*dest_ptr, ValueId(next_val_id));
                             next_val_id += 1;
                             peeled_val_map.insert(*dest_len, ValueId(next_val_id));
@@ -283,7 +311,11 @@ impl LoopPeeling {
                             Some(Terminator::Branch(*target))
                         }
                     }
-                    Some(Terminator::CondBranch { cond, then_block, else_block }) => {
+                    Some(Terminator::CondBranch {
+                        cond,
+                        then_block,
+                        else_block,
+                    }) => {
                         let new_cond = peeled_val_map.get(cond).copied().unwrap_or(*cond);
                         let new_then = block_map.get(then_block).copied().unwrap_or(*then_block);
                         let new_else = block_map.get(else_block).copied().unwrap_or(*else_block);
@@ -305,7 +337,11 @@ impl LoopPeeling {
             }
 
             // 9. Update Header Phis to take iteration 1 initial values from peeled latch
-            let header_block = func.blocks.iter_mut().find(|b| b.id == loop_info.header).unwrap();
+            let header_block = func
+                .blocks
+                .iter_mut()
+                .find(|b| b.id == loop_info.header)
+                .unwrap();
             for inst in &mut header_block.instructions {
                 if let Instruction::Phi { dest, inputs, .. } = inst {
                     if let Some(&latch_v) = phi_latch_map.get(dest) {
@@ -327,15 +363,25 @@ impl LoopPeeling {
             let loop_exit_id = BlockId(next_block_id + 1);
 
             let peeled_entry_id = block_map[&body_entry_id];
-            let preheader_idx = func.blocks.iter().position(|b| b.id == preheader_id).unwrap();
-            func.blocks[preheader_idx].instructions.extend(preheader_cloned_insts);
+            let preheader_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == preheader_id)
+                .unwrap();
+            func.blocks[preheader_idx]
+                .instructions
+                .extend(preheader_cloned_insts);
             func.blocks[preheader_idx].terminator = Some(Terminator::CondBranch {
                 cond: init_cond_val,
                 then_block: peeled_entry_id,
                 else_block: zero_trip_id,
             });
 
-            let header_idx = func.blocks.iter().position(|b| b.id == loop_info.header).unwrap();
+            let header_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == loop_info.header)
+                .unwrap();
             func.blocks[header_idx].terminator = Some(Terminator::CondBranch {
                 cond: cond_val,
                 then_block: body_entry_id,
@@ -371,7 +417,11 @@ impl LoopPeeling {
                 exit_val_replacement.insert(*phi_dest, exit_phi_id);
             }
 
-            let exit_idx = func.blocks.iter().position(|b| b.id == exit_block_id).unwrap();
+            let exit_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == exit_block_id)
+                .unwrap();
             for (idx, phi_inst) in exit_phis_to_insert.into_iter().enumerate() {
                 func.blocks[exit_idx].instructions.insert(idx, phi_inst);
             }
@@ -407,13 +457,21 @@ impl LoopPeeling {
             }
 
             // 12. Insert peeled blocks right after preheader
-            let p_idx = func.blocks.iter().position(|b| b.id == preheader_id).unwrap();
+            let p_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == preheader_id)
+                .unwrap();
             for (offset, cb) in cloned_blocks.into_iter().enumerate() {
                 func.blocks.insert(p_idx + 1 + offset, cb);
             }
 
             // 13. Insert trampolines right before exit_block
-            let e_idx = func.blocks.iter().position(|b| b.id == exit_block_id).unwrap();
+            let e_idx = func
+                .blocks
+                .iter()
+                .position(|b| b.id == exit_block_id)
+                .unwrap();
             func.blocks.insert(e_idx, zero_trip_block);
             func.blocks.insert(e_idx + 1, loop_exit_block);
 
@@ -472,7 +530,12 @@ impl LoopPeeling {
                 map_val(dest);
                 map_val(index);
             }
-            Instruction::IndexPtrAddr { dest, base_ptr, index, .. } => {
+            Instruction::IndexPtrAddr {
+                dest,
+                base_ptr,
+                index,
+                ..
+            } => {
                 map_val(dest);
                 map_val(base_ptr);
                 map_val(index);
@@ -490,7 +553,9 @@ impl LoopPeeling {
                 map_val(addr);
                 map_val(val);
             }
-            Instruction::StrSlice { dest_ptr, dest_len, .. } => {
+            Instruction::StrSlice {
+                dest_ptr, dest_len, ..
+            } => {
                 map_val(dest_ptr);
                 map_val(dest_len);
             }
@@ -498,7 +563,9 @@ impl LoopPeeling {
                 map_val(ptr);
                 map_val(len);
             }
-            Instruction::LoadSlice { dest_ptr, dest_len, .. } => {
+            Instruction::LoadSlice {
+                dest_ptr, dest_len, ..
+            } => {
                 map_val(dest_ptr);
                 map_val(dest_len);
             }

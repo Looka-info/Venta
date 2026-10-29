@@ -51,9 +51,16 @@ fn test_sched_reorders_independent_arithmetic_to_hide_latency() {
         "#,
     );
 
-    let func = mir.functions.iter_mut().find(|f| f.name == "test_latency").unwrap();
+    let func = mir
+        .functions
+        .iter_mut()
+        .find(|f| f.name == "test_latency")
+        .unwrap();
     let (changed, stats) = InstructionScheduler::run_on_function(func);
-    assert!(changed, "Independent operations must be reordered according to critical path height!");
+    assert!(
+        changed,
+        "Independent operations must be reordered according to critical path height!"
+    );
     assert!(stats.instructions_reordered > 0);
 
     // Verify SSA invariants remain valid
@@ -76,13 +83,21 @@ fn test_sched_preserves_raw_data_dependencies() {
         "#,
     );
 
-    let func = mir.functions.iter_mut().find(|f| f.name == "test_raw").unwrap();
+    let func = mir
+        .functions
+        .iter_mut()
+        .find(|f| f.name == "test_raw")
+        .unwrap();
     let (_changed, _) = InstructionScheduler::run_on_function(func);
 
     // Verify SSA definition-before-use across all blocks
     let mut diags = DiagnosticBag::new();
     MirVerifier::verify_program(&mir, &mut diags);
-    assert!(!diags.has_errors(), "MIR Verifier must pass without errors: {:?}", diags);
+    assert!(
+        !diags.has_errors(),
+        "MIR Verifier must pass without errors: {:?}",
+        diags
+    );
 }
 
 #[test]
@@ -102,7 +117,11 @@ fn test_sched_preserves_memory_effects_and_call_barriers() {
         "#,
     );
 
-    let func = mir.functions.iter_mut().find(|f| f.name == "test_barrier").unwrap();
+    let func = mir
+        .functions
+        .iter_mut()
+        .find(|f| f.name == "test_barrier")
+        .unwrap();
     let (_changed, _) = InstructionScheduler::run_on_function(func);
 
     // In the entry block, the Store before Call must remain before Call,
@@ -182,7 +201,11 @@ fn test_sched_end_to_end_execution() {
 
     let mut session = CompilerSession::new();
     if let Err(e) = session.compile(&opts) {
-        panic!("Compilation with scheduler enabled failed: {}\nDiagnostics:\n{}", e, session.render_diagnostics(DiagnosticFormat::Human));
+        panic!(
+            "Compilation with scheduler enabled failed: {}\nDiagnostics:\n{}",
+            e,
+            session.render_diagnostics(DiagnosticFormat::Human)
+        );
     }
 
     let out = Command::new(&exe_path).output().expect("Execution failed");

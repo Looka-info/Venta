@@ -5,8 +5,8 @@
 //! while strictly preserving RAW, WAR, and WAW data and memory dependencies.
 
 use crate::ir::*;
-use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InstructionScheduleStats {
@@ -37,7 +37,8 @@ struct SchedCandidate {
 impl Ord for SchedCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
         // Highest height first (critical path)
-        self.height.cmp(&other.height)
+        self.height
+            .cmp(&other.height)
             // Highest latency first
             .then_with(|| self.latency.cmp(&other.latency))
             // Most successors first
@@ -67,7 +68,11 @@ impl InstructionScheduler {
             }
 
             // Separate leading Phi instructions from non-Phi instructions
-            let phi_count = block.instructions.iter().take_while(|i| matches!(i, Instruction::Phi { .. })).count();
+            let phi_count = block
+                .instructions
+                .iter()
+                .take_while(|i| matches!(i, Instruction::Phi { .. }))
+                .count();
             if block.instructions.len() - phi_count <= 1 {
                 continue;
             }
@@ -308,7 +313,12 @@ impl InstructionScheduler {
                 defs.push(*dest);
                 uses.push(*index);
             }
-            Instruction::IndexPtrAddr { dest, base_ptr, index, .. } => {
+            Instruction::IndexPtrAddr {
+                dest,
+                base_ptr,
+                index,
+                ..
+            } => {
                 defs.push(*dest);
                 uses.push(*base_ptr);
                 uses.push(*index);
@@ -321,11 +331,14 @@ impl InstructionScheduler {
                 defs.push(*dest);
                 uses.push(*addr);
             }
-            Instruction::StoreIndirect { addr, val } | Instruction::StoreIndirect32 { addr, val } => {
+            Instruction::StoreIndirect { addr, val }
+            | Instruction::StoreIndirect32 { addr, val } => {
                 uses.push(*addr);
                 uses.push(*val);
             }
-            Instruction::StrSlice { dest_ptr, dest_len, .. } => {
+            Instruction::StrSlice {
+                dest_ptr, dest_len, ..
+            } => {
                 defs.push(*dest_ptr);
                 defs.push(*dest_len);
             }
@@ -333,7 +346,9 @@ impl InstructionScheduler {
                 uses.push(*ptr);
                 uses.push(*len);
             }
-            Instruction::LoadSlice { dest_ptr, dest_len, .. } => {
+            Instruction::LoadSlice {
+                dest_ptr, dest_len, ..
+            } => {
                 defs.push(*dest_ptr);
                 defs.push(*dest_len);
             }
@@ -360,7 +375,9 @@ impl InstructionScheduler {
             Instruction::LoadSlice { slot, .. } => MemEffect::ReadSlot(*slot),
             Instruction::StoreSlice { slot, .. } => MemEffect::WriteSlot(*slot),
             Instruction::LoadIndirect { .. } => MemEffect::ReadIndirect,
-            Instruction::StoreIndirect { .. } | Instruction::StoreIndirect32 { .. } => MemEffect::WriteIndirect,
+            Instruction::StoreIndirect { .. } | Instruction::StoreIndirect32 { .. } => {
+                MemEffect::WriteIndirect
+            }
             Instruction::Call { .. } => MemEffect::Barrier,
             _ => MemEffect::None,
         }
@@ -375,7 +392,9 @@ impl InstructionScheduler {
                 _ => 1,
             },
             Instruction::Call { .. } => 15,
-            Instruction::LoadIndirect { .. } | Instruction::LoadSlice { .. } | Instruction::Load { .. } => 4,
+            Instruction::LoadIndirect { .. }
+            | Instruction::LoadSlice { .. }
+            | Instruction::Load { .. } => 4,
             _ => 1,
         }
     }

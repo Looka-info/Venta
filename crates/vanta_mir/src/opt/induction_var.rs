@@ -180,34 +180,28 @@ impl InductionVarOpt {
             for inst in &block.instructions {
                 match inst {
                     Instruction::Binary {
-                        dest,
-                        op,
-                        lhs,
-                        rhs,
-                        ..
-                    } if *dest == update_val => {
-                        match op {
-                            MirBinaryOp::Add => {
-                                if *lhs == phi_dest {
-                                    if let Some(&s) = const_map.get(rhs) {
-                                        return Some((s, b_id));
-                                    }
-                                } else if *rhs == phi_dest {
-                                    if let Some(&s) = const_map.get(lhs) {
-                                        return Some((s, b_id));
-                                    }
+                        dest, op, lhs, rhs, ..
+                    } if *dest == update_val => match op {
+                        MirBinaryOp::Add => {
+                            if *lhs == phi_dest {
+                                if let Some(&s) = const_map.get(rhs) {
+                                    return Some((s, b_id));
+                                }
+                            } else if *rhs == phi_dest {
+                                if let Some(&s) = const_map.get(lhs) {
+                                    return Some((s, b_id));
                                 }
                             }
-                            MirBinaryOp::Sub => {
-                                if *lhs == phi_dest {
-                                    if let Some(&s) = const_map.get(rhs) {
-                                        return Some((-s, b_id));
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
-                    }
+                        MirBinaryOp::Sub => {
+                            if *lhs == phi_dest {
+                                if let Some(&s) = const_map.get(rhs) {
+                                    return Some((-s, b_id));
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }

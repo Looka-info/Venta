@@ -51,6 +51,7 @@ pub struct CompilerOptions {
     pub enable_sroa: bool,
     pub enable_loop_peel: bool,
     pub enable_loop_unroll: bool,
+    pub enable_vectorize: bool,
     pub enable_instruction_schedule: bool,
     pub enable_global_dce: bool,
     pub enable_tail_calls: bool,
@@ -81,6 +82,7 @@ impl CompilerOptions {
             enable_sroa: true,
             enable_loop_peel: true,
             enable_loop_unroll: true,
+            enable_vectorize: true,
             enable_instruction_schedule: true,
             enable_global_dce: true,
             enable_tail_calls: true,
@@ -154,7 +156,12 @@ impl CompilerSession {
 
         // MIR Optimization Pipeline Verification
         let is_executable = options.emit_target == EmitTarget::Exe;
-        OptimizationPipeline::optimize_program_full(
+        let target_config = vanta_mir::opt::VectorizeTargetConfig {
+            has_avx: options.target_features.avx,
+            has_avx2: options.target_features.avx2,
+            has_fma: options.target_features.fma,
+        };
+        OptimizationPipeline::optimize_program_full_with_target(
             &mut mir,
             options.opt_level,
             options.enable_mem2reg,
@@ -167,6 +174,8 @@ impl CompilerSession {
             options.enable_sroa,
             options.enable_loop_peel,
             options.enable_loop_unroll,
+            options.enable_vectorize,
+            target_config,
             options.enable_instruction_schedule,
             options.enable_global_dce,
             options.enable_tail_calls,
@@ -232,7 +241,12 @@ impl CompilerSession {
 
         // Run MIR optimization pipeline
         let is_executable = options.emit_target == EmitTarget::Exe;
-        OptimizationPipeline::optimize_program_full(
+        let target_config = vanta_mir::opt::VectorizeTargetConfig {
+            has_avx: options.target_features.avx,
+            has_avx2: options.target_features.avx2,
+            has_fma: options.target_features.fma,
+        };
+        OptimizationPipeline::optimize_program_full_with_target(
             &mut mir,
             options.opt_level,
             options.enable_mem2reg,
@@ -245,6 +259,8 @@ impl CompilerSession {
             options.enable_sroa,
             options.enable_loop_peel,
             options.enable_loop_unroll,
+            options.enable_vectorize,
+            target_config,
             options.enable_instruction_schedule,
             options.enable_global_dce,
             options.enable_tail_calls,

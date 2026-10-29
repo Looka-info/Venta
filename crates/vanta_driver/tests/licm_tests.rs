@@ -68,8 +68,14 @@ fn test_licm_natural_loop_discovery() {
 
     assert_eq!(loops.len(), 1, "Expected exactly 1 natural loop");
     let natural_loop = &loops[0];
-    assert!(natural_loop.blocks.len() >= 2, "Loop must contain at least cond and body blocks");
-    assert!(!natural_loop.latches.is_empty(), "Loop must have at least one backedge latch");
+    assert!(
+        natural_loop.blocks.len() >= 2,
+        "Loop must contain at least cond and body blocks"
+    );
+    assert!(
+        !natural_loop.latches.is_empty(),
+        "Loop must have at least one backedge latch"
+    );
 }
 
 #[test]
@@ -93,8 +99,8 @@ fn test_licm_hoists_pure_invariant_integer_expression() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         MirOptLevel::O1,
-        true, // mem2reg
-        true, // gvn
+        true,  // mem2reg
+        true,  // gvn
         false, // inline
         false, // ipa
         true,  // licm
@@ -108,7 +114,11 @@ fn test_licm_hoists_pure_invariant_integer_expression() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "compute_scale").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compute_scale")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
@@ -119,7 +129,13 @@ fn test_licm_hoists_pure_invariant_integer_expression() {
     let mul_in_loop = natural_loop.blocks.iter().any(|&b_id| {
         let block = func.blocks.iter().find(|b| b.id == b_id).unwrap();
         block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Mul,
+                    ..
+                }
+            )
         })
     });
 
@@ -132,7 +148,13 @@ fn test_licm_hoists_pure_invariant_integer_expression() {
     let mul_outside_loop = func.blocks.iter().any(|b| {
         !natural_loop.blocks.contains(&b.id)
             && b.instructions.iter().any(|inst| {
-                matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. })
+                matches!(
+                    inst,
+                    Instruction::Binary {
+                        op: MirBinaryOp::Mul,
+                        ..
+                    }
+                )
             })
     });
 
@@ -169,7 +191,7 @@ fn test_licm_hoists_chain_of_dependent_invariants() {
         true,
         false,
         false,
-        true, // licm
+        true,  // licm
         false, // indvar
         false, // strength_reduction
         false, // sroa
@@ -180,7 +202,11 @@ fn test_licm_hoists_chain_of_dependent_invariants() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "chain_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "chain_loop")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
@@ -196,7 +222,15 @@ fn test_licm_hoists_chain_of_dependent_invariants() {
             block
                 .instructions
                 .iter()
-                .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. }))
+                .filter(|inst| {
+                    matches!(
+                        inst,
+                        Instruction::Binary {
+                            op: MirBinaryOp::Mul,
+                            ..
+                        }
+                    )
+                })
                 .count()
         })
         .sum::<usize>();
@@ -236,7 +270,7 @@ fn test_licm_hoists_invariant_boolean_expression() {
         true,
         false,
         false,
-        true, // licm
+        true,  // licm
         false, // indvar
         false, // strength_reduction
         false, // sroa
@@ -247,7 +281,11 @@ fn test_licm_hoists_invariant_boolean_expression() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "bool_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "bool_loop")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
@@ -258,7 +296,13 @@ fn test_licm_hoists_invariant_boolean_expression() {
     let cmp_in_loop = natural_loop.blocks.iter().any(|&b_id| {
         let block = func.blocks.iter().find(|b| b.id == b_id).unwrap();
         block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Gt, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Gt,
+                    ..
+                }
+            )
         })
     });
 
@@ -295,7 +339,7 @@ fn test_licm_strictly_rejects_division_from_hoisting() {
         true,
         false,
         false,
-        true, // licm
+        true,  // licm
         false, // indvar
         false, // strength_reduction
         false, // sroa
@@ -306,7 +350,11 @@ fn test_licm_strictly_rejects_division_from_hoisting() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "div_guard").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "div_guard")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
@@ -317,7 +365,13 @@ fn test_licm_strictly_rejects_division_from_hoisting() {
     let div_in_loop = natural_loop.blocks.iter().any(|&b_id| {
         let block = func.blocks.iter().find(|b| b.id == b_id).unwrap();
         block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Div, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Div,
+                    ..
+                }
+            )
         })
     });
 
@@ -357,7 +411,7 @@ fn test_licm_nested_loops_inner_invariant_outer_variant() {
         true,
         false,
         false,
-        true, // licm
+        true,  // licm
         false, // indvar
         false, // strength_reduction
         false, // sroa
@@ -368,7 +422,11 @@ fn test_licm_nested_loops_inner_invariant_outer_variant() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "nested_work").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "nested_work")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 2, "Expected 2 nested loops");
@@ -383,7 +441,15 @@ fn test_licm_nested_loops_inner_invariant_outer_variant() {
             block
                 .instructions
                 .iter()
-                .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Add, .. }))
+                .filter(|inst| {
+                    matches!(
+                        inst,
+                        Instruction::Binary {
+                            op: MirBinaryOp::Add,
+                            ..
+                        }
+                    )
+                })
                 .count()
         })
         .sum::<usize>();
@@ -393,7 +459,13 @@ fn test_licm_nested_loops_inner_invariant_outer_variant() {
     let outer_has_mul = outer_loop.blocks.iter().any(|&b_id| {
         let block = func.blocks.iter().find(|b| b.id == b_id).unwrap();
         block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Mul,
+                    ..
+                }
+            )
         })
     });
 
@@ -439,7 +511,11 @@ fn test_licm_disabled_via_flag() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "compute_scale").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compute_scale")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
@@ -450,7 +526,13 @@ fn test_licm_disabled_via_flag() {
     let mul_in_loop = natural_loop.blocks.iter().any(|&b_id| {
         let block = func.blocks.iter().find(|b| b.id == b_id).unwrap();
         block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Mul,
+                    ..
+                }
+            )
         })
     });
 
@@ -525,7 +607,10 @@ fn test_licm_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session1 = CompilerSession::new();
-    assert!(session1.compile(&opts_no_licm).is_ok(), "Compilation with --no-licm failed");
+    assert!(
+        session1.compile(&opts_no_licm).is_ok(),
+        "Compilation with --no-licm failed"
+    );
 
     // 2. Compile with LICM enabled
     let opts_licm = CompilerOptions {
@@ -552,7 +637,10 @@ fn test_licm_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session2 = CompilerSession::new();
-    assert!(session2.compile(&opts_licm).is_ok(), "Compilation with LICM enabled failed");
+    assert!(
+        session2.compile(&opts_licm).is_ok(),
+        "Compilation with LICM enabled failed"
+    );
 
     // 3. Execute both binaries and compare output
     let out_no_licm = Command::new(&exe_no_licm)

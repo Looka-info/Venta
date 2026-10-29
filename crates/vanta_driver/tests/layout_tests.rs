@@ -4,11 +4,7 @@ use std::fs;
 use std::process::Command;
 use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
 
-fn run_layout_differential_test(
-    name: &str,
-    src: &str,
-    expected_exit_code: i32,
-) {
+fn run_layout_differential_test(name: &str, src: &str, expected_exit_code: i32) {
     let temp_dir = tempfile::tempdir().unwrap();
     let src_path = temp_dir.path().join(format!("{}.va", name));
     fs::write(&src_path, src).unwrap();
@@ -45,7 +41,9 @@ fn run_layout_differential_test(
     let mut session1 = CompilerSession::new();
     let res1 = session1.compile(&opts_layout);
     assert!(res1.is_ok(), "Layout compilation failed: {:?}", res1.err());
-    let status1 = Command::new(&out_layout).status().expect("Execute layout binary");
+    let status1 = Command::new(&out_layout)
+        .status()
+        .expect("Execute layout binary");
     assert_eq!(
         status1.code(),
         Some(expected_exit_code),
@@ -84,8 +82,14 @@ fn run_layout_differential_test(
     };
     let mut session2 = CompilerSession::new();
     let res2 = session2.compile(&opts_no_layout);
-    assert!(res2.is_ok(), "No-layout compilation failed: {:?}", res2.err());
-    let status2 = Command::new(&out_no_layout).status().expect("Execute no-layout binary");
+    assert!(
+        res2.is_ok(),
+        "No-layout compilation failed: {:?}",
+        res2.err()
+    );
+    let status2 = Command::new(&out_no_layout)
+        .status()
+        .expect("Execute no-layout binary");
     assert_eq!(
         status2.code(),
         Some(expected_exit_code),
@@ -124,8 +128,14 @@ fn run_layout_differential_test(
     };
     let mut session3 = CompilerSession::new();
     let res3 = session3.compile(&opts_no_align);
-    assert!(res3.is_ok(), "No-align compilation failed: {:?}", res3.err());
-    let status3 = Command::new(&out_no_align).status().expect("Execute no-align binary");
+    assert!(
+        res3.is_ok(),
+        "No-align compilation failed: {:?}",
+        res3.err()
+    );
+    let status3 = Command::new(&out_no_align)
+        .status()
+        .expect("Execute no-align binary");
     assert_eq!(
         status3.code(),
         Some(expected_exit_code),

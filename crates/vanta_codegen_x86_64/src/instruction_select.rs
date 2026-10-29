@@ -33,7 +33,9 @@ impl<'a> InstructionSelector<'a> {
         enums: &'a HashMap<String, EnumDef>,
         alloc_res: Option<&'a AllocationResult>,
     ) -> Self {
-        Self::with_simd(func, frame, structs, enums, alloc_res, None, None, None, true, true)
+        Self::with_simd(
+            func, frame, structs, enums, alloc_res, None, None, None, true, true,
+        )
     }
 
     pub fn with_options(
@@ -100,7 +102,9 @@ impl<'a> InstructionSelector<'a> {
                             }
                         }
                         Instruction::Phi { dest, inputs, .. } => {
-                            if inputs.iter().any(|(_, v)| stack_ptrs.contains(v)) && stack_ptrs.insert(*dest) {
+                            if inputs.iter().any(|(_, v)| stack_ptrs.contains(v))
+                                && stack_ptrs.insert(*dest)
+                            {
                                 changed = true;
                             }
                         }
@@ -135,7 +139,8 @@ impl<'a> InstructionSelector<'a> {
         let mut insts = Vec::new();
 
         // 1. Function Prologue
-        self.frame.emit_prologue(&mut insts, self.func, self.structs, self.enums);
+        self.frame
+            .emit_prologue(&mut insts, self.func, self.structs, self.enums);
 
         if self.func.blocks.is_empty() {
             insts.push(MachineInst::Label(self.epilogue_label.clone()));
@@ -160,19 +165,29 @@ impl<'a> InstructionSelector<'a> {
                     match term {
                         Terminator::Branch(target) => {
                             if !placed.contains(target) {
-                                if let Some(pos) = self.func.blocks.iter().position(|b| b.id == *target) {
+                                if let Some(pos) =
+                                    self.func.blocks.iter().position(|b| b.id == *target)
+                                {
                                     next_pick = Some(pos);
                                 }
                             }
                         }
-                        Terminator::CondBranch { then_block, else_block, .. } => {
+                        Terminator::CondBranch {
+                            then_block,
+                            else_block,
+                            ..
+                        } => {
                             // Prioritize unvisited successor: prefer else_block (standard fall-through)
                             if !placed.contains(else_block) {
-                                if let Some(pos) = self.func.blocks.iter().position(|b| b.id == *else_block) {
+                                if let Some(pos) =
+                                    self.func.blocks.iter().position(|b| b.id == *else_block)
+                                {
                                     next_pick = Some(pos);
                                 }
                             } else if !placed.contains(then_block) {
-                                if let Some(pos) = self.func.blocks.iter().position(|b| b.id == *then_block) {
+                                if let Some(pos) =
+                                    self.func.blocks.iter().position(|b| b.id == *then_block)
+                                {
                                     next_pick = Some(pos);
                                 }
                             }
@@ -186,7 +201,9 @@ impl<'a> InstructionSelector<'a> {
                     placed.insert(self.func.blocks[next_idx].id);
                     curr_idx = next_idx;
                 } else {
-                    if let Some(unplaced_idx) = (0..self.func.blocks.len()).find(|&i| !placed.contains(&self.func.blocks[i].id)) {
+                    if let Some(unplaced_idx) = (0..self.func.blocks.len())
+                        .find(|&i| !placed.contains(&self.func.blocks[i].id))
+                    {
                         order.push(unplaced_idx);
                         placed.insert(self.func.blocks[unplaced_idx].id);
                         curr_idx = unplaced_idx;
@@ -207,7 +224,9 @@ impl<'a> InstructionSelector<'a> {
             // Always emit label so any jumps can target this block
             insts.push(MachineInst::Label(label_name));
 
-            let next_block_id = layout.get(order_pos + 1).map(|&idx| self.func.blocks[idx].id);
+            let next_block_id = layout
+                .get(order_pos + 1)
+                .map(|&idx| self.func.blocks[idx].id);
             let is_last_before_epilogue = order_pos + 1 == layout.len();
 
             let num_instructions = block.instructions.len();
@@ -217,7 +236,13 @@ impl<'a> InstructionSelector<'a> {
             }
 
             if let Some(term) = &block.terminator {
-                self.select_terminator(block.id, term, next_block_id, is_last_before_epilogue, &mut insts);
+                self.select_terminator(
+                    block.id,
+                    term,
+                    next_block_id,
+                    is_last_before_epilogue,
+                    &mut insts,
+                );
             }
         }
 
@@ -359,10 +384,17 @@ impl<'a> InstructionSelector<'a> {
                                 src: SimdOperand::Mem { base, offset },
                             });
                             let spill_op = self.frame.get_simd_spill_op(spill_slot);
-                            if let Operand::Mem { base: s_base, offset: s_off } = spill_op {
+                            if let Operand::Mem {
+                                base: s_base,
+                                offset: s_off,
+                            } = spill_op
+                            {
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
-                                    dest: SimdOperand::Mem { base: s_base, offset: s_off },
+                                    dest: SimdOperand::Mem {
+                                        base: s_base,
+                                        offset: s_off,
+                                    },
                                     src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
                                 });
                             }
@@ -407,11 +439,18 @@ impl<'a> InstructionSelector<'a> {
                         }
                         SimdLocation::Spill(spill_slot) => {
                             let spill_op = self.frame.get_simd_spill_op(spill_slot);
-                            if let Operand::Mem { base: s_base, offset: s_off } = spill_op {
+                            if let Operand::Mem {
+                                base: s_base,
+                                offset: s_off,
+                            } = spill_op
+                            {
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
                                     dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                    src: SimdOperand::Mem { base: s_base, offset: s_off },
+                                    src: SimdOperand::Mem {
+                                        base: s_base,
+                                        offset: s_off,
+                                    },
                                 });
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
@@ -485,11 +524,7 @@ impl<'a> InstructionSelector<'a> {
                 }
             }
             Instruction::Binary {
-                dest,
-                op,
-                lhs,
-                rhs,
-                ..
+                dest, op, lhs, rhs, ..
             } => {
                 let lhs_op = self.get_val_op(*lhs);
                 let rhs_op = self.get_val_op(*rhs);
@@ -524,10 +559,12 @@ impl<'a> InstructionSelector<'a> {
                                     dest: dst,
                                     src: rhs_op,
                                 }),
-                                MirBinaryOp::BitAnd | MirBinaryOp::And => out.push(MachineInst::And {
-                                    dest: Operand::Reg(dst),
-                                    src: rhs_op,
-                                }),
+                                MirBinaryOp::BitAnd | MirBinaryOp::And => {
+                                    out.push(MachineInst::And {
+                                        dest: Operand::Reg(dst),
+                                        src: rhs_op,
+                                    })
+                                }
                                 MirBinaryOp::BitOr | MirBinaryOp::Or => out.push(MachineInst::Or {
                                     dest: Operand::Reg(dst),
                                     src: rhs_op,
@@ -557,10 +594,12 @@ impl<'a> InstructionSelector<'a> {
                                     dest: Reg::R10,
                                     src: rhs_op,
                                 }),
-                                MirBinaryOp::BitAnd | MirBinaryOp::And => out.push(MachineInst::And {
-                                    dest: Operand::Reg(Reg::R10),
-                                    src: rhs_op,
-                                }),
+                                MirBinaryOp::BitAnd | MirBinaryOp::And => {
+                                    out.push(MachineInst::And {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: rhs_op,
+                                    })
+                                }
                                 MirBinaryOp::BitOr | MirBinaryOp::Or => out.push(MachineInst::Or {
                                     dest: Operand::Reg(Reg::R10),
                                     src: rhs_op,
@@ -744,120 +783,210 @@ impl<'a> InstructionSelector<'a> {
             } => {
                 // SIMD Compiler Intrinsics:
                 if callee == "venta_simd_vmovups_load256" || callee == "simd_vmovups_load256" {
-                    assert!(args.len() >= 2, "vmovups_load256 requires dest_ptr and src_ptr");
+                    assert!(
+                        args.len() >= 2,
+                        "vmovups_load256 requires dest_ptr and src_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let src_ptr_op = self.get_val_op(args[1]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: dest_ptr_op });
-                    out.push(MachineInst::Vmovups {
-                        width: VectorWidth::V256,
-                        dest: SimdOperand::Reg(SimdReg::ymm(0)),
-                        src: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: src_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: dest_ptr_op,
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
-                        dest: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        dest: SimdOperand::Reg(SimdReg::ymm(0)),
+                        src: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
+                    });
+                    out.push(MachineInst::Vmovups {
+                        width: VectorWidth::V256,
+                        dest: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::ymm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vmovups_store256" || callee == "simd_vmovups_store256" {
-                    assert!(args.len() >= 2, "vmovups_store256 requires dest_ptr and src_ptr");
+                    assert!(
+                        args.len() >= 2,
+                        "vmovups_store256 requires dest_ptr and src_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let src_ptr_op = self.get_val_op(args[1]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: dest_ptr_op });
-                    out.push(MachineInst::Vmovups {
-                        width: VectorWidth::V256,
-                        dest: SimdOperand::Reg(SimdReg::ymm(0)),
-                        src: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: src_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: dest_ptr_op,
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
-                        dest: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        dest: SimdOperand::Reg(SimdReg::ymm(0)),
+                        src: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
+                    });
+                    out.push(MachineInst::Vmovups {
+                        width: VectorWidth::V256,
+                        dest: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::ymm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vpaddq256" || callee == "simd_vpaddq256" {
-                    assert!(args.len() >= 3, "vpaddq256 requires dest_ptr, a_ptr, and b_ptr");
+                    assert!(
+                        args.len() >= 3,
+                        "vpaddq256 requires dest_ptr, a_ptr, and b_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let a_ptr_op = self.get_val_op(args[1]);
                     let b_ptr_op = self.get_val_op(args[2]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: a_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R8), src: b_ptr_op });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: dest_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: a_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R8),
+                        src: b_ptr_op,
+                    });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
                         dest: SimdOperand::Reg(SimdReg::ymm(0)),
-                        src: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                     });
                     out.push(MachineInst::Vpaddq {
                         width: VectorWidth::V256,
                         dest: SimdOperand::Reg(SimdReg::ymm(0)),
                         src1: SimdOperand::Reg(SimdReg::ymm(0)),
-                        src2: SimdOperand::Mem { base: Reg::R8, offset: 0 },
+                        src2: SimdOperand::Mem {
+                            base: Reg::R8,
+                            offset: 0,
+                        },
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
-                        dest: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                        dest: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::ymm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vfmadd231pd256" || callee == "simd_vfmadd231pd256" {
-                    assert!(args.len() >= 4, "vfmadd231pd256 requires dest_ptr, a_ptr, b_ptr, and c_ptr");
+                    assert!(
+                        args.len() >= 4,
+                        "vfmadd231pd256 requires dest_ptr, a_ptr, b_ptr, and c_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let a_ptr_op = self.get_val_op(args[1]);
                     let b_ptr_op = self.get_val_op(args[2]);
                     let c_ptr_op = self.get_val_op(args[3]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: a_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R8), src: b_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R9), src: c_ptr_op });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: dest_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: a_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R8),
+                        src: b_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R9),
+                        src: c_ptr_op,
+                    });
                     // Load accumulator c_ptr into YMM0
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
                         dest: SimdOperand::Reg(SimdReg::ymm(0)),
-                        src: SimdOperand::Mem { base: Reg::R9, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R9,
+                            offset: 0,
+                        },
                     });
                     // Load multiplier a_ptr into YMM1
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
                         dest: SimdOperand::Reg(SimdReg::ymm(1)),
-                        src: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                     });
                     // ymm0 = ymm0 + (ymm1 * [r8])
                     out.push(MachineInst::Vfmadd231pd {
                         width: VectorWidth::V256,
                         dest: SimdOperand::Reg(SimdReg::ymm(0)),
                         src1: SimdOperand::Reg(SimdReg::ymm(1)),
-                        src2: SimdOperand::Mem { base: Reg::R8, offset: 0 },
+                        src2: SimdOperand::Mem {
+                            base: Reg::R8,
+                            offset: 0,
+                        },
                     });
                     // Store result to dest_ptr [r10]
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V256,
-                        dest: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                        dest: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::ymm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
@@ -869,25 +998,36 @@ impl<'a> InstructionSelector<'a> {
                     let base_r = match src_ptr_op {
                         Operand::Reg(r) => r,
                         _ => {
-                            out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: src_ptr_op,
+                            });
                             Reg::R10
                         }
                     };
                     let d = dest.expect("reg_load256 must have destination ValueId");
-                    let loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
                     match loc {
                         SimdLocation::Reg(reg) => {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(reg),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                         }
                         SimdLocation::Spill(slot) => {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             let spill_op = self.frame.get_simd_spill_op(slot);
                             if let Operand::Mem { base, offset } = spill_op {
@@ -900,7 +1040,10 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
@@ -910,17 +1053,25 @@ impl<'a> InstructionSelector<'a> {
                     let base_r = match dest_ptr_op {
                         Operand::Reg(r) => r,
                         _ => {
-                            out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: dest_ptr_op,
+                            });
                             Reg::R10
                         }
                     };
                     let val_id = args[1];
-                    let loc = self.get_simd_loc(val_id).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let loc = self
+                        .get_simd_loc(val_id)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
                     match loc {
                         SimdLocation::Reg(reg) => {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
-                                dest: SimdOperand::Mem { base: base_r, offset: 0 },
+                                dest: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                                 src: SimdOperand::Reg(reg),
                             });
                         }
@@ -934,7 +1085,10 @@ impl<'a> InstructionSelector<'a> {
                                 });
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
-                                    dest: SimdOperand::Mem { base: base_r, offset: 0 },
+                                    dest: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
                                     src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
                                 });
                             }
@@ -942,17 +1096,26 @@ impl<'a> InstructionSelector<'a> {
                     }
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_reg_add256" || callee == "simd_reg_add256" {
                     assert!(args.len() >= 2, "reg_add256 requires a_handle and b_handle");
-                    let a_loc = self.get_simd_loc(args[0]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
-                    let b_loc = self.get_simd_loc(args[1]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(1)));
+                    let a_loc = self
+                        .get_simd_loc(args[0])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let b_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(1)));
                     let d = dest.expect("reg_add256 must have destination ValueId");
-                    let d_loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
 
                     let reg_a = match a_loc {
                         SimdLocation::Reg(r) => r,
@@ -1011,17 +1174,31 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
                 if callee == "venta_simd_reg_fma256" || callee == "simd_reg_fma256" {
-                    assert!(args.len() >= 3, "reg_fma256 requires acc_handle, a_handle, and b_handle");
-                    let acc_loc = self.get_simd_loc(args[0]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
-                    let a_loc = self.get_simd_loc(args[1]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(1)));
-                    let b_loc = self.get_simd_loc(args[2]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(2)));
+                    assert!(
+                        args.len() >= 3,
+                        "reg_fma256 requires acc_handle, a_handle, and b_handle"
+                    );
+                    let acc_loc = self
+                        .get_simd_loc(args[0])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let a_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(1)));
+                    let b_loc = self
+                        .get_simd_loc(args[2])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(2)));
                     let d = dest.expect("reg_fma256 must have destination ValueId");
-                    let d_loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
 
                     let reg_acc = match acc_loc {
                         SimdLocation::Reg(r) => r,
@@ -1102,125 +1279,218 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
                 if callee == "venta_simd_vmovups_load512" || callee == "simd_vmovups_load512" {
-                    assert!(args.len() >= 2, "vmovups_load512 requires dest_ptr and src_ptr");
+                    assert!(
+                        args.len() >= 2,
+                        "vmovups_load512 requires dest_ptr and src_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let src_ptr_op = self.get_val_op(args[1]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: dest_ptr_op });
-                    out.push(MachineInst::Vmovups {
-                        width: VectorWidth::V512,
-                        dest: SimdOperand::Reg(SimdReg::zmm(0)),
-                        src: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: src_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: dest_ptr_op,
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
-                        dest: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        dest: SimdOperand::Reg(SimdReg::zmm(0)),
+                        src: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
+                    });
+                    out.push(MachineInst::Vmovups {
+                        width: VectorWidth::V512,
+                        dest: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::zmm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vmovups_store512" || callee == "simd_vmovups_store512" {
-                    assert!(args.len() >= 2, "vmovups_store512 requires dest_ptr and src_ptr");
+                    assert!(
+                        args.len() >= 2,
+                        "vmovups_store512 requires dest_ptr and src_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let src_ptr_op = self.get_val_op(args[1]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: dest_ptr_op });
-                    out.push(MachineInst::Vmovups {
-                        width: VectorWidth::V512,
-                        dest: SimdOperand::Reg(SimdReg::zmm(0)),
-                        src: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: src_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: dest_ptr_op,
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
-                        dest: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        dest: SimdOperand::Reg(SimdReg::zmm(0)),
+                        src: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
+                    });
+                    out.push(MachineInst::Vmovups {
+                        width: VectorWidth::V512,
+                        dest: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::zmm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vpaddq512" || callee == "simd_vpaddq512" {
-                    assert!(args.len() >= 3, "vpaddq512 requires dest_ptr, a_ptr, and b_ptr");
+                    assert!(
+                        args.len() >= 3,
+                        "vpaddq512 requires dest_ptr, a_ptr, and b_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let a_ptr_op = self.get_val_op(args[1]);
                     let b_ptr_op = self.get_val_op(args[2]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: a_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R8), src: b_ptr_op });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: dest_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: a_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R8),
+                        src: b_ptr_op,
+                    });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
                         dest: SimdOperand::Reg(SimdReg::zmm(0)),
-                        src: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                     });
                     out.push(MachineInst::Vpaddq {
                         width: VectorWidth::V512,
                         dest: SimdOperand::Reg(SimdReg::zmm(0)),
                         src1: SimdOperand::Reg(SimdReg::zmm(0)),
-                        src2: SimdOperand::Mem { base: Reg::R8, offset: 0 },
+                        src2: SimdOperand::Mem {
+                            base: Reg::R8,
+                            offset: 0,
+                        },
                     });
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
-                        dest: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                        dest: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::zmm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
 
                 if callee == "venta_simd_vfmadd231pd512" || callee == "simd_vfmadd231pd512" {
-                    assert!(args.len() >= 4, "vfmadd231pd512 requires dest_ptr, a_ptr, b_ptr, and c_ptr");
+                    assert!(
+                        args.len() >= 4,
+                        "vfmadd231pd512 requires dest_ptr, a_ptr, b_ptr, and c_ptr"
+                    );
                     let dest_ptr_op = self.get_val_op(args[0]);
                     let a_ptr_op = self.get_val_op(args[1]);
                     let b_ptr_op = self.get_val_op(args[2]);
                     let c_ptr_op = self.get_val_op(args[3]);
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: a_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R8), src: b_ptr_op });
-                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R9), src: c_ptr_op });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: dest_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R11),
+                        src: a_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R8),
+                        src: b_ptr_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R9),
+                        src: c_ptr_op,
+                    });
                     // Load accumulator c_ptr into ZMM0
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
                         dest: SimdOperand::Reg(SimdReg::zmm(0)),
-                        src: SimdOperand::Mem { base: Reg::R9, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R9,
+                            offset: 0,
+                        },
                     });
                     // Load multiplier a_ptr into ZMM1
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
                         dest: SimdOperand::Reg(SimdReg::zmm(1)),
-                        src: SimdOperand::Mem { base: Reg::R11, offset: 0 },
+                        src: SimdOperand::Mem {
+                            base: Reg::R11,
+                            offset: 0,
+                        },
                     });
                     // zmm0 = zmm0 + (zmm1 * [r8])
                     out.push(MachineInst::Vfmadd231pd {
                         width: VectorWidth::V512,
                         dest: SimdOperand::Reg(SimdReg::zmm(0)),
                         src1: SimdOperand::Reg(SimdReg::zmm(1)),
-                        src2: SimdOperand::Mem { base: Reg::R8, offset: 0 },
+                        src2: SimdOperand::Mem {
+                            base: Reg::R8,
+                            offset: 0,
+                        },
                     });
                     // Store result to dest_ptr [r10]
                     out.push(MachineInst::Vmovups {
                         width: VectorWidth::V512,
-                        dest: SimdOperand::Mem { base: Reg::R10, offset: 0 },
+                        dest: SimdOperand::Mem {
+                            base: Reg::R10,
+                            offset: 0,
+                        },
                         src: SimdOperand::Reg(SimdReg::zmm(0)),
                     });
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
@@ -1229,11 +1499,16 @@ impl<'a> InstructionSelector<'a> {
                     assert!(args.len() >= 1, "vec_load256 requires src_ptr");
                     let src_ptr_op = self.get_val_op(args[0]);
                     let d = dest.expect("vec_load256 must have destination ValueId");
-                    let d_loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
                     let base_r = match src_ptr_op {
                         Operand::Reg(r) => r,
                         _ => {
-                            out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: src_ptr_op });
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: src_ptr_op,
+                            });
                             Reg::R10
                         }
                     };
@@ -1242,14 +1517,20 @@ impl<'a> InstructionSelector<'a> {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(r),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                         }
                         SimdLocation::Spill(slot) => {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             let spill_op = self.frame.get_simd_spill_op(slot);
                             if let Operand::Mem { base, offset } = spill_op {
@@ -1262,18 +1543,26 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
                 if callee == "venta_simd_vec_store256" || callee == "simd_vec_store256" {
                     assert!(args.len() >= 2, "vec_store256 requires dest_ptr and val");
                     let dest_ptr_op = self.get_val_op(args[0]);
-                    let val_loc = self.get_simd_loc(args[1]).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let val_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
                     let base_r = match dest_ptr_op {
                         Operand::Reg(r) => r,
                         _ => {
-                            out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: dest_ptr_op });
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: dest_ptr_op,
+                            });
                             Reg::R10
                         }
                     };
@@ -1281,7 +1570,10 @@ impl<'a> InstructionSelector<'a> {
                         SimdLocation::Reg(r) => {
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
-                                dest: SimdOperand::Mem { base: base_r, offset: 0 },
+                                dest: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                                 src: SimdOperand::Reg(r),
                             });
                         }
@@ -1295,7 +1587,10 @@ impl<'a> InstructionSelector<'a> {
                                 });
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
-                                    dest: SimdOperand::Mem { base: base_r, offset: 0 },
+                                    dest: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
                                     src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
                                 });
                             }
@@ -1303,7 +1598,10 @@ impl<'a> InstructionSelector<'a> {
                     }
                     if let Some(d) = dest {
                         let dest_op = self.get_val_op(*d);
-                        out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(0) });
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
                     }
                     return;
                 }
@@ -1311,7 +1609,9 @@ impl<'a> InstructionSelector<'a> {
                 if callee == "venta_simd_vec_add256" || callee == "simd_vec_add256" {
                     assert!(args.len() >= 2, "vec_add256 requires a and b");
                     let d = dest.expect("vec_add256 must have destination ValueId");
-                    let d_loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
 
                     let reg_a = match self.get_simd_loc(args[0]) {
                         Some(SimdLocation::Reg(r)) => r,
@@ -1331,14 +1631,20 @@ impl<'a> InstructionSelector<'a> {
                             let base_r = match a_op {
                                 Operand::Reg(r) => r,
                                 _ => {
-                                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: a_op });
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: a_op,
+                                    });
                                     Reg::R10
                                 }
                             };
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             SimdRegisterAllocator::SCRATCH_A
                         }
@@ -1362,14 +1668,20 @@ impl<'a> InstructionSelector<'a> {
                             let base_r = match b_op {
                                 Operand::Reg(r) => r,
                                 _ => {
-                                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: b_op });
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R11),
+                                        src: b_op,
+                                    });
                                     Reg::R11
                                 }
                             };
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             SimdRegisterAllocator::SCRATCH_B
                         }
@@ -1402,14 +1714,19 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
                 if callee == "venta_simd_vec_fma256" || callee == "simd_vec_fma256" {
                     assert!(args.len() >= 3, "vec_fma256 requires acc, a, and b");
                     let d = dest.expect("vec_fma256 must have destination ValueId");
-                    let d_loc = self.get_simd_loc(d).unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::ymm(0)));
 
                     let reg_acc = match self.get_simd_loc(args[0]) {
                         Some(SimdLocation::Reg(r)) => r,
@@ -1429,14 +1746,20 @@ impl<'a> InstructionSelector<'a> {
                             let base_r = match acc_op {
                                 Operand::Reg(r) => r,
                                 _ => {
-                                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: acc_op });
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: acc_op,
+                                    });
                                     Reg::R10
                                 }
                             };
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             SimdRegisterAllocator::SCRATCH_A
                         }
@@ -1460,14 +1783,20 @@ impl<'a> InstructionSelector<'a> {
                             let base_r = match a_op {
                                 Operand::Reg(r) => r,
                                 _ => {
-                                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R11), src: a_op });
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R11),
+                                        src: a_op,
+                                    });
                                     Reg::R11
                                 }
                             };
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             SimdRegisterAllocator::SCRATCH_B
                         }
@@ -1491,14 +1820,20 @@ impl<'a> InstructionSelector<'a> {
                             let base_r = match b_op {
                                 Operand::Reg(r) => r,
                                 _ => {
-                                    out.push(MachineInst::Mov { dest: Operand::Reg(Reg::R10), src: b_op });
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: b_op,
+                                    });
                                     Reg::R10
                                 }
                             };
                             out.push(MachineInst::Vmovups {
                                 width: VectorWidth::V256,
                                 dest: SimdOperand::Reg(SimdReg::ymm(13)),
-                                src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
                             });
                             SimdReg::ymm(13)
                         }
@@ -1543,7 +1878,10 @@ impl<'a> InstructionSelector<'a> {
                         }
                     }
                     let dest_op = self.get_val_op(d);
-                    out.push(MachineInst::Mov { dest: dest_op, src: Operand::Imm(d.0 as i64) });
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
                     return;
                 }
 
@@ -1620,7 +1958,10 @@ impl<'a> InstructionSelector<'a> {
                         if classify_type(p_ty, self.structs, self.enums).is_vector() {
                             arg_is_vector[a_idx] = true;
                             a_idx += 1;
-                        } else if p_ty.is_str_slice() || p_ty.is_slice() || matches!(p_ty, Type::Ref { inner, .. } if inner.is_str_slice() || inner.is_slice()) {
+                        } else if p_ty.is_str_slice()
+                            || p_ty.is_slice()
+                            || matches!(p_ty, Type::Ref { inner, .. } if inner.is_str_slice() || inner.is_slice())
+                        {
                             // Slice parameter consumes 2 args in MIR (ptr and len)
                             a_idx += 2;
                         } else {
@@ -1629,7 +1970,11 @@ impl<'a> InstructionSelector<'a> {
                     }
                 } else {
                     for (i, arg) in args.iter().enumerate() {
-                        if self.simd_val_map.map(|m| m.contains_key(arg)).unwrap_or(false) {
+                        if self
+                            .simd_val_map
+                            .map(|m| m.contains_key(arg))
+                            .unwrap_or(false)
+                        {
                             arg_is_vector[i] = true;
                         }
                     }
@@ -1760,7 +2105,10 @@ impl<'a> InstructionSelector<'a> {
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
                                     dest: SimdOperand::Reg(target_ymm),
-                                    src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                    src: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
                                 });
                             }
                         }
@@ -1798,7 +2146,11 @@ impl<'a> InstructionSelector<'a> {
                                     }
                                     SimdLocation::Spill(slot) => {
                                         let spill_op = self.frame.get_simd_spill_op(slot);
-                                        if let Operand::Mem { base, offset: s_off } = spill_op {
+                                        if let Operand::Mem {
+                                            base,
+                                            offset: s_off,
+                                        } = spill_op
+                                        {
                                             let eff_off = if base == Reg::Rsp {
                                                 s_off + (stack_arg_bytes as i32)
                                             } else {
@@ -1806,7 +2158,9 @@ impl<'a> InstructionSelector<'a> {
                                             };
                                             out.push(MachineInst::Vmovups {
                                                 width: VectorWidth::V256,
-                                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                                                dest: SimdOperand::Reg(
+                                                    SimdRegisterAllocator::SCRATCH_A,
+                                                ),
                                                 src: SimdOperand::Mem {
                                                     base,
                                                     offset: eff_off,
@@ -1818,7 +2172,9 @@ impl<'a> InstructionSelector<'a> {
                                                     base: Reg::Rsp,
                                                     offset,
                                                 },
-                                                src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                                                src: SimdOperand::Reg(
+                                                    SimdRegisterAllocator::SCRATCH_A,
+                                                ),
                                             });
                                         }
                                     }
@@ -1827,7 +2183,10 @@ impl<'a> InstructionSelector<'a> {
                                 let val_op = self.get_val_op(*arg);
                                 let base_r = match val_op {
                                     Operand::Reg(r) => r,
-                                    Operand::Mem { base, offset: v_off } => {
+                                    Operand::Mem {
+                                        base,
+                                        offset: v_off,
+                                    } => {
                                         let eff_v_off = if base == Reg::Rsp {
                                             v_off + (stack_arg_bytes as i32)
                                         } else {
@@ -1847,7 +2206,10 @@ impl<'a> InstructionSelector<'a> {
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,
                                     dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                    src: SimdOperand::Mem { base: base_r, offset: 0 },
+                                    src: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
                                 });
                                 out.push(MachineInst::Vmovups {
                                     width: VectorWidth::V256,

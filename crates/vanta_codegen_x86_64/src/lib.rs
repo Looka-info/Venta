@@ -22,8 +22,8 @@ pub use register::{Reg, SimdReg, VectorWidth};
 pub use simd_alloc::{
     SimdAllocResult, SimdLiveInterval, SimdLocation, SimdRegisterAllocator, SimdValueId,
 };
-pub use target::TargetFeatures;
 use std::collections::HashMap;
+pub use target::TargetFeatures;
 use vanta_mir::MirProgram;
 use vanta_sema::Type;
 
@@ -108,7 +108,8 @@ impl X86_64Backend {
             let scalar_intervals = RegisterAllocator::compute_live_intervals(func);
 
             // 2. Identify virtual SIMD values
-            let simd_val_map = simd_alloc::identify_simd_values(func, &program.structs, &program.enums);
+            let simd_val_map =
+                simd_alloc::identify_simd_values(func, &program.structs, &program.enums);
 
             // 3. Construct SIMD intervals and allocate physical YMM registers
             let mut simd_intervals = Vec::new();

@@ -12,8 +12,8 @@
 use std::fs;
 use std::process::Command;
 use vanta_driver::{
-    run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions,
-    FmtResult, OptLevel,
+    run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
+    OptLevel,
 };
 
 /// Differential semantic testing helper.
@@ -47,7 +47,9 @@ fn run_fmt_differential_test(name: &str, unformatted_src: &str) {
         };
 
         // 1. Compile unformatted
-        let bin_unfmt = temp_dir.path().join(format!("{}_unfmt_{}", name, opt_label));
+        let bin_unfmt = temp_dir
+            .path()
+            .join(format!("{}_unfmt_{}", name, opt_label));
         let opts_unfmt = CompilerOptions {
             input_file: unformatted_path.clone(),
             output_file: bin_unfmt.clone(),
@@ -91,8 +93,12 @@ fn run_fmt_differential_test(name: &str, unformatted_src: &str) {
         );
 
         // 3. Execute both binaries and verify semantic preservation
-        let out_unfmt = Command::new(&bin_unfmt).output().expect("Execute unformatted binary");
-        let out_fmt = Command::new(&bin_fmt).output().expect("Execute formatted binary");
+        let out_unfmt = Command::new(&bin_unfmt)
+            .output()
+            .expect("Execute unformatted binary");
+        let out_fmt = Command::new(&bin_fmt)
+            .output()
+            .expect("Execute formatted binary");
 
         assert_eq!(
             out_unfmt.status.code(),
@@ -102,18 +108,14 @@ fn run_fmt_differential_test(name: &str, unformatted_src: &str) {
             name
         );
         assert_eq!(
-            out_unfmt.stdout,
-            out_fmt.stdout,
+            out_unfmt.stdout, out_fmt.stdout,
             "Stdout differential mismatch at {} for {}",
-            opt_label,
-            name
+            opt_label, name
         );
         assert_eq!(
-            out_unfmt.stderr,
-            out_fmt.stderr,
+            out_unfmt.stderr, out_fmt.stderr,
             "Stderr differential mismatch at {} for {}",
-            opt_label,
-            name
+            opt_label, name
         );
     }
 }
@@ -142,7 +144,10 @@ fn test_cli_fmt_in_place_atomic() {
     assert!(stdout_str.contains("Formatted"));
 
     let content = fs::read_to_string(&file_path).unwrap();
-    assert_eq!(content, "fn add(a: i64, b: i64) -> i64 {\n    return a + b;\n}\n");
+    assert_eq!(
+        content,
+        "fn add(a: i64, b: i64) -> i64 {\n    return a + b;\n}\n"
+    );
 
     // Second run: already formatted, no-op
     let (res2, stdout_str2, _) = run_fmt(&opts);
@@ -208,7 +213,10 @@ fn test_cli_fmt_stdout_mode() {
     assert_eq!(stdout_str, "pub fn main() -> i64 {\n    return 42;\n}\n");
 
     // Verify input file was completely untouched
-    assert_eq!(fs::read_to_string(&file_path).unwrap(), "pub fn main()->i64{return 42;}");
+    assert_eq!(
+        fs::read_to_string(&file_path).unwrap(),
+        "pub fn main()->i64{return 42;}"
+    );
 }
 
 #[test]
@@ -231,7 +239,10 @@ fn test_cli_fmt_diagnostics_json_on_syntax_error() {
     assert!(stderr_str.contains("\"E0004\""));
 
     // File must be completely preserved
-    assert_eq!(fs::read_to_string(&bad_path).unwrap(), "pub fn broken( { return 0; }");
+    assert_eq!(
+        fs::read_to_string(&bad_path).unwrap(),
+        "pub fn broken( { return 0; }"
+    );
 }
 
 #[test]
@@ -254,8 +265,14 @@ fn test_cli_fmt_multiple_files() {
     assert_eq!(res, FmtResult::Success);
     assert!(stdout_str.contains("Formatted"));
 
-    assert_eq!(fs::read_to_string(&f1).unwrap(), "fn a() -> i64 {\n    return 1;\n}\n");
-    assert_eq!(fs::read_to_string(&f2).unwrap(), "fn b() -> i64 {\n    return 2;\n}\n");
+    assert_eq!(
+        fs::read_to_string(&f1).unwrap(),
+        "fn a() -> i64 {\n    return 1;\n}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&f2).unwrap(),
+        "fn b() -> i64 {\n    return 2;\n}\n"
+    );
 }
 
 // ============================================================================
@@ -492,4 +509,3 @@ return 0;
 "#;
     run_fmt_differential_test("enums_and_patterns", src);
 }
-

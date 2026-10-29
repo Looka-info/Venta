@@ -3,8 +3,8 @@
 use std::fs;
 use std::process::Command;
 use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
-use vanta_mir::opt::tail_call::TailCall;
 use vanta_lexer::Lexer;
+use vanta_mir::opt::tail_call::TailCall;
 use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
@@ -29,12 +29,7 @@ fn compile_to_mir(src: &str) -> (vanta_mir::MirProgram, SourceMap) {
     (mir, sm)
 }
 
-fn run_executable_test(
-    name: &str,
-    src: &str,
-    expected_exit_code: i32,
-    enable_tail_calls: bool,
-) {
+fn run_executable_test(name: &str, src: &str, expected_exit_code: i32, enable_tail_calls: bool) {
     let temp_dir = tempfile::tempdir().unwrap();
     let src_path = temp_dir.path().join(format!("{}.va", name));
     let out_exe = temp_dir.path().join(name);
@@ -102,7 +97,11 @@ fn test_tco_mir_recognition_and_transformation() {
     assert!(changed, "Tail-call pass should recognize self-tail call");
     assert_eq!(stats.self_tail_calls_eliminated, 1);
 
-    let sum_fn = mir.functions.iter().find(|f| f.name.contains("sum_tail")).unwrap();
+    let sum_fn = mir
+        .functions
+        .iter()
+        .find(|f| f.name.contains("sum_tail"))
+        .unwrap();
     // After transformation, sum_fn has loop header and branches back instead of recursive call
     let has_recursive_call = sum_fn.blocks.iter().any(|b| {
         b.instructions.iter().any(|inst| match inst {
@@ -110,7 +109,10 @@ fn test_tco_mir_recognition_and_transformation() {
             _ => false,
         })
     });
-    assert!(!has_recursive_call, "Self-recursive call must be converted to loop branch");
+    assert!(
+        !has_recursive_call,
+        "Self-recursive call must be converted to loop branch"
+    );
 }
 
 #[test]

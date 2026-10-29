@@ -404,7 +404,10 @@ impl Mem2Reg {
     }
 
     /// Computes Iterated Dominance Frontier (IDF) for a set of defining blocks.
-    fn compute_idf(def_blocks: &[BlockId], df: &HashMap<BlockId, HashSet<BlockId>>) -> Vec<BlockId> {
+    fn compute_idf(
+        def_blocks: &[BlockId],
+        df: &HashMap<BlockId, HashSet<BlockId>>,
+    ) -> Vec<BlockId> {
         let mut idf = HashSet::new();
         let mut worklist: Vec<BlockId> = def_blocks.to_vec();
 
@@ -520,10 +523,7 @@ impl Mem2Reg {
     }
 
     /// Substitutes ValueIds across all instructions and terminators in the function.
-    fn apply_value_substitutions(
-        func: &mut MirFunction,
-        val_subst: &HashMap<ValueId, ValueId>,
-    ) {
+    fn apply_value_substitutions(func: &mut MirFunction, val_subst: &HashMap<ValueId, ValueId>) {
         if val_subst.is_empty() {
             return;
         }

@@ -80,8 +80,11 @@ impl IpaConstProp {
                         continue;
                     }
 
-                    let inst_count: usize =
-                        callee_func.blocks.iter().map(|b| b.instructions.len()).sum();
+                    let inst_count: usize = callee_func
+                        .blocks
+                        .iter()
+                        .map(|b| b.instructions.len())
+                        .sum();
                     if inst_count > Self::MAX_EVAL_CALLEE_SIZE {
                         stats.unsupported_cases += 1;
                         continue;
@@ -105,8 +108,7 @@ impl IpaConstProp {
                     }
 
                     // Try symbolic evaluation of callee with constant arguments
-                    if let Some(folded_const) =
-                        Self::try_evaluate_callee(callee_func, &const_args)
+                    if let Some(folded_const) = Self::try_evaluate_callee(callee_func, &const_args)
                     {
                         match folded_const {
                             ConstValue::Int(v) => {

@@ -3,9 +3,9 @@
 //! Implements Section 3.2.3 of the System V AMD64 ABI for parameter passing
 //! and aggregate return classification.
 
+use crate::register::{Reg, SimdReg};
 use std::collections::HashMap;
 use vanta_sema::{EnumDef, StructDef, Type};
-use crate::register::{Reg, SimdReg};
 
 /// The ABI return and parameter classification of a Vanta type under System V AMD64.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,14 +83,7 @@ pub enum ArgLocation {
 }
 
 /// General-purpose integer registers used for argument passing in order (%rdi, %rsi, %rdx, %rcx, %r8, %r9).
-pub const INT_ARG_REGS: [Reg; 6] = [
-    Reg::Rdi,
-    Reg::Rsi,
-    Reg::Rdx,
-    Reg::Rcx,
-    Reg::R8,
-    Reg::R9,
-];
+pub const INT_ARG_REGS: [Reg; 6] = [Reg::Rdi, Reg::Rsi, Reg::Rdx, Reg::Rcx, Reg::R8, Reg::R9];
 
 /// Physical YMM vector registers used for vector argument passing in order (%ymm0..%ymm7).
 pub const VECTOR_ARG_REGS: [SimdReg; 8] = [
@@ -581,10 +574,7 @@ mod tests {
         );
 
         assert_eq!(layout.arg_locations.len(), 1);
-        assert_eq!(
-            layout.arg_locations[0],
-            ArgLocation::VectorReg(SimdReg(0))
-        );
+        assert_eq!(layout.arg_locations[0], ArgLocation::VectorReg(SimdReg(0)));
         assert_eq!(layout.stack_arg_bytes, 0);
         assert_eq!(layout.ret_class, AbiClass::Vector256);
         assert!(!layout.has_sret);
@@ -623,17 +613,9 @@ mod tests {
         let enums = HashMap::new();
 
         // fn mixed(x: i64, v: v256, y: i64) -> v256
-        let params = vec![
-            Type::I64,
-            Type::Struct("v256".into()),
-            Type::I64,
-        ];
-        let layout = compute_fn_call_layout(
-            &params,
-            &Type::Struct("v256".into()),
-            &structs,
-            &enums,
-        );
+        let params = vec![Type::I64, Type::Struct("v256".into()), Type::I64];
+        let layout =
+            compute_fn_call_layout(&params, &Type::Struct("v256".into()), &structs, &enums);
 
         assert_eq!(layout.arg_locations.len(), 3);
         assert_eq!(layout.arg_locations[0], ArgLocation::Reg(Reg::Rdi));

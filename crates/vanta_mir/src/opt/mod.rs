@@ -17,6 +17,7 @@ pub mod mem2reg;
 pub mod sroa;
 pub mod strength_reduction;
 pub mod tail_call;
+pub mod vectorize;
 
 pub use call_graph::{CallGraph, FunctionSummary};
 pub use const_prop::{ConstValue, ConstantPropagation};
@@ -35,6 +36,7 @@ pub use mem2reg::{Mem2Reg, Mem2RegStats};
 pub use sroa::{Sroa, SroaStats};
 pub use strength_reduction::{LoopStrengthReduction, LsrStats};
 pub use tail_call::{TailCall, TailCallStats};
+pub use vectorize::{LoopVectorizer, VectorizeStats, VectorizeTargetConfig};
 
 use crate::ir::MirProgram;
 use crate::verify::MirVerifier;
@@ -89,8 +91,8 @@ impl OptimizationPipeline {
             enable_loop_peel,
             enable_loop_unroll,
             enable_instruction_schedule,
-            true, // enable_global_dce
-            true, // enable_tail_calls
+            true,  // enable_global_dce
+            true,  // enable_tail_calls
             false, // is_executable (library/test mode; preserves all functions)
             diags,
         );
@@ -111,6 +113,52 @@ impl OptimizationPipeline {
         enable_sroa: bool,
         enable_loop_peel: bool,
         enable_loop_unroll: bool,
+        enable_instruction_schedule: bool,
+        enable_global_dce: bool,
+        enable_tail_calls: bool,
+        is_executable: bool,
+        diags: &mut DiagnosticBag,
+    ) {
+        Self::optimize_program_full_with_target(
+            program,
+            level,
+            enable_mem2reg,
+            enable_gvn,
+            enable_inline,
+            enable_ipa_constprop,
+            enable_licm,
+            enable_indvar,
+            enable_strength_reduction,
+            enable_sroa,
+            enable_loop_peel,
+            enable_loop_unroll,
+            true, // enable_vectorize
+            VectorizeTargetConfig::default(),
+            enable_instruction_schedule,
+            enable_global_dce,
+            enable_tail_calls,
+            is_executable,
+            diags,
+        );
+    }
+
+    /// Executes the full optimization pipeline with explicit target SIMD capability configuration
+    /// for automatic vectorization.
+    pub fn optimize_program_full_with_target(
+        program: &mut MirProgram,
+        level: OptLevel,
+        enable_mem2reg: bool,
+        enable_gvn: bool,
+        enable_inline: bool,
+        enable_ipa_constprop: bool,
+        enable_licm: bool,
+        enable_indvar: bool,
+        enable_strength_reduction: bool,
+        enable_sroa: bool,
+        enable_loop_peel: bool,
+        enable_loop_unroll: bool,
+        enable_vectorize: bool,
+        target_config: VectorizeTargetConfig,
         enable_instruction_schedule: bool,
         enable_global_dce: bool,
         enable_tail_calls: bool,
@@ -166,7 +214,8 @@ impl OptimizationPipeline {
             DeadCodeElimination::run_on_function(func);
 
             if enable_sroa {
-                let (sroa_changed, _) = Sroa::run_on_function(func, &program.structs, &program.enums);
+                let (sroa_changed, _) =
+                    Sroa::run_on_function(func, &program.structs, &program.enums);
                 if sroa_changed && enable_mem2reg {
                     Mem2Reg::run_on_function(func);
                     DeadCodeElimination::run_on_function(func);
@@ -176,6 +225,15 @@ impl OptimizationPipeline {
             if enable_loop_peel {
                 let (peeled, _) = LoopPeeling::run_on_function(func);
                 if peeled {
+                    ConstantPropagation::run_on_function(func);
+                    DeadCodeElimination::run_on_function(func);
+                }
+            }
+
+            // Loop Auto-Vectorization & Strip-Mining (runs before scalar loop unrolling)
+            if enable_vectorize {
+                let (vectorized, _) = LoopVectorizer::run_on_function(func, &target_config);
+                if vectorized {
                     ConstantPropagation::run_on_function(func);
                     DeadCodeElimination::run_on_function(func);
                 }

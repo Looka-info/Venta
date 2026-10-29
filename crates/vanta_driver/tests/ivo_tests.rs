@@ -5,10 +5,8 @@ use std::process::Command;
 use vanta_diagnostics::DiagnosticBag;
 use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
 use vanta_lexer::Lexer;
-use vanta_mir::opt::{
-    InductionVarOpt, NaturalLoop, OptLevel as MirOptLevel, OptimizationPipeline,
-};
 use vanta_mir::ir::MirProgram;
+use vanta_mir::opt::{InductionVarOpt, NaturalLoop, OptLevel as MirOptLevel, OptimizationPipeline};
 use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
@@ -52,7 +50,11 @@ fn test_ivo_basic_induction_variable_discovery() {
         "#,
     );
 
-    let mut func = mir.functions.into_iter().find(|f| f.name == "count_loop").unwrap();
+    let mut func = mir
+        .functions
+        .into_iter()
+        .find(|f| f.name == "count_loop")
+        .unwrap();
     vanta_mir::opt::Mem2Reg::run_on_function(&mut func);
 
     let dom_tree = vanta_mir::opt::DominatorTree::compute(&func).expect("Valid CFG");
@@ -60,8 +62,14 @@ fn test_ivo_basic_induction_variable_discovery() {
     assert_eq!(loops.len(), 1, "Should find exactly 1 natural loop");
 
     let ivs = InductionVarOpt::find_basic_induction_vars(&func, &loops[0]);
-    assert!(!ivs.is_empty(), "Should discover basic induction variable i");
-    let iv = ivs.iter().find(|iv| iv.step == 1).expect("Should find IV with step +1");
+    assert!(
+        !ivs.is_empty(),
+        "Should discover basic induction variable i"
+    );
+    let iv = ivs
+        .iter()
+        .find(|iv| iv.step == 1)
+        .expect("Should find IV with step +1");
     assert_eq!(iv.step, 1);
 }
 
@@ -87,8 +95,8 @@ fn test_ivo_eliminates_redundant_induction_variable() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         MirOptLevel::O1,
-        true, // mem2reg
-        true, // gvn
+        true,  // mem2reg
+        true,  // gvn
         false, // inline
         false, // ipa
         false, // licm
@@ -102,14 +110,22 @@ fn test_ivo_eliminates_redundant_induction_variable() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "redundant_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "redundant_loop")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
 
     // In the optimized loop header, there should now be only 2 Phis (sum and i),
     // because j was recognized as completely redundant and merged with i!
-    let header = func.blocks.iter().find(|b| b.id == loops[0].header).unwrap();
+    let header = func
+        .blocks
+        .iter()
+        .find(|b| b.id == loops[0].header)
+        .unwrap();
     let phi_count = header
         .instructions
         .iter()
@@ -160,13 +176,21 @@ fn test_ivo_preserves_distinct_initial_values() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "distinct_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "distinct_loop")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
 
     // i (init 0) and j (init 100) must NOT be conflated; both must retain distinct phis
-    let header = func.blocks.iter().find(|b| b.id == loops[0].header).unwrap();
+    let header = func
+        .blocks
+        .iter()
+        .find(|b| b.id == loops[0].header)
+        .unwrap();
     let phi_count = header
         .instructions
         .iter()
@@ -216,13 +240,21 @@ fn test_ivo_eliminates_dead_induction_variable() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "dead_iv_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "dead_iv_loop")
+        .unwrap();
     let dom_tree = vanta_mir::opt::DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
     assert_eq!(loops.len(), 1);
 
     // unused_counter should be completely removed!
-    let header = func.blocks.iter().find(|b| b.id == loops[0].header).unwrap();
+    let header = func
+        .blocks
+        .iter()
+        .find(|b| b.id == loops[0].header)
+        .unwrap();
     let phi_count = header
         .instructions
         .iter()

@@ -35,7 +35,13 @@ fn run_differential_stdout_test(
     }
     assert!(res_o0.is_ok(), "O0 Compilation failed: {:?}", res_o0.err());
     let output_o0 = Command::new(&out_o0).output().expect("Execute O0 binary");
-    eprintln!("[{}] O0 status: {:?}, stdout: {:?}, stderr: {:?}", name, output_o0.status, String::from_utf8_lossy(&output_o0.stdout), String::from_utf8_lossy(&output_o0.stderr));
+    eprintln!(
+        "[{}] O0 status: {:?}, stdout: {:?}, stderr: {:?}",
+        name,
+        output_o0.status,
+        String::from_utf8_lossy(&output_o0.stdout),
+        String::from_utf8_lossy(&output_o0.stderr)
+    );
     assert_eq!(
         output_o0.status.code(),
         Some(expected_exit_code),
@@ -333,12 +339,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    run_differential_stdout_test(
-        "string_clear_and_reuse",
-        src,
-        0,
-        b"011Reused6",
-    );
+    run_differential_stdout_test("string_clear_and_reuse", src, 0, b"011Reused6");
 }
 
 #[test]
@@ -554,12 +555,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    run_differential_stdout_test(
-        "string_active_allocs_clean_drop",
-        src,
-        0,
-        b"30",
-    );
+    run_differential_stdout_test("string_active_allocs_clean_drop", src, 0, b"30");
 }
 
 #[test]
@@ -576,12 +572,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    run_differential_stdout_test(
-        "string_reassignment_drop_old",
-        src,
-        0,
-        b"11new buffer",
-    );
+    run_differential_stdout_test("string_reassignment_drop_old", src, 0, b"11new buffer");
 }
 
 #[test]
@@ -627,12 +618,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    run_differential_stdout_test(
-        "vec_string_push_and_drop",
-        src,
-        0,
-        b"340",
-    );
+    run_differential_stdout_test("vec_string_push_and_drop", src, 0, b"340");
 }
 
 #[test]
@@ -661,10 +647,5 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    run_differential_stdout_test(
-        "struct_containing_string",
-        src,
-        0,
-        b"Ada Lovelace3610",
-    );
+    run_differential_stdout_test("struct_containing_string", src, 0, b"Ada Lovelace3610");
 }

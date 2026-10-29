@@ -5,8 +5,8 @@ use std::process::Command;
 use vanta_diagnostics::DiagnosticBag;
 use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
 use vanta_lexer::Lexer;
-use vanta_mir::opt::{OptLevel as MirOptLevel, OptimizationPipeline};
 use vanta_mir::ir::MirProgram;
+use vanta_mir::opt::{OptLevel as MirOptLevel, OptimizationPipeline};
 use vanta_parser::Parser;
 use vanta_sema::{SemanticAnalyzer, Type};
 use vanta_source::SourceMap;
@@ -56,8 +56,8 @@ fn test_sroa_promotes_local_scalar_struct() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         MirOptLevel::O1,
-        true, // mem2reg
-        true, // gvn
+        true,  // mem2reg
+        true,  // gvn
         false, // inline
         false, // ipa
         false, // licm
@@ -71,7 +71,11 @@ fn test_sroa_promotes_local_scalar_struct() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "test_point").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "test_point")
+        .unwrap();
 
     // The original Type::Struct("Point") slot must NO LONGER exist in func.slots!
     let has_struct_slot = func.slots.iter().any(|s| matches!(s.ty, Type::Struct(_)));
@@ -83,7 +87,8 @@ fn test_sroa_promotes_local_scalar_struct() {
     // After Mem2Reg ran on the field slots, all slots are promoted to SSA registers!
     // Thus func.slots should now be completely empty or contain only non-promotable slots.
     assert_eq!(
-        func.slots.len(), 0,
+        func.slots.len(),
+        0,
         "All scalarized struct fields should be promoted into SSA registers by Mem2Reg!"
     );
 }
@@ -119,7 +124,7 @@ fn test_sroa_promotes_3_field_struct() {
         false,
         false,
         false,
-        true, // sroa
+        true,  // sroa
         false, // loop_peel
         false, // loop_unroll
         false, // instruction_schedule
@@ -164,7 +169,7 @@ fn test_sroa_strictly_rejects_escaping_struct() {
         false,
         false,
         false,
-        true, // sroa
+        true,  // sroa
         false, // loop_peel
         false, // loop_unroll
         false, // instruction_schedule
@@ -172,7 +177,11 @@ fn test_sroa_strictly_rejects_escaping_struct() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "run_escape").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "run_escape")
+        .unwrap();
     let has_struct_slot = func.slots.iter().any(|s| matches!(s.ty, Type::Struct(_)));
     assert!(
         has_struct_slot,
@@ -207,7 +216,7 @@ fn test_sroa_strictly_rejects_struct_with_drop_fields() {
         true,
         true,
         true,
-        true, // sroa
+        true,  // sroa
         false, // loop_peel
         false, // loop_unroll
         false, // instruction_schedule
@@ -215,7 +224,11 @@ fn test_sroa_strictly_rejects_struct_with_drop_fields() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "test_named").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "test_named")
+        .unwrap();
     let has_struct_slot = func.slots.iter().any(|s| matches!(s.ty, Type::Struct(_)));
     assert!(
         has_struct_slot,

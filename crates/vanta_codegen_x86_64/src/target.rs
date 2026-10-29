@@ -149,10 +149,18 @@ impl TargetFeatures {
 impl fmt::Display for TargetFeatures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut feats = Vec::new();
-        if self.avx { feats.push("avx"); }
-        if self.avx2 { feats.push("avx2"); }
-        if self.fma { feats.push("fma"); }
-        if self.avx512f { feats.push("avx512f"); }
+        if self.avx {
+            feats.push("avx");
+        }
+        if self.avx2 {
+            feats.push("avx2");
+        }
+        if self.fma {
+            feats.push("fma");
+        }
+        if self.avx512f {
+            feats.push("avx512f");
+        }
         if feats.is_empty() {
             write!(f, "baseline")
         } else {

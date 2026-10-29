@@ -166,11 +166,7 @@ fn run_multi_file_stdout_test(
 }
 
 /// Helper to verify that compiling/checking a multi-file project fails with an expected diagnostic code.
-fn check_multi_file_error(
-    files: &[(&str, &str)],
-    entry_file: &str,
-    expected_code: &str,
-) {
+fn check_multi_file_error(files: &[(&str, &str)], entry_file: &str, expected_code: &str) {
     let temp_dir = tempfile::tempdir().unwrap();
     for (rel_path, content) in files {
         let full_path = temp_dir.path().join(rel_path);
@@ -193,7 +189,11 @@ fn check_multi_file_error(
 
     let mut session = CompilerSession::new();
     let result = session.check(&options);
-    assert!(result.is_err(), "Expected compilation to fail with {}", expected_code);
+    assert!(
+        result.is_err(),
+        "Expected compilation to fail with {}",
+        expected_code
+    );
     let json_report = session.render_diagnostics(DiagnosticFormat::Json);
     assert!(
         json_report.contains(&format!("\"code\":\"{}\"", expected_code)),
@@ -532,13 +532,7 @@ fn test_cross_module_vectors_and_heap_cleanup() {
         ),
     ];
 
-    run_multi_file_stdout_test(
-        "cross_mod_vec_cleanup",
-        &files,
-        "main.va",
-        0,
-        b"310",
-    );
+    run_multi_file_stdout_test("cross_mod_vec_cleanup", &files, "main.va", 0, b"310");
 }
 
 #[test]
@@ -592,34 +586,30 @@ fn test_collision_free_same_named_symbols() {
 
 #[test]
 fn test_error_e0601_module_not_found() {
-    let files = [
-        (
-            "main.va",
-            r#"
+    let files = [(
+        "main.va",
+        r#"
             mod nonexistent;
 
             pub fn main() -> i64 {
                 0
             }
             "#,
-        ),
-    ];
+    )];
 
     check_multi_file_error(&files, "main.va", "E0601");
 }
 
 #[test]
 fn test_error_e0602_module_cycle() {
-    let files = [
-        (
-            "main.va",
-            r#"
+    let files = [(
+        "main.va",
+        r#"
             mod main;
 
             pub fn main() -> i64 { 0 }
             "#,
-        ),
-    ];
+    )];
 
     check_multi_file_error(&files, "main.va", "E0602");
 }

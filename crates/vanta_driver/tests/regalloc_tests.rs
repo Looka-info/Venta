@@ -1,9 +1,7 @@
 use std::fs;
 use std::process::Command;
 use tempfile::tempdir;
-use vanta_driver::{
-    CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel,
-};
+use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
 
 fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_stdout: &str) {
     let temp_dir = tempdir().expect("Create temp dir");

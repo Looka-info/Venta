@@ -23,15 +23,12 @@ pub struct Sroa;
 
 impl Sroa {
     /// Runs SROA across all functions in an MIR program.
-    pub fn run_on_program(
-        program: &mut MirProgram,
-    ) -> (bool, SroaStats) {
+    pub fn run_on_program(program: &mut MirProgram) -> (bool, SroaStats) {
         let mut overall_changed = false;
         let mut overall_stats = SroaStats::default();
 
         for func in &mut program.functions {
-            let (changed, stats) =
-                Self::run_on_function(func, &program.structs, &program.enums);
+            let (changed, stats) = Self::run_on_function(func, &program.structs, &program.enums);
             if changed {
                 overall_changed = true;
             }
@@ -265,11 +262,7 @@ impl Sroa {
     }
 
     /// Verifies that the aggregate slot address never escapes.
-    fn is_slot_non_escaping(
-        func: &MirFunction,
-        slot_id: SlotId,
-        s_def: &StructDef,
-    ) -> bool {
+    fn is_slot_non_escaping(func: &MirFunction, slot_id: SlotId, s_def: &StructDef) -> bool {
         // Direct loads or stores to the slot mean the aggregate is accessed as a whole
         for block in &func.blocks {
             for inst in &block.instructions {

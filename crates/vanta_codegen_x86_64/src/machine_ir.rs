@@ -39,10 +39,7 @@ pub enum SimdOperand {
     /// Virtual SIMD vector value (before allocation).
     Val(SimdValueId),
     /// Memory address: base + offset.
-    Mem {
-        base: Reg,
-        offset: i32,
-    },
+    Mem { base: Reg, offset: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

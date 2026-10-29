@@ -690,9 +690,9 @@ fn test_compile_fail_returning_str_slice() {
         .iter()
         .any(|d| d.message.contains(
             "returns a reference, but does not take any reference parameters to borrow from"
-        ) || d.message.contains(
-            "Returning '&str' from user-defined functions is not yet supported"
-        )));
+        ) || d
+            .message
+            .contains("Returning '&str' from user-defined functions is not yet supported")));
 }
 
 #[test]

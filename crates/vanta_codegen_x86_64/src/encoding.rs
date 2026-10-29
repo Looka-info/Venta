@@ -278,7 +278,11 @@ impl CodeEmitter {
         self.emit_u8(b1);
 
         // Byte 2: [W:1][~vvvv:4][1:1][pp:2]
-        let not_vvvv = if use_vvvv { (!(vvvv & 0x0F)) & 0x0F } else { 0x0F };
+        let not_vvvv = if use_vvvv {
+            (!(vvvv & 0x0F)) & 0x0F
+        } else {
+            0x0F
+        };
         let mut b2 = 0u8;
         if w {
             b2 |= 0x80;
@@ -294,7 +298,11 @@ impl CodeEmitter {
             VectorWidth::V256 => 0b01,
             VectorWidth::V512 => 0b10,
         };
-        let not_v_prime = if use_vvvv { (vvvv & 0b10000) == 0 } else { true };
+        let not_v_prime = if use_vvvv {
+            (vvvv & 0b10000) == 0
+        } else {
+            true
+        };
         let mut b3 = 0u8;
         b3 |= (ll_bits & 0x03) << 5;
         if not_v_prime {
@@ -965,11 +973,15 @@ impl CodeEmitter {
             } => {
                 let dest = match dest {
                     SimdOperand::Reg(r) => *r,
-                    _ => panic!("Expected allocated physical SIMD register for dest in Vfmadd231pd"),
+                    _ => {
+                        panic!("Expected allocated physical SIMD register for dest in Vfmadd231pd")
+                    }
                 };
                 let src1 = match src1 {
                     SimdOperand::Reg(r) => *r,
-                    _ => panic!("Expected allocated physical SIMD register for src1 in Vfmadd231pd"),
+                    _ => {
+                        panic!("Expected allocated physical SIMD register for src1 in Vfmadd231pd")
+                    }
                 };
 
                 match width {

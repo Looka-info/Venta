@@ -191,7 +191,9 @@ impl MirVerifier {
                             defined_values.insert(*d);
                         }
                     }
-                    Instruction::IndexAddr { dest, slot, index, .. } => {
+                    Instruction::IndexAddr {
+                        dest, slot, index, ..
+                    } => {
                         if !slot_ids.contains(slot) {
                             diags.emit(mir_error(format!(
                                 "Instruction references unallocated SlotId {:?} in '{}'",

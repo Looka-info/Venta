@@ -92,7 +92,10 @@ fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_
     );
 
     // Exact parity verification
-    assert_eq!(stdout_no_mem, stdout_mem, "Outputs must be byte-for-byte identical");
+    assert_eq!(
+        stdout_no_mem, stdout_mem,
+        "Outputs must be byte-for-byte identical"
+    );
 }
 
 #[test]
@@ -292,15 +295,32 @@ fn compute() -> i64 {
     let mut lowerer = MirLowerer::new(&sema_ctx);
     let mut mir = lowerer.lower_program(&program);
 
-    let func = mir.functions.iter_mut().find(|f| f.name == "compute").expect("Find compute fn");
+    let func = mir
+        .functions
+        .iter_mut()
+        .find(|f| f.name == "compute")
+        .expect("Find compute fn");
     let initial_slots = func.slots.len();
-    assert!(initial_slots >= 3, "Expected at least 3 local slots (a, b, i)");
+    assert!(
+        initial_slots >= 3,
+        "Expected at least 3 local slots (a, b, i)"
+    );
 
     let (changed, stats) = Mem2Reg::run_on_function(func);
     assert!(changed, "Mem2Reg must make changes");
-    assert!(stats.promoted_slots >= 3, "Expected at least 3 slots promoted");
-    assert!(stats.inserted_phis >= 3, "Expected at least 3 phis in loop header");
+    assert!(
+        stats.promoted_slots >= 3,
+        "Expected at least 3 slots promoted"
+    );
+    assert!(
+        stats.inserted_phis >= 3,
+        "Expected at least 3 phis in loop header"
+    );
     assert!(stats.eliminated_loads > 0, "Expected loads eliminated");
     assert!(stats.eliminated_stores > 0, "Expected stores eliminated");
-    assert_eq!(func.slots.len(), 0, "All eligible slots must be promoted out of func.slots");
+    assert_eq!(
+        func.slots.len(),
+        0,
+        "All eligible slots must be promoted out of func.slots"
+    );
 }

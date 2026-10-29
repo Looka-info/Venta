@@ -584,7 +584,10 @@ mod tests {
         };
 
         let res = RegisterAllocator::allocate(&func);
-        assert!(res.num_spills > 0, "Expected spills under high register pressure");
+        assert!(
+            res.num_spills > 0,
+            "Expected spills under high register pressure"
+        );
         // Verify every value 1..=39 has a valid location
         for i in 1..=39 {
             assert!(

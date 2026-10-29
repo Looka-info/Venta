@@ -3,10 +3,10 @@
 use std::fs;
 use std::process::Command;
 use vanta_driver::{CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, OptLevel};
+use vanta_lexer::Lexer;
 use vanta_mir::opt::global_dce::GlobalDce;
 use vanta_mir::opt::OptimizationPipeline;
-use vanta_mir::{MirBinaryOp, Instruction};
-use vanta_lexer::Lexer;
+use vanta_mir::{Instruction, MirBinaryOp};
 use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
@@ -104,7 +104,10 @@ fn test_global_dce_eliminates_unreachable_function() {
     assert_eq!(stats.functions_eliminated, 1);
     assert_eq!(mir.functions.len(), initial_count - 1);
     assert!(!mir.functions.iter().any(|f| f.name.contains("dead_helper")));
-    assert!(mir.functions.iter().any(|f| f.name.contains("alive_helper")));
+    assert!(mir
+        .functions
+        .iter()
+        .any(|f| f.name.contains("alive_helper")));
     assert!(mir.functions.iter().any(|f| f.name == "main"));
 }
 
@@ -156,15 +159,29 @@ fn test_global_dce_disabled_via_flag_preserves_dead_functions() {
     OptimizationPipeline::optimize_program_full(
         &mut mir,
         OptLevel::O1,
-        true, true, false, false, false, false, false, false, false, false, false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
         false, // enable_global_dce: false
         true,  // enable_tail_calls
         true,  // is_executable
         &mut diags,
     );
 
-    assert!(mir.functions.iter().any(|f| f.name.contains("unused_function")),
-        "Dead function must NOT be removed when global DCE is disabled!");
+    assert!(
+        mir.functions
+            .iter()
+            .any(|f| f.name.contains("unused_function")),
+        "Dead function must NOT be removed when global DCE is disabled!"
+    );
 }
 
 #[test]
@@ -189,17 +206,38 @@ fn test_global_dce_eliminates_unreachable_basic_blocks() {
     OptimizationPipeline::optimize_program_full(
         &mut mir,
         OptLevel::O1,
-        true, true, true, true, true, true, true, true, true, true, true,
-        true, true, true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
         &mut diags,
     );
 
     let main_fn = mir.functions.iter().find(|f| f.name == "main").unwrap();
     let has_dead_inst = main_fn.blocks.iter().any(|b| {
-        b.instructions.iter().any(|inst| matches!(inst, Instruction::ConstInt { val: 999, .. }))
+        b.instructions
+            .iter()
+            .any(|inst| matches!(inst, Instruction::ConstInt { val: 999, .. }))
     });
-    assert!(!has_dead_inst, "Unreachable else block and dead 999 computation must be pruned!");
-    assert_eq!(main_fn.blocks.len(), 3, "Only entry, then, and merge blocks should remain");
+    assert!(
+        !has_dead_inst,
+        "Unreachable else block and dead 999 computation must be pruned!"
+    );
+    assert_eq!(
+        main_fn.blocks.len(),
+        3,
+        "Only entry, then, and merge blocks should remain"
+    );
 }
 
 #[test]
@@ -220,18 +258,39 @@ fn test_global_dce_preserves_potential_traps_div_rem() {
     OptimizationPipeline::optimize_program_full(
         &mut mir,
         OptLevel::O1,
-        false, false, false, false, false, false, false, false, false, false, false,
-        true, true, true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
         &mut diags,
     );
 
     let main_fn = mir.functions.iter().find(|f| f.name == "main").unwrap();
     let has_div = main_fn.blocks.iter().any(|b| {
         b.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: MirBinaryOp::Div, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Div,
+                    ..
+                }
+            )
         })
     });
-    assert!(has_div, "Potentially trapping division must NOT be eliminated by DCE even if result is unused!");
+    assert!(
+        has_div,
+        "Potentially trapping division must NOT be eliminated by DCE even if result is unused!"
+    );
 }
 
 #[test]

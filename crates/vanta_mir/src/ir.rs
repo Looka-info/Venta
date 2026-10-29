@@ -208,14 +208,10 @@ impl MirFunction {
                         }
                     }
                     Instruction::StrSlice {
-                        dest_ptr,
-                        dest_len,
-                        ..
+                        dest_ptr, dest_len, ..
                     }
                     | Instruction::LoadSlice {
-                        dest_ptr,
-                        dest_len,
-                        ..
+                        dest_ptr, dest_len, ..
                     } => {
                         max = max.max(dest_ptr.0).max(dest_len.0);
                     }

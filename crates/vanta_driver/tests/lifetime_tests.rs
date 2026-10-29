@@ -104,10 +104,16 @@ fn check_compile_error(source: &str, expected_code: &str) {
 
     let mut session = CompilerSession::new();
     let result = session.compile(&options);
-    assert!(result.is_err(), "Expected compilation error with code {}", expected_code);
+    assert!(
+        result.is_err(),
+        "Expected compilation error with code {}",
+        expected_code
+    );
 
     let diags = session.diagnostics.diagnostics();
-    let has_code = diags.iter().any(|d| d.code.as_deref() == Some(expected_code));
+    let has_code = diags
+        .iter()
+        .any(|d| d.code.as_deref() == Some(expected_code));
     if !has_code {
         eprintln!("Expected diagnostic code: {}", expected_code);
         eprintln!("Actual diagnostics: {:?}", diags);

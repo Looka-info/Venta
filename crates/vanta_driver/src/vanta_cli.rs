@@ -13,9 +13,20 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
     let invoked = env::args().next().unwrap_or_default();
-    let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let bin_name = if file_name == "vanta" { "vanta" } else { "venta" };
-    let lang_name = if file_name == "vanta" { "Vanta" } else { "Venta" };
+    let file_name = std::path::Path::new(&invoked)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let bin_name = if file_name == "vanta" {
+        "vanta"
+    } else {
+        "venta"
+    };
+    let lang_name = if file_name == "vanta" {
+        "Vanta"
+    } else {
+        "Venta"
+    };
     format!(
         r#"{lang_name} Toolchain Driver ({bin_name}) v{version}
 
@@ -54,8 +65,15 @@ fn main() {
     match args[1].as_str() {
         "-V" | "--version" => {
             let invoked = env::args().next().unwrap_or_default();
-            let file_name = std::path::Path::new(&invoked).file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let bin_name = if file_name == "vanta" { "vanta" } else { "venta" };
+            let file_name = std::path::Path::new(&invoked)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let bin_name = if file_name == "vanta" {
+                "vanta"
+            } else {
+                "venta"
+            };
             println!("{} {}", bin_name, VERSION);
             process::exit(0);
         }
@@ -103,6 +121,7 @@ fn handle_run(args: &[String]) {
     let mut enable_sroa = true;
     let mut enable_loop_peel = true;
     let mut enable_loop_unroll = true;
+    let mut enable_vectorize = true;
     let mut enable_instruction_schedule = true;
     let mut enable_global_dce = true;
     let mut enable_tail_calls = true;
@@ -127,7 +146,10 @@ fn handle_run(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -136,7 +158,10 @@ fn handle_run(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -162,6 +187,8 @@ fn handle_run(args: &[String]) {
             enable_loop_peel = false;
         } else if arg == "--no-loop-unroll" || arg == "--no-unroll" {
             enable_loop_unroll = false;
+        } else if arg == "--no-vectorize" || arg == "--no-vec" {
+            enable_vectorize = false;
         } else if arg == "--no-instruction-schedule" || arg == "--no-sched" {
             enable_instruction_schedule = false;
         } else if arg == "--no-global-dce" {
@@ -297,6 +324,7 @@ fn handle_run(args: &[String]) {
         enable_sroa,
         enable_loop_peel,
         enable_loop_unroll,
+        enable_vectorize,
         enable_instruction_schedule,
         enable_global_dce,
         enable_tail_calls,
@@ -362,6 +390,7 @@ fn handle_compile(args: &[String]) {
     let mut enable_sroa = true;
     let mut enable_loop_peel = true;
     let mut enable_loop_unroll = true;
+    let mut enable_vectorize = true;
     let mut enable_instruction_schedule = true;
     let mut enable_global_dce = true;
     let mut enable_tail_calls = true;
@@ -383,7 +412,10 @@ fn handle_compile(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -392,7 +424,10 @@ fn handle_compile(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -418,6 +453,8 @@ fn handle_compile(args: &[String]) {
             enable_loop_peel = false;
         } else if arg == "--no-loop-unroll" || arg == "--no-unroll" {
             enable_loop_unroll = false;
+        } else if arg == "--no-vectorize" || arg == "--no-vec" {
+            enable_vectorize = false;
         } else if arg == "--no-instruction-schedule" || arg == "--no-sched" {
             enable_instruction_schedule = false;
         } else if arg == "--no-global-dce" {
@@ -565,6 +602,7 @@ fn handle_compile(args: &[String]) {
         enable_sroa,
         enable_loop_peel,
         enable_loop_unroll,
+        enable_vectorize,
         enable_instruction_schedule,
         enable_global_dce,
         enable_tail_calls,
@@ -619,7 +657,10 @@ fn handle_check(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -628,7 +669,10 @@ fn handle_check(args: &[String]) {
                 "json" => DiagnosticFormat::Json,
                 "human" => DiagnosticFormat::Human,
                 _ => {
-                    eprintln!("Error: Unknown diagnostics format '{}', expected 'human' or 'json'", fmt);
+                    eprintln!(
+                        "Error: Unknown diagnostics format '{}', expected 'human' or 'json'",
+                        fmt
+                    );
                     process::exit(2);
                 }
             };
@@ -681,6 +725,7 @@ fn handle_check(args: &[String]) {
         enable_sroa: false,
         enable_loop_peel: false,
         enable_loop_unroll: false,
+        enable_vectorize: false,
         enable_instruction_schedule: false,
         enable_global_dce: false,
         enable_tail_calls: false,

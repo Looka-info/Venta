@@ -69,10 +69,9 @@ fn verify_differential_case(case: &DifferentialTestCase) {
 
     // 1. Vanta -O0
     let bin_o0 = temp_dir.path().join(format!("{}_o0", case.name));
-    let (code_o0, stdout_o0) =
-        run_test_configuration(case.name, &src_path, &bin_o0, |opts| {
-            opts.opt_level = OptLevel::None;
-        });
+    let (code_o0, stdout_o0) = run_test_configuration(case.name, &src_path, &bin_o0, |opts| {
+        opts.opt_level = OptLevel::None;
+    });
     assert_eq!(
         code_o0, case.expected_exit_code,
         "[{}] -O0 exit code mismatch",
@@ -89,8 +88,7 @@ fn verify_differential_case(case: &DifferentialTestCase) {
 
     // 2. Vanta -O1 (Full Optimizations)
     let bin_o1 = temp_dir.path().join(format!("{}_o1", case.name));
-    let (code_o1, stdout_o1) =
-        run_test_configuration(case.name, &src_path, &bin_o1, |_| {});
+    let (code_o1, stdout_o1) = run_test_configuration(case.name, &src_path, &bin_o1, |_| {});
     assert_eq!(
         code_o1, case.expected_exit_code,
         "[{}] -O1 exit code mismatch",

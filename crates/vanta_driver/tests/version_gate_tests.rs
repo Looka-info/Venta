@@ -20,7 +20,10 @@ fn test_version_consistency_and_gate_validation() {
         .status()
         .expect("Failed to execute python3 test_version_validation.py");
 
-    assert!(status.success(), "Version consistency regression tests failed");
+    assert!(
+        status.success(),
+        "Version consistency regression tests failed"
+    );
 }
 
 #[test]
@@ -31,7 +34,9 @@ fn test_current_workspace_version_consistency_script() {
         .parent()
         .unwrap();
 
-    let script = repo_root.join("scripts").join("verify_version_consistency.py");
+    let script = repo_root
+        .join("scripts")
+        .join("verify_version_consistency.py");
     assert!(script.is_file(), "verify_version_consistency.py must exist");
 
     let output = Command::new("python3")
@@ -47,6 +52,14 @@ fn test_current_workspace_version_consistency_script() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Version validation:      PASSED"), "Output: {}", stdout);
-    assert!(stdout.contains("Cargo workspace version: 1.0.0-rc.2"), "Output: {}", stdout);
+    assert!(
+        stdout.contains("Version validation:      PASSED"),
+        "Output: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Cargo workspace version: 1.0.0-rc.2"),
+        "Output: {}",
+        stdout
+    );
 }

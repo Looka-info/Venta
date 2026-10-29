@@ -295,12 +295,8 @@ impl Licm {
                     round_changed = true;
                 }
 
-                let hoisted = Self::hoist_loop_invariants(
-                    func,
-                    loop_info,
-                    preheader_id,
-                    &mut overall_stats,
-                );
+                let hoisted =
+                    Self::hoist_loop_invariants(func, loop_info, preheader_id, &mut overall_stats);
                 if hoisted > 0 {
                     overall_stats.loops_transformed += 1;
                     round_changed = true;
@@ -398,7 +394,10 @@ impl Licm {
         // to a non-constant instruction being hoisted into the preheader.
         let mut needed_operands = HashSet::new();
         for (_, _, inst) in &hoisted_candidates {
-            if !matches!(inst, Instruction::ConstInt { .. } | Instruction::ConstBool { .. }) {
+            if !matches!(
+                inst,
+                Instruction::ConstInt { .. } | Instruction::ConstBool { .. }
+            ) {
                 for op in Self::extract_operands(inst) {
                     needed_operands.insert(op);
                 }
@@ -420,7 +419,10 @@ impl Licm {
         }
 
         hoisted_candidates.retain(|(_, dest, inst)| {
-            if matches!(inst, Instruction::ConstInt { .. } | Instruction::ConstBool { .. }) {
+            if matches!(
+                inst,
+                Instruction::ConstInt { .. } | Instruction::ConstBool { .. }
+            ) {
                 needed_operands.contains(dest)
             } else {
                 true

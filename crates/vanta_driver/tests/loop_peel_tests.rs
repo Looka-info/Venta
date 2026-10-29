@@ -59,17 +59,17 @@ fn test_loop_peel_with_inlining_and_strength_reduction() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         OptLevel::O1,
-        true, // mem2reg
-        true, // gvn
-        true, // inlining
-        true, // ipa
-        true, // licm
-        true, // indvar
-        true, // strength_reduction
-        true, // sroa
+        true,  // mem2reg
+        true,  // gvn
+        true,  // inlining
+        true,  // ipa
+        true,  // licm
+        true,  // indvar
+        true,  // strength_reduction
+        true,  // sroa
         true,  // loop_peel
         false, // loop_unroll
-        true, // instruction_schedule
+        true,  // instruction_schedule
         &mut diags,
     );
     assert!(!diags.has_errors(), "Diagnostics had errors: {:?}", diags);
@@ -99,22 +99,26 @@ fn test_loop_peel_peels_first_iteration() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         OptLevel::O1,
-        true, // mem2reg
-        true, // gvn
-        true, // inlining
-        true, // ipa
-        true, // licm
-        true, // indvar
-        true, // strength_reduction
-        true, // sroa
+        true,  // mem2reg
+        true,  // gvn
+        true,  // inlining
+        true,  // ipa
+        true,  // licm
+        true,  // indvar
+        true,  // strength_reduction
+        true,  // sroa
         true,  // loop_peel
         false, // loop_unroll
-        true, // instruction_schedule
+        true,  // instruction_schedule
         &mut diags,
     );
     assert!(!diags.has_errors(), "Diagnostics had errors: {:?}", diags);
 
-    let func = mir.functions.iter().find(|f| f.name == "test_peel").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "test_peel")
+        .unwrap();
     for b in &func.blocks {
         println!("Block {:?} ({}) -> term {:?}", b.id, b.name, b.terminator);
         for inst in &b.instructions {
@@ -123,7 +127,10 @@ fn test_loop_peel_peels_first_iteration() {
     }
     // After peeling, there should be peeled blocks outside the loop header
     let has_peeled_blocks = func.blocks.iter().any(|b| b.name.contains("peeled"));
-    assert!(has_peeled_blocks, "Loop body must have a peeled first iteration outside the main loop!");
+    assert!(
+        has_peeled_blocks,
+        "Loop body must have a peeled first iteration outside the main loop!"
+    );
 }
 
 #[test]
@@ -184,7 +191,11 @@ fn test_loop_peel_preserves_zero_trip_condition() {
     let out = Command::new(&exe_path).output().expect("Execution failed");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(stdout.trim(), "100", "Zero-trip loop must not execute peeled body!");
+    assert_eq!(
+        stdout.trim(),
+        "100",
+        "Zero-trip loop must not execute peeled body!"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -279,7 +290,10 @@ fn test_loop_peel_differential_equivalence() {
     let out2 = Command::new(&exe_peel).output().unwrap();
     println!("out1 stdout: {:?}", String::from_utf8_lossy(&out1.stdout));
     println!("out2 stdout: {:?}", String::from_utf8_lossy(&out2.stdout));
-    assert_eq!(out1.stdout, out2.stdout, "Peeled and non-peeled executions must produce identical results!");
+    assert_eq!(
+        out1.stdout, out2.stdout,
+        "Peeled and non-peeled executions must produce identical results!"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

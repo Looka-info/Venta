@@ -157,15 +157,14 @@ impl LoopStrengthReduction {
                             continue;
                         }
 
-                        let match_candidate = if iv_map.contains_key(lhs)
-                            && invariant_values.contains(rhs)
-                        {
-                            Some((*lhs, *rhs))
-                        } else if iv_map.contains_key(rhs) && invariant_values.contains(lhs) {
-                            Some((*rhs, *lhs))
-                        } else {
-                            None
-                        };
+                        let match_candidate =
+                            if iv_map.contains_key(lhs) && invariant_values.contains(rhs) {
+                                Some((*lhs, *rhs))
+                            } else if iv_map.contains_key(rhs) && invariant_values.contains(lhs) {
+                                Some((*rhs, *lhs))
+                            } else {
+                                None
+                            };
 
                         if let Some((iv_phi, stride_val)) = match_candidate {
                             let stride_const = const_map.get(&stride_val).copied();
@@ -215,7 +214,11 @@ impl LoopStrengthReduction {
             let eff_stride_val = if let Some(c) = cand.stride_const {
                 let const_val = ValueId(next_val_id);
                 next_val_id += 1;
-                let preheader = func.blocks.iter_mut().find(|b| b.id == preheader_id).unwrap();
+                let preheader = func
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.id == preheader_id)
+                    .unwrap();
                 preheader.instructions.push(Instruction::ConstInt {
                     dest: const_val,
                     val: c,
@@ -226,7 +229,11 @@ impl LoopStrengthReduction {
                 cand.stride_val
             };
 
-            let preheader = func.blocks.iter_mut().find(|b| b.id == preheader_id).unwrap();
+            let preheader = func
+                .blocks
+                .iter_mut()
+                .find(|b| b.id == preheader_id)
+                .unwrap();
             preheader.instructions.push(Instruction::Binary {
                 dest: r_init,
                 op: MirBinaryOp::Mul,
@@ -241,7 +248,11 @@ impl LoopStrengthReduction {
 
             if let Some(c) = cand.stride_const {
                 let delta_imm = iv.step.wrapping_mul(c);
-                let preheader = func.blocks.iter_mut().find(|b| b.id == preheader_id).unwrap();
+                let preheader = func
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.id == preheader_id)
+                    .unwrap();
                 preheader.instructions.push(Instruction::ConstInt {
                     dest: delta_val,
                     val: delta_imm,
@@ -250,7 +261,11 @@ impl LoopStrengthReduction {
             } else {
                 let step_imm_val = ValueId(next_val_id);
                 next_val_id += 1;
-                let preheader = func.blocks.iter_mut().find(|b| b.id == preheader_id).unwrap();
+                let preheader = func
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.id == preheader_id)
+                    .unwrap();
                 preheader.instructions.push(Instruction::ConstInt {
                     dest: step_imm_val,
                     val: iv.step,
@@ -271,7 +286,11 @@ impl LoopStrengthReduction {
             let r_next = ValueId(next_val_id);
             next_val_id += 1;
 
-            let header = func.blocks.iter_mut().find(|b| b.id == loop_info.header).unwrap();
+            let header = func
+                .blocks
+                .iter_mut()
+                .find(|b| b.id == loop_info.header)
+                .unwrap();
             // Insert after existing phis
             let insert_pos = header
                 .instructions

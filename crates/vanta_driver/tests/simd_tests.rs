@@ -12,8 +12,10 @@ fn run_simd_test(
     target_features: TargetFeatures,
     expected_stdout: &[u8],
 ) {
-    let temp_dir =
-        std::env::temp_dir().join(format!("venta_simd_test_{}_{:?}", test_name, target_features));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "venta_simd_test_{}_{:?}",
+        test_name, target_features
+    ));
     let _ = fs::create_dir_all(&temp_dir);
     let src_path = temp_dir.join("main.va");
     let exe_path = temp_dir.join("simd_bin");
@@ -864,7 +866,9 @@ pub fn venta_exported_vector_add(a: v256, b: v256) -> v256 {
     options.std_path = Some(PathBuf::from("library"));
     options.target_features = TargetFeatures::avx2();
 
-    session.compile(&options).expect("Compile Venta callee to object file");
+    session
+        .compile(&options)
+        .expect("Compile Venta callee to object file");
 
     let c_caller_code = r#"
 #include <immintrin.h>

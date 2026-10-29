@@ -85,7 +85,15 @@ fn test_gvn_eliminates_straightline_repeated_expressions() {
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Add, .. }))
+        .filter(|inst| {
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Add,
+                    ..
+                }
+            )
+        })
         .count();
 
     assert_eq!(
@@ -126,13 +134,25 @@ fn test_gvn_commutative_normalization() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "compute_comm").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compute_comm")
+        .unwrap();
     // a = x + y, b = y + x => b should reuse a, so there should be 1 Add for (x+y) and 1 Add for (a+b)
     let add_count = func
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Add, .. }))
+        .filter(|inst| {
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Add,
+                    ..
+                }
+            )
+        })
         .count();
 
     assert_eq!(
@@ -173,7 +193,11 @@ fn test_gvn_comparison_dual_normalization() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "compare_dual").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compare_dual")
+        .unwrap();
     // x > y and y < x should be normalized to the same expression!
     let cmp_count = func
         .blocks
@@ -234,13 +258,25 @@ fn test_gvn_cross_block_dominating_subexpression() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "cross_block").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "cross_block")
+        .unwrap();
     // x * y in then_block is dominated by x * y in entry block, so only 1 Mul should exist
     let mul_count = func
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Mul, .. }))
+        .filter(|inst| {
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Mul,
+                    ..
+                }
+            )
+        })
         .count();
 
     assert_eq!(
@@ -293,7 +329,15 @@ fn test_gvn_non_dominating_branches_not_improperly_shared() {
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .filter(|inst| matches!(inst, Instruction::Binary { op: MirBinaryOp::Add, .. }))
+        .filter(|inst| {
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: MirBinaryOp::Add,
+                    ..
+                }
+            )
+        })
         .count();
 
     assert_eq!(
@@ -339,7 +383,11 @@ fn test_gvn_phi_simplification_identical_inputs() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "phi_simple").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "phi_simple")
+        .unwrap();
     // The phi with identical inputs from both branches should be simplified away
     let phi_count = func
         .blocks
@@ -424,8 +472,12 @@ fn test_e2e_differential_execution_gvn_vs_no_gvn() {
     assert!(session2.compile(&opts_gvn).is_ok());
 
     // 3. Execute both binaries and compare output
-    let out_no_gvn = Command::new(&exe_no_gvn).output().expect("Failed to execute no_gvn binary");
-    let out_gvn = Command::new(&exe_gvn).output().expect("Failed to execute gvn binary");
+    let out_no_gvn = Command::new(&exe_no_gvn)
+        .output()
+        .expect("Failed to execute no_gvn binary");
+    let out_gvn = Command::new(&exe_gvn)
+        .output()
+        .expect("Failed to execute gvn binary");
 
     assert_eq!(out_no_gvn.status.code(), Some(0));
     assert_eq!(out_gvn.status.code(), Some(0));
@@ -466,7 +518,11 @@ fn test_gvn_unary_expression_elimination() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "unary_calc").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "unary_calc")
+        .unwrap();
     let neg_count = func
         .blocks
         .iter()
@@ -517,7 +573,11 @@ fn test_gvn_field_addr_elimination() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "get_x_twice").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "get_x_twice")
+        .unwrap();
     let field_addr_count = func
         .blocks
         .iter()
@@ -531,4 +591,3 @@ fn test_gvn_field_addr_elimination() {
         field_addr_count
     );
 }
-

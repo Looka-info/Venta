@@ -20,14 +20,13 @@ pub struct TailCall;
 
 impl TailCall {
     /// Runs Safe Tail-Call Optimization on an entire MIR program.
-    pub fn run_on_program(
-        program: &mut MirProgram,
-    ) -> (bool, TailCallStats) {
+    pub fn run_on_program(program: &mut MirProgram) -> (bool, TailCallStats) {
         let mut stats = TailCallStats::default();
         let mut changed = false;
 
         for func in &mut program.functions {
-            let (f_changed, f_stats) = Self::run_on_function(func, &program.structs, &program.enums);
+            let (f_changed, f_stats) =
+                Self::run_on_function(func, &program.structs, &program.enums);
             if f_changed {
                 changed = true;
                 stats.calls_analyzed += f_stats.calls_analyzed;
@@ -90,9 +89,7 @@ impl TailCall {
 
                             // Verify tail position relative to terminator
                             let is_tail = match term {
-                                Terminator::Return(Some(ret_val)) => {
-                                    dest.as_ref() == Some(ret_val)
-                                }
+                                Terminator::Return(Some(ret_val)) => dest.as_ref() == Some(ret_val),
                                 Terminator::Return(None) => {
                                     dest.is_none() || *ret_type == Type::Unit
                                 }

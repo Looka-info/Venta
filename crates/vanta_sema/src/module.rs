@@ -294,7 +294,8 @@ impl<'a> ModuleLoader<'a> {
             let gpu_file = std_dir.join("gpu.va");
             let gpu_src = fs::read_to_string(&gpu_file).unwrap_or_else(|_| EMBEDDED_STD_GPU.into());
             (
-                canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src, gpu_src,
+                canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
+                gpu_src,
             )
         } else {
             (

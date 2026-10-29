@@ -157,7 +157,9 @@ impl SemanticContext {
         if let (Type::Struct(f_name), Type::Struct(t_name)) = (from, to) {
             let f_base = f_name.rsplit("__").next().unwrap_or(f_name);
             let t_base = t_name.rsplit("__").next().unwrap_or(t_name);
-            if (f_base == "v256" || f_base == "Simd256") && (t_base == "v256" || t_base == "Simd256") {
+            if (f_base == "v256" || f_base == "Simd256")
+                && (t_base == "v256" || t_base == "Simd256")
+            {
                 return true;
             }
         }
@@ -5296,13 +5298,16 @@ impl SemanticAnalyzer {
                                 self.mark_var_moved(src_name, arg.span, diags);
                             }
                         }
-                        let is_simd_intrinsic = callee.starts_with("venta_simd_") || callee.starts_with("simd_");
-                    let is_compatible = if is_simd_intrinsic {
-                        matches!(arg_ty, Type::Ref { .. }) || arg_ty.is_integer() || self.ctx.can_coerce(&arg_ty, param_ty)
-                    } else {
-                        self.ctx.can_coerce(&arg_ty, param_ty)
-                    };
-                    if !is_compatible {
+                        let is_simd_intrinsic =
+                            callee.starts_with("venta_simd_") || callee.starts_with("simd_");
+                        let is_compatible = if is_simd_intrinsic {
+                            matches!(arg_ty, Type::Ref { .. })
+                                || arg_ty.is_integer()
+                                || self.ctx.can_coerce(&arg_ty, param_ty)
+                        } else {
+                            self.ctx.can_coerce(&arg_ty, param_ty)
+                        };
+                        if !is_compatible {
                             diags.emit(
                                 Diagnostic::error(format!(
                                     "Argument {} to function '{}' expects {}, found {}",
@@ -5361,9 +5366,12 @@ impl SemanticAnalyzer {
                             self.mark_var_moved(src_name, arg.span, diags);
                         }
                     }
-                    let is_simd_intrinsic = callee.starts_with("venta_simd_") || callee.starts_with("simd_");
+                    let is_simd_intrinsic =
+                        callee.starts_with("venta_simd_") || callee.starts_with("simd_");
                     let is_compatible = if is_simd_intrinsic {
-                        matches!(arg_ty, Type::Ref { .. }) || arg_ty.is_integer() || self.ctx.can_coerce(&arg_ty, param_ty)
+                        matches!(arg_ty, Type::Ref { .. })
+                            || arg_ty.is_integer()
+                            || self.ctx.can_coerce(&arg_ty, param_ty)
                     } else {
                         self.ctx.can_coerce(&arg_ty, param_ty)
                     };

@@ -119,8 +119,11 @@ impl Inliner {
                         }
 
                         // Growth budget check
-                        let callee_inst_count: usize =
-                            callee_func.blocks.iter().map(|b| b.instructions.len()).sum();
+                        let callee_inst_count: usize = callee_func
+                            .blocks
+                            .iter()
+                            .map(|b| b.instructions.len())
+                            .sum();
                         if caller_growth + callee_inst_count > Self::MAX_CALLER_GROWTH {
                             stats.size_budget_rejections += 1;
                             stats.candidates_rejected += 1;
@@ -272,12 +275,10 @@ impl Inliner {
             .find(|b| b.id == call_block_id)
             .unwrap();
 
-        let mut instrs_before: Vec<Instruction> =
-            call_block.instructions[..call_inst_idx].to_vec();
+        let mut instrs_before: Vec<Instruction> = call_block.instructions[..call_inst_idx].to_vec();
         instrs_before.extend(param_stores);
 
-        let instrs_after: Vec<Instruction> =
-            call_block.instructions[call_inst_idx + 1..].to_vec();
+        let instrs_after: Vec<Instruction> = call_block.instructions[call_inst_idx + 1..].to_vec();
         let original_terminator = call_block.terminator.take();
 
         // Point before_block to the callee entry block

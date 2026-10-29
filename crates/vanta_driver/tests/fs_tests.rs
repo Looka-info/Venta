@@ -30,7 +30,11 @@ fn run_fs_test(name: &str, src: &str, expected_exit_code: i32, expected_stdout: 
         if compile_res.is_err() {
             eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
         }
-        assert!(compile_res.is_ok(), "Compilation failed: {:?}", compile_res.err());
+        assert!(
+            compile_res.is_ok(),
+            "Compilation failed: {:?}",
+            compile_res.err()
+        );
 
         let output = Command::new(&exe_file)
             .current_dir(temp_dir.path())

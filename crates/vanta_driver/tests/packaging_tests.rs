@@ -56,7 +56,10 @@ fn test_release_package_install_and_uninstall() {
 
     let installed_vanta = install_prefix.join("bin").join("vanta");
     let installed_vantac = install_prefix.join("bin").join("vantac");
-    let installed_rt = install_prefix.join("lib").join("vanta").join("libvanta_rt.a");
+    let installed_rt = install_prefix
+        .join("lib")
+        .join("vanta")
+        .join("libvanta_rt.a");
     let installed_std = install_prefix.join("lib").join("vanta").join("std");
 
     assert!(installed_vanta.is_file(), "vanta binary installed");

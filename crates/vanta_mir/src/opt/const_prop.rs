@@ -160,7 +160,10 @@ impl ConstantPropagation {
                     Instruction::Phi { dest, inputs, .. } => {
                         if !inputs.is_empty() {
                             if let Some(&first_c) = temp_values.get(&inputs[0].1) {
-                                if inputs.iter().all(|(_, v)| temp_values.get(v) == Some(&first_c)) {
+                                if inputs
+                                    .iter()
+                                    .all(|(_, v)| temp_values.get(v) == Some(&first_c))
+                                {
                                     temp_values.insert(*dest, first_c);
                                 }
                             }
@@ -312,7 +315,10 @@ impl ConstantPropagation {
                     Instruction::Phi { dest, inputs, ty } => {
                         if !inputs.is_empty() {
                             if let Some(&first_c) = known_values.get(&inputs[0].1) {
-                                if inputs.iter().all(|(_, v)| known_values.get(v) == Some(&first_c)) {
+                                if inputs
+                                    .iter()
+                                    .all(|(_, v)| known_values.get(v) == Some(&first_c))
+                                {
                                     let d = *dest;
                                     let new_inst = match first_c {
                                         ConstValue::Int(v) => Instruction::ConstInt {

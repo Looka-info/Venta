@@ -104,7 +104,11 @@ fn check_compile_error(source: &str, expected_code: &str) {
 
     let mut session = CompilerSession::new();
     let res = session.compile(&options);
-    assert!(res.is_err(), "Expected compilation failure for code {}", expected_code);
+    assert!(
+        res.is_err(),
+        "Expected compilation failure for code {}",
+        expected_code
+    );
 
     let json_diag = session.render_diagnostics(DiagnosticFormat::Json);
     assert!(

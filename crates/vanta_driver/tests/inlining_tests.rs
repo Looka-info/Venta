@@ -65,9 +65,9 @@ fn test_inline_leaf_arithmetic_helper() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         MirOptLevel::O1,
-        true, // mem2reg
-        true, // gvn
-        true, // inline
+        true,  // mem2reg
+        true,  // gvn
+        true,  // inline
         false, // ipa_constprop
         false, // licm
         false, // indvar
@@ -129,7 +129,11 @@ fn test_inline_multi_param_helper() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "calculate").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "calculate")
+        .unwrap();
     let call_count = func
         .blocks
         .iter()
@@ -231,7 +235,11 @@ fn test_inline_multiple_return_paths_phi() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "check_abs").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "check_abs")
+        .unwrap();
     let call_count = func
         .blocks
         .iter()
@@ -290,7 +298,11 @@ fn test_inline_callee_with_loop() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "compute_sum").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compute_sum")
+        .unwrap();
     let call_count = func
         .blocks
         .iter()
@@ -340,7 +352,11 @@ fn test_inline_called_multiple_times() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "multi_step").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "multi_step")
+        .unwrap();
     let call_count = func
         .blocks
         .iter()
@@ -404,7 +420,11 @@ fn test_inline_direct_recursion_rejected() {
         "Expected recursive call to fact inside fact to be preserved and not inlined"
     );
 
-    let compute_func = mir.functions.iter().find(|f| f.name == "compute_fact").unwrap();
+    let compute_func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "compute_fact")
+        .unwrap();
     let call_to_fact = compute_func
         .blocks
         .iter()
@@ -461,7 +481,11 @@ fn test_inline_mutual_recursion_rejected() {
     );
     assert!(!diags.has_errors());
 
-    let parity_func = mir.functions.iter().find(|f| f.name == "check_parity").unwrap();
+    let parity_func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "check_parity")
+        .unwrap();
     let call_count = parity_func
         .blocks
         .iter()
@@ -590,7 +614,10 @@ fn test_inline_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session1 = CompilerSession::new();
-    assert!(session1.compile(&opts_no_inline).is_ok(), "Compilation with --no-inline failed");
+    assert!(
+        session1.compile(&opts_no_inline).is_ok(),
+        "Compilation with --no-inline failed"
+    );
 
     // 2. Compile with inlining enabled
     let opts_inline = CompilerOptions {
@@ -617,7 +644,10 @@ fn test_inline_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session2 = CompilerSession::new();
-    assert!(session2.compile(&opts_inline).is_ok(), "Compilation with inlining enabled failed");
+    assert!(
+        session2.compile(&opts_inline).is_ok(),
+        "Compilation with inlining enabled failed"
+    );
 
     // 3. Execute both binaries and compare output
     let out_no_inline = Command::new(&exe_no_inline)

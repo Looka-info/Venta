@@ -62,7 +62,7 @@ fn test_arrays_bounds_sum() {
         true, // indvar
         true, // strength_reduction
         true, // sroa
-        true,  // loop_peel
+        true, // loop_peel
         true, // loop_unroll
         true, // instruction_schedule
         &mut diags,
@@ -99,8 +99,8 @@ fn test_loop_unroll_full_eliminates_small_loop() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         OptLevel::O1,
-        true, // mem2reg
-        true, // gvn
+        true,  // mem2reg
+        true,  // gvn
         false, // inlining
         false, // ipa
         false, // licm
@@ -114,12 +114,20 @@ fn test_loop_unroll_full_eliminates_small_loop() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "test_small_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "test_small_loop")
+        .unwrap();
     let dom_tree = DominatorTree::compute(func).expect("Valid CFG");
     let loops = NaturalLoop::discover_loops(func, &dom_tree);
 
     // After full unrolling, the natural loop is COMPLETELY ELIMINATED!
-    assert_eq!(loops.len(), 0, "Small constant loop (4 iters) must be completely eliminated by full unrolling!");
+    assert_eq!(
+        loops.len(),
+        0,
+        "Small constant loop (4 iters) must be completely eliminated by full unrolling!"
+    );
 }
 
 #[test]
@@ -142,8 +150,8 @@ fn test_loop_unroll_partial_factor_2() {
     OptimizationPipeline::optimize_program_with_options(
         &mut mir,
         OptLevel::O1,
-        true, // mem2reg
-        true, // gvn
+        true,  // mem2reg
+        true,  // gvn
         false, // inlining
         false, // ipa
         false, // licm
@@ -157,7 +165,11 @@ fn test_loop_unroll_partial_factor_2() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "test_large_loop").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "test_large_loop")
+        .unwrap();
     // In partial unrolling, duplicated blocks exist
     let has_dup_blocks = func.blocks.iter().any(|b| b.name.contains("dup"));
     assert!(has_dup_blocks, "Large exact-multiple loop (100 iters) must have duplicated body blocks from factor-2 partial unrolling!");
@@ -223,7 +235,11 @@ fn test_loop_unroll_preserves_zero_trip_loop() {
     let out = Command::new(&exe_path).output().expect("Execution failed");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(stdout.trim(), "42", "Zero-trip loop must preserve initial value 42!");
+    assert_eq!(
+        stdout.trim(),
+        "42",
+        "Zero-trip loop must preserve initial value 42!"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -313,7 +329,10 @@ fn test_loop_unroll_differential_equivalence() {
 
     let out1 = Command::new(&exe_no_unroll).output().unwrap();
     let out2 = Command::new(&exe_unroll).output().unwrap();
-    assert_eq!(out1.stdout, out2.stdout, "Unrolled and non-unrolled executions must produce identical results!");
+    assert_eq!(
+        out1.stdout, out2.stdout,
+        "Unrolled and non-unrolled executions must produce identical results!"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

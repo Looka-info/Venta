@@ -81,7 +81,11 @@ fn test_ipa_folds_pure_call_with_constant_arguments() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "calculate").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "calculate")
+        .unwrap();
     // The call should be completely folded into a ConstInt(35) without inlining the body!
     let call_count = func
         .blocks
@@ -96,9 +100,11 @@ fn test_ipa_folds_pure_call_with_constant_arguments() {
         call_count
     );
 
-    let has_const_35 = func.blocks.iter().flat_map(|b| &b.instructions).any(|inst| {
-        matches!(inst, Instruction::ConstInt { val, .. } if *val == 35)
-    });
+    let has_const_35 = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|inst| matches!(inst, Instruction::ConstInt { val, .. } if *val == 35));
 
     assert!(
         has_const_35,
@@ -148,11 +154,16 @@ fn test_ipa_folds_boolean_pure_call() {
         .filter(|inst| matches!(inst, Instruction::Call { .. }))
         .count();
 
-    assert_eq!(call_count, 0, "Expected call to be folded to ConstBool(true)");
+    assert_eq!(
+        call_count, 0,
+        "Expected call to be folded to ConstBool(true)"
+    );
 
-    let has_const_true = func.blocks.iter().flat_map(|b| &b.instructions).any(|inst| {
-        matches!(inst, Instruction::ConstBool { val: true, .. })
-    });
+    let has_const_true = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|inst| matches!(inst, Instruction::ConstBool { val: true, .. }));
 
     assert!(has_const_true, "Expected folded constant boolean 'true'");
 }
@@ -243,7 +254,11 @@ fn test_ipa_disabled_via_flag() {
     );
     assert!(!diags.has_errors());
 
-    let func = mir.functions.iter().find(|f| f.name == "calculate").unwrap();
+    let func = mir
+        .functions
+        .iter()
+        .find(|f| f.name == "calculate")
+        .unwrap();
     let call_count = func
         .blocks
         .iter()
@@ -312,7 +327,10 @@ fn test_ipa_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session1 = CompilerSession::new();
-    assert!(session1.compile(&opts_no_ipa).is_ok(), "Compilation with --no-ipa-constprop failed");
+    assert!(
+        session1.compile(&opts_no_ipa).is_ok(),
+        "Compilation with --no-ipa-constprop failed"
+    );
 
     // 2. Compile with IPA enabled
     let opts_ipa = CompilerOptions {
@@ -339,7 +357,10 @@ fn test_ipa_end_to_end_execution_equivalence() {
         ..Default::default()
     };
     let mut session2 = CompilerSession::new();
-    assert!(session2.compile(&opts_ipa).is_ok(), "Compilation with IPA enabled failed");
+    assert!(
+        session2.compile(&opts_ipa).is_ok(),
+        "Compilation with IPA enabled failed"
+    );
 
     // 3. Execute both binaries and compare output
     let out_no_ipa = Command::new(&exe_no_ipa)
