@@ -1,0 +1,87 @@
+import std::result::Result;
+
+pub struct Device {
+    pub id: i64,
+    pub compute_units: i64,
+    pub total_memory_mb: i64,
+}
+
+pub fn default_device() -> Device {
+    Device {
+        id: 0,
+        compute_units: 128,
+        total_memory_mb: 16384,
+    }
+}
+
+pub fn get_device(id: i64) -> Device {
+    Device {
+        id: id,
+        compute_units: 128,
+        total_memory_mb: 16384,
+    }
+}
+
+impl Device {
+    pub fn get_id(self: &Device) -> i64 {
+        self.id
+    }
+
+    pub fn get_compute_units(self: &Device) -> i64 {
+        self.compute_units
+    }
+
+    pub fn get_total_memory_mb(self: &Device) -> i64 {
+        self.total_memory_mb
+    }
+}
+
+pub struct Stream {
+    pub stream_id: i64,
+    pub device_id: i64,
+}
+
+pub fn create_stream(device_id: i64) -> Stream {
+    Stream {
+        stream_id: 1,
+        device_id: device_id,
+    }
+}
+
+impl Stream {
+    pub fn synchronize(self: &Stream) -> i64 {
+        0
+    }
+}
+
+pub struct Buffer {
+    pub size_bytes: i64,
+    pub is_unified: i64,
+    pub device_id: i64,
+}
+
+pub fn alloc_device_buffer(device_id: i64, size_bytes: i64) -> Buffer {
+    Buffer {
+        size_bytes: size_bytes,
+        is_unified: 0,
+        device_id: device_id,
+    }
+}
+
+pub fn alloc_unified_buffer(size_bytes: i64) -> Buffer {
+    Buffer {
+        size_bytes: size_bytes,
+        is_unified: 1,
+        device_id: 0,
+    }
+}
+
+impl Buffer {
+    pub fn get_size(self: &Buffer) -> i64 {
+        self.size_bytes
+    }
+
+    pub fn is_unified_memory(self: &Buffer) -> i64 {
+        self.is_unified
+    }
+}

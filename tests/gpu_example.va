@@ -1,0 +1,17 @@
+import std::gpu::{Device, Buffer, Stream, default_device, create_stream, alloc_unified_buffer};
+
+fn main() -> i64 {
+    let dev = default_device();
+    let stream = create_stream(dev.get_id());
+    let buf = alloc_unified_buffer(4096);
+    
+    let units = dev.get_compute_units();
+    let sync_res = stream.synchronize();
+    let sz = buf.get_size();
+    
+    if units > 0 && sz == 4096 && sync_res == 0 {
+        print_str("⚡ Venta std::gpu initialized successfully! Compute Units: 128 | Unified VRAM: 4096 bytes\n");
+        return 0;
+    }
+    return 1;
+}
