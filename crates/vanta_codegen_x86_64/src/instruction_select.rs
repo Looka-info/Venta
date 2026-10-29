@@ -1286,6 +1286,300 @@ impl<'a> InstructionSelector<'a> {
                     return;
                 }
 
+                if callee == "venta_simd_reg_load512" || callee == "simd_reg_load512" {
+                    assert!(!args.is_empty(), "reg_load512 requires src_ptr");
+                    let src_ptr_op = self.get_val_op(args[0]);
+                    let base_r = match src_ptr_op {
+                        Operand::Reg(r) => r,
+                        _ => {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: src_ptr_op,
+                            });
+                            Reg::R10
+                        }
+                    };
+                    let d = dest.expect("reg_load512 must have destination ValueId");
+                    let loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    match loc {
+                        SimdLocation::Reg(reg) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                        }
+                        SimdLocation::Spill(slot) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
+                if callee == "venta_simd_reg_store512" || callee == "simd_reg_store512" {
+                    assert!(args.len() >= 2, "reg_store512 requires dest_ptr and handle");
+                    let dest_ptr_op = self.get_val_op(args[0]);
+                    let base_r = match dest_ptr_op {
+                        Operand::Reg(r) => r,
+                        _ => {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: dest_ptr_op,
+                            });
+                            Reg::R10
+                        }
+                    };
+                    let val_id = args[1];
+                    let loc = self
+                        .get_simd_loc(val_id)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    match loc {
+                        SimdLocation::Reg(reg) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                                src: SimdOperand::Reg(reg),
+                            });
+                        }
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    if let Some(d) = dest {
+                        let dest_op = self.get_val_op(*d);
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
+                    }
+                    return;
+                }
+
+                if callee == "venta_simd_reg_add512" || callee == "simd_reg_add512" {
+                    assert!(args.len() >= 2, "reg_add512 requires a_handle and b_handle");
+                    let a_loc = self
+                        .get_simd_loc(args[0])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    let b_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(1)));
+                    let d = dest.expect("reg_add512 must have destination ValueId");
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+
+                    let reg_a = match a_loc {
+                        SimdLocation::Reg(r) => r,
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                    };
+
+                    let reg_b = match b_loc {
+                        SimdLocation::Reg(r) => r,
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                    };
+
+                    match d_loc {
+                        SimdLocation::Reg(reg_d) => {
+                            out.push(MachineInst::Vpaddq {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg_d),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                        }
+                        SimdLocation::Spill(slot_d) => {
+                            out.push(MachineInst::Vpaddq {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot_d);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
+                if callee == "venta_simd_reg_fma512" || callee == "simd_reg_fma512" {
+                    assert!(
+                        args.len() >= 3,
+                        "reg_fma512 requires acc_handle, a_handle, and b_handle"
+                    );
+                    let acc_loc = self
+                        .get_simd_loc(args[0])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    let a_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(1)));
+                    let b_loc = self
+                        .get_simd_loc(args[2])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(2)));
+                    let d = dest.expect("reg_fma512 must have destination ValueId");
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+
+                    let reg_acc = match acc_loc {
+                        SimdLocation::Reg(r) => r,
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                    };
+
+                    let reg_a = match a_loc {
+                        SimdLocation::Reg(r) => r,
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                    };
+
+                    let reg_b = match b_loc {
+                        SimdLocation::Reg(r) => r,
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdReg::zmm(15)),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdReg::zmm(15)
+                        }
+                    };
+
+                    match d_loc {
+                        SimdLocation::Reg(reg_d) => {
+                            if reg_d != reg_acc {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(reg_d),
+                                    src: SimdOperand::Reg(reg_acc),
+                                });
+                            }
+                            out.push(MachineInst::Vfmadd231pd {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg_d),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                        }
+                        SimdLocation::Spill(slot_d) => {
+                            out.push(MachineInst::Vfmadd231pd {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg_acc),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot_d);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(reg_acc),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
                 if callee == "venta_simd_vmovups_load512" || callee == "simd_vmovups_load512" {
                     assert!(
                         args.len() >= 2,
@@ -1873,6 +2167,396 @@ impl<'a> InstructionSelector<'a> {
                                     width: VectorWidth::V256,
                                     dest: SimdOperand::Mem { base, offset },
                                     src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
+                if callee == "venta_simd_vec_load512" || callee == "simd_vec_load512" {
+                    assert!(!args.is_empty(), "vec_load512 requires src_ptr");
+                    let src_ptr_op = self.get_val_op(args[0]);
+                    let base_r = match src_ptr_op {
+                        Operand::Reg(r) => r,
+                        _ => {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: src_ptr_op,
+                            });
+                            Reg::R10
+                        }
+                    };
+                    let d = dest.expect("vec_load512 must have destination ValueId");
+                    let loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    match loc {
+                        SimdLocation::Reg(reg) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                        }
+                        SimdLocation::Spill(slot) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
+                if callee == "venta_simd_vec_store512" || callee == "simd_vec_store512" {
+                    assert!(args.len() >= 2, "vec_store512 requires dest_ptr and val");
+                    let dest_ptr_op = self.get_val_op(args[0]);
+                    let val_loc = self
+                        .get_simd_loc(args[1])
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+                    let base_r = match dest_ptr_op {
+                        Operand::Reg(r) => r,
+                        _ => {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: dest_ptr_op,
+                            });
+                            Reg::R10
+                        }
+                    };
+                    match val_loc {
+                        SimdLocation::Reg(r) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                                src: SimdOperand::Reg(r),
+                            });
+                        }
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem {
+                                        base: base_r,
+                                        offset: 0,
+                                    },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    if let Some(d) = dest {
+                        let dest_op = self.get_val_op(*d);
+                        out.push(MachineInst::Mov {
+                            dest: dest_op,
+                            src: Operand::Imm(0),
+                        });
+                    }
+                    return;
+                }
+
+                if callee == "venta_simd_vec_add512" || callee == "simd_vec_add512" {
+                    assert!(args.len() >= 2, "vec_add512 requires a and b");
+                    let d = dest.expect("vec_add512 must have destination ValueId");
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+
+                    let reg_a = match self.get_simd_loc(args[0]) {
+                        Some(SimdLocation::Reg(r)) => r,
+                        Some(SimdLocation::Spill(slot)) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                        None => {
+                            let a_op = self.get_val_op(args[0]);
+                            let base_r = match a_op {
+                                Operand::Reg(r) => r,
+                                _ => {
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: a_op,
+                                    });
+                                    Reg::R10
+                                }
+                            };
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                    };
+
+                    let reg_b = match self.get_simd_loc(args[1]) {
+                        Some(SimdLocation::Reg(r)) => r,
+                        Some(SimdLocation::Spill(slot)) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                        None => {
+                            let b_op = self.get_val_op(args[1]);
+                            let base_r = match b_op {
+                                Operand::Reg(r) => r,
+                                _ => {
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R11),
+                                        src: b_op,
+                                    });
+                                    Reg::R11
+                                }
+                            };
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                    };
+
+                    match d_loc {
+                        SimdLocation::Reg(reg_d) => {
+                            out.push(MachineInst::Vpaddq {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg_d),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                        }
+                        SimdLocation::Spill(slot_d) => {
+                            out.push(MachineInst::Vpaddq {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot_d);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                });
+                            }
+                        }
+                    }
+                    let dest_op = self.get_val_op(d);
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Imm(d.0 as i64),
+                    });
+                    return;
+                }
+
+                if callee == "venta_simd_vec_fma512" || callee == "simd_vec_fma512" {
+                    assert!(args.len() >= 3, "vec_fma512 requires acc, a, and b");
+                    let d = dest.expect("vec_fma512 must have destination ValueId");
+                    let d_loc = self
+                        .get_simd_loc(d)
+                        .unwrap_or(SimdLocation::Reg(SimdReg::zmm(0)));
+
+                    let reg_acc = match self.get_simd_loc(args[0]) {
+                        Some(SimdLocation::Reg(r)) => r,
+                        Some(SimdLocation::Spill(slot)) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                        None => {
+                            let acc_op = self.get_val_op(args[0]);
+                            let base_r = match acc_op {
+                                Operand::Reg(r) => r,
+                                _ => {
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: acc_op,
+                                    });
+                                    Reg::R10
+                                }
+                            };
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            SimdRegisterAllocator::SCRATCH_A_512
+                        }
+                    };
+
+                    let reg_a = match self.get_simd_loc(args[1]) {
+                        Some(SimdLocation::Reg(r)) => r,
+                        Some(SimdLocation::Spill(slot)) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                        None => {
+                            let a_op = self.get_val_op(args[1]);
+                            let base_r = match a_op {
+                                Operand::Reg(r) => r,
+                                _ => {
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R11),
+                                        src: a_op,
+                                    });
+                                    Reg::R11
+                                }
+                            };
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_B_512),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            SimdRegisterAllocator::SCRATCH_B_512
+                        }
+                    };
+
+                    let reg_b = match self.get_simd_loc(args[2]) {
+                        Some(SimdLocation::Reg(r)) => r,
+                        Some(SimdLocation::Spill(slot)) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(SimdReg::zmm(15)),
+                                    src: SimdOperand::Mem { base, offset },
+                                });
+                            }
+                            SimdReg::zmm(15)
+                        }
+                        None => {
+                            let b_op = self.get_val_op(args[2]);
+                            let base_r = match b_op {
+                                Operand::Reg(r) => r,
+                                _ => {
+                                    out.push(MachineInst::Mov {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: b_op,
+                                    });
+                                    Reg::R10
+                                }
+                            };
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdReg::zmm(15)),
+                                src: SimdOperand::Mem {
+                                    base: base_r,
+                                    offset: 0,
+                                },
+                            });
+                            SimdReg::zmm(15)
+                        }
+                    };
+
+                    match d_loc {
+                        SimdLocation::Reg(reg_d) => {
+                            if reg_d != reg_acc {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Reg(reg_d),
+                                    src: SimdOperand::Reg(reg_acc),
+                                });
+                            }
+                            out.push(MachineInst::Vfmadd231pd {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(reg_d),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                        }
+                        SimdLocation::Spill(slot_d) => {
+                            out.push(MachineInst::Vmovups {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src: SimdOperand::Reg(reg_acc),
+                            });
+                            out.push(MachineInst::Vfmadd231pd {
+                                width: VectorWidth::V512,
+                                dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
+                                src1: SimdOperand::Reg(reg_a),
+                                src2: SimdOperand::Reg(reg_b),
+                            });
+                            let spill_op = self.frame.get_simd_spill_op(slot_d);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V512,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A_512),
                                 });
                             }
                         }
@@ -2964,13 +3648,18 @@ impl<'a> InstructionSelector<'a> {
                         out.push(MachineInst::Jmp(self.epilogue_label.clone()));
                     }
                 } else if ret_class.is_vector() {
+                    let vec_width = if ret_class.is_vector512() {
+                        VectorWidth::V512
+                    } else {
+                        VectorWidth::V256
+                    };
                     if let Some(v) = val {
                         if let Some(simd_loc) = self.get_simd_loc(*v) {
                             match simd_loc {
                                 SimdLocation::Reg(r) => {
                                     if r != SimdReg(0) {
                                         out.push(MachineInst::Vmovups {
-                                            width: VectorWidth::V256,
+                                            width: vec_width,
                                             dest: SimdOperand::Reg(SimdReg(0)),
                                             src: SimdOperand::Reg(r),
                                         });
@@ -2980,7 +3669,7 @@ impl<'a> InstructionSelector<'a> {
                                     let spill_op = self.frame.get_simd_spill_op(slot);
                                     if let Operand::Mem { base, offset } = spill_op {
                                         out.push(MachineInst::Vmovups {
-                                            width: VectorWidth::V256,
+                                            width: vec_width,
                                             dest: SimdOperand::Reg(SimdReg(0)),
                                             src: SimdOperand::Mem { base, offset },
                                         });
@@ -3000,7 +3689,7 @@ impl<'a> InstructionSelector<'a> {
                                 }
                             };
                             out.push(MachineInst::Vmovups {
-                                width: VectorWidth::V256,
+                                width: vec_width,
                                 dest: SimdOperand::Reg(SimdReg(0)),
                                 src: SimdOperand::Mem {
                                     base: base_r,

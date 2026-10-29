@@ -347,12 +347,87 @@ Measured on `x86_64-unknown-linux-gnu` comparing `--no-vectorize` (scalar) vs `-
 
 ---
 
-## 8. Architectural Boundaries & Next Steps
+## 8. AVX-512 ZMM Register Allocation, Spilling & System V Vector ABI (Milestone 26.4)
 
-Milestones 26 through 26.3 establish complete 256-bit SIMD instruction emission, register allocation, System V AMD64 calling conventions, and automated loop auto-vectorization.
+### 8.1 Physical Register File & Allocation Architecture
 
-The remaining items on the v1.1 release trajectory are:
-1. **512-bit ZMM Register Allocation & Vector ABI**:
-   Extend physical vector allocation to 512-bit `zmm0`–`zmm31` registers and EVEX vector calling conventions with 64-byte aligned stack spill frames under AVX-512 target features.
+Milestone 26.4 extends Venta's native x86-64 backend to support 512-bit vector operations across all 32 physical ZMM registers (`zmm0` through `zmm31`).
+
+```
+Unified Physical Vector Register Hierarchy:
++-----------------------------------------------------------------------------------------------+
+| ZMMn (512 bits)                                                                               |
+| [ Bits 511 .................... 256 | Bits 255 .................... 128 | Bits 127 ........ 0 ] |
++-----------------------------------------------------------------------------------------------+
+                                      | YMMn (256 bits)                   | XMMn (128 bits)     |
+                                      +-----------------------------------+---------------------+
+```
+
+- **Physical Register Aliasing**: Each physical vector register index $N \in [0, 31]$ is represented by `SimdReg(N)`. `xmmN`, `ymmN`, and `zmmN` share the exact same physical register slot without duplicate allocation entries.
+- **AVX-512 Allocatable Bank**: With `--target-feature=+avx512f` (or `-C target-cpu=x86-64-v4`), `SimdRegisterAllocator::ALLOCATABLE_ZMM` exposes 30 allocatable registers (`zmm0`..`zmm29`).
+- **Dedicated Scratch Registers**: `zmm30` (`SCRATCH_A_512`) and `zmm31` (`SCRATCH_B_512`) are permanently reserved as dedicated scratch buffers for spill and reload generation, guaranteeing that memory spills never trigger secondary allocator starvation.
+- **AVX2 Compatibility**: When compiling for AVX2 (`--target-feature=+avx2`), the allocator restricts itself to 14 registers (`ymm0`..`ymm13`), with `ymm14` and `ymm15` serving as scratch buffers.
+
+### 8.2 Intel EVEX Compressed Displacement ($Disp8 \times N$)
+
+A key architectural requirement of Intel EVEX encoding is **Compressed Displacement** ($Disp8 \times N$):
+- For 512-bit full vectors (`VectorWidth::V512`), the scale factor is $N = 64$.
+- For 256-bit vectors under EVEX, the scale factor is $N = 32$.
+- When a memory operand offset is divisible by $N$ and $\frac{\text{offset}}{N} \in [-128, 127]$, Venta emits a single-byte ModR/M displacement byte (`disp8 = offset / N`).
+- When an offset is not divisible by $N$ (for example, reading a function argument off the caller stack at `16(%rbp)`), Venta automatically emits uncompressed 4-byte ModR/M displacement (`mod = 10b`, `disp32`), matching the hardware specification and ensuring compatibility with GNU `as` and GCC.
+
+### 8.3 Dynamic 64-Byte Stack Frame Realignment
+
+Because the standard System V AMD64 stack is only 16-byte aligned at function entry, unaligned 512-bit vector accesses (`vmovups`) to stack spill slots would degrade performance or fault on aligned operations.
+
+1. **Prologue Dynamic Realignment**:
+   Functions utilizing 512-bit variables, vector parameters, vector returns, or 512-bit spills emit:
+   ```asm
+   push   %rbp
+   mov    %rsp,%rbp
+   push   <callee-saved-gprs>
+   and    $0xffffffffffffffc0,%rsp    # Dynamic 64-byte realignment (and rsp, -64)
+   sub    $frame_size,%rsp
+   ```
+2. **64-Byte Spill Slots**: Spills are sequentially allocated at offsets `[rsp + 64*k]`, guaranteeing strict 64-byte alignment.
+3. **Epilogue Restoration**: Frame teardown restores `%rsp` directly from `%rbp`:
+   ```asm
+   lea    -callee_offset(%rbp),%rsp   # or mov %rsp, %rbp
+   pop    <callee-saved-gprs>
+   pop    %rbp
+   ret
+   ```
+
+### 8.4 System V AMD64 512-bit Vector ABI
+
+- **Classification**: Types `v512`, `Simd512`, and 64-byte structs with $\ge 32$-byte alignment classify as `AbiClass::Vector512`.
+- **Parameter Passing**:
+  - The first 8 vector arguments are passed in registers `zmm0` through `zmm7`.
+  - The 9th and subsequent vector arguments overflow to the caller stack frame at `16(%rbp)`, aligned to 64 bytes.
+- **Return Value**: Single 512-bit vector returned in `zmm0`.
+- **Orthogonal Allocation**: Integer registers (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`) and vector registers (`zmm0`–`zmm7`) allocate independently without cross-interference.
+
+### 8.5 Verification Results (`crates/vanta_driver/tests/simd_avx512_tests.rs`)
+
+All 7 integration tests pass cleanly:
+1. `test_avx512_code_generation_and_dynamic_alignment`: Dynamic 64-byte stack realignment (`and rsp, -64`) and EVEX `vpaddq` emission. **PASSED**
+2. `test_avx512_allocator_utilizes_expanded_zmm_registers`: Linear scan allocator utilizes expanded ZMM register file (including upper bank `zmm16`..`zmm29`). **PASSED**
+3. `test_avx512_spill_and_reload_64byte_aligned`: High register pressure (>30 live vector values) spills to 64-byte aligned stack slots. **PASSED**
+4. `test_avx512_abi_parameter_passing_and_exhaustion`: Passing 9 vectors (8 in `zmm0`..`zmm7`, 1 on 64-byte aligned stack) and returning in `zmm0`. **PASSED**
+5. `test_avx512_abi_mixed_scalar_and_vector`: Interleaved integer and vector arguments confirm independent register counter progression. **PASSED**
+6. `test_avx512_c_oracle_bidirectional_interop`: Bidirectional C ABI interoperability linking Venta `.o` with GCC `-mavx512f` and `__m512i`. **PASSED**
+7. `test_negative_avx512_target_feature_rejection`: Compiler cleanly rejects 512-bit SIMD intrinsics when `+avx512f` is omitted. **PASSED**
+
+---
+
+## 9. Architectural Boundaries & Next Steps
+
+Milestones 26 through 26.4 establish complete 256-bit and 512-bit SIMD instruction emission, register allocation, System V AMD64 vector calling conventions, and automated loop auto-vectorization.
+
+Next steps for the v1.1 and post-v1.1 roadmap:
+1. **8-Lane AVX-512 Loop Auto-Vectorization**:
+   Extend `vanta_mir::opt::vectorize` to emit 8-lane 512-bit vector loops when `--target-feature=+avx512f` is enabled.
 2. **SLP (Superword-Level Parallelism)**:
    Vectorize isomorphic straight-line expressions across basic blocks.
+3. **Milestone 27 — DWARF 5 Debug Symbol Generation**:
+   Emit `.debug_info`, `.debug_line`, and `.debug_frame` for interactive debugging in GDB/LLDB.

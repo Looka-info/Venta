@@ -24,7 +24,7 @@ pub use simd_alloc::{
 };
 use std::collections::HashMap;
 pub use target::TargetFeatures;
-use vanta_mir::MirProgram;
+use vanta_mir::{Instruction, MirProgram};
 use vanta_sema::Type;
 
 pub struct X86_64Backend;
@@ -95,6 +95,13 @@ impl X86_64Backend {
                 Type::Struct("v256".into()),
             ),
         );
+        fn_signatures.insert(
+            "vanta_c_vector_add512".into(),
+            (
+                vec![Type::Struct("v512".into()), Type::Struct("v512".into())],
+                Type::Struct("v512".into()),
+            ),
+        );
 
         for func in &program.functions {
             // Align function entry to 16 bytes
@@ -108,23 +115,48 @@ impl X86_64Backend {
             let scalar_intervals = RegisterAllocator::compute_live_intervals(func);
 
             // 2. Identify virtual SIMD values
-            let simd_val_map =
-                simd_alloc::identify_simd_values(func, &program.structs, &program.enums);
+            let (simd_val_map, simd_width_map) =
+                simd_alloc::identify_simd_values_with_width(func, &program.structs, &program.enums);
 
-            // 3. Construct SIMD intervals and allocate physical YMM registers
+            // 3. Construct SIMD intervals and allocate physical vector registers
+            let mut real_call_points = Vec::new();
+            let mut pt = 0usize;
+            for block in &func.blocks {
+                for inst in &block.instructions {
+                    pt += 2;
+                    if let Instruction::Call { callee, .. } = inst {
+                        if !callee.starts_with("venta_simd_") && !callee.starts_with("simd_") {
+                            real_call_points.push(pt);
+                        }
+                    }
+                }
+                if block.terminator.is_some() {
+                    pt += 2;
+                }
+            }
+
+            let is_avx512 = target_features.avx512f;
             let mut simd_intervals = Vec::new();
             for iv in &scalar_intervals {
                 if let Some(&simd_id) = simd_val_map.get(&iv.val) {
+                    let width = simd_width_map
+                        .get(&simd_id)
+                        .copied()
+                        .unwrap_or(VectorWidth::V256);
+                    let does_cross_real_call = real_call_points
+                        .iter()
+                        .any(|&cp| cp > iv.start && cp <= iv.end);
                     simd_intervals.push(SimdLiveInterval {
                         val: simd_id,
-                        width: VectorWidth::V256,
+                        width,
                         start: iv.start,
                         end: iv.end,
-                        does_cross_call: iv.does_cross_call,
+                        does_cross_call: does_cross_real_call,
                     });
                 }
             }
-            let simd_alloc_res = SimdRegisterAllocator::allocate(simd_intervals);
+            let simd_alloc_res =
+                SimdRegisterAllocator::allocate_with_target(simd_intervals, is_avx512);
 
             // 4. Separate scalar intervals from SIMD intervals so GPR allocator
             // does not allocate general-purpose registers to SIMD values

@@ -95,6 +95,14 @@ impl StructDef {
             max_align = max_align.max(32);
         }
 
+        if name == "v512"
+            || name == "Simd512"
+            || name.ends_with("__v512")
+            || name.ends_with("__Simd512")
+        {
+            max_align = max_align.max(64);
+        }
+
         for (fname, fty, is_pub) in raw_fields {
             let align = fty.alignment_with_context(struct_defs, enum_defs).max(1);
             let size = fty.size_with_context(struct_defs, enum_defs);
@@ -388,6 +396,10 @@ impl Type {
                     || name == "Simd256"
                     || name.ends_with("__v256")
                     || name.ends_with("__Simd256")
+                    || name == "v512"
+                    || name == "Simd512"
+                    || name.ends_with("__v512")
+                    || name.ends_with("__Simd512")
                 {
                     true
                 } else if name == "Vec" || name.starts_with("Vec__") || self.is_string() {
@@ -489,7 +501,13 @@ impl Type {
             }
             Type::Array { inner, len } => inner.size_with_context(structs, enums) * len,
             Type::Struct(name) => {
-                if name == "v256"
+                if name == "v512"
+                    || name == "Simd512"
+                    || name.ends_with("__v512")
+                    || name.ends_with("__Simd512")
+                {
+                    64
+                } else if name == "v256"
                     || name == "Simd256"
                     || name.ends_with("__v256")
                     || name.ends_with("__Simd256")
@@ -519,7 +537,13 @@ impl Type {
             Type::Ref { .. } => 8,
             Type::Array { inner, .. } => inner.alignment_with_context(structs, enums),
             Type::Struct(name) => {
-                if name == "v256"
+                if name == "v512"
+                    || name == "Simd512"
+                    || name.ends_with("__v512")
+                    || name.ends_with("__Simd512")
+                {
+                    64
+                } else if name == "v256"
                     || name == "Simd256"
                     || name.ends_with("__v256")
                     || name.ends_with("__Simd256")

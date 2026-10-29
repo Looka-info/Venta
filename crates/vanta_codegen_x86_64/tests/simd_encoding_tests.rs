@@ -240,6 +240,35 @@ fn test_avx512_512bit_encodings() {
         )
         .expect("encoding should succeed");
     assert_eq!(emitter.bytes, vec![0x62, 0xf2, 0xf5, 0x48, 0xb8, 0xc2]);
+
+    // 4. High register EVEX test: vmovups %zmm17, %zmm16 -> 62 a1 7c 48 10 c1
+    let mut emitter = CodeEmitter::with_target(target);
+    emitter
+        .encode_instruction_checked(
+            &MachineInst::Vmovups {
+                width: VectorWidth::V512,
+                dest: SimdOperand::Reg(SimdReg::zmm(16)),
+                src: SimdOperand::Reg(SimdReg::zmm(17)),
+            },
+            &target,
+        )
+        .expect("encoding should succeed");
+    assert_eq!(emitter.bytes, vec![0x62, 0xa1, 0x7c, 0x48, 0x10, 0xc1]);
+
+    // 5. Extended high registers: vpaddq %zmm31, %zmm30, %zmm29 -> 62 01 8d 40 d4 ef
+    let mut emitter = CodeEmitter::with_target(target);
+    emitter
+        .encode_instruction_checked(
+            &MachineInst::Vpaddq {
+                width: VectorWidth::V512,
+                dest: SimdOperand::Reg(SimdReg::zmm(29)),
+                src1: SimdOperand::Reg(SimdReg::zmm(30)),
+                src2: SimdOperand::Reg(SimdReg::zmm(31)),
+            },
+            &target,
+        )
+        .expect("encoding should succeed");
+    assert_eq!(emitter.bytes, vec![0x62, 0x01, 0x8d, 0x40, 0xd4, 0xef]);
 }
 
 #[test]

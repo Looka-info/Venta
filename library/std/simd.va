@@ -86,3 +86,48 @@ pub fn vpaddq512(dest_ptr: i64, a_ptr: i64, b_ptr: i64) {
 pub fn vfmadd231pd512(dest_ptr: i64, a_ptr: i64, b_ptr: i64, c_ptr: i64) {
     venta_simd_vfmadd231pd512(dest_ptr, a_ptr, b_ptr, c_ptr);
 }
+
+// Value-based virtual 512-bit SIMD register operations (Milestone 26.4)
+pub fn reg_load512(src_ptr: i64) -> i64 {
+    venta_simd_reg_load512(src_ptr)
+}
+
+pub fn reg_store512(dest_ptr: i64, handle: i64) {
+    venta_simd_reg_store512(dest_ptr, handle);
+}
+
+pub fn reg_add512(a: i64, b: i64) -> i64 {
+    venta_simd_reg_add512(a, b)
+}
+
+pub fn reg_fma512(acc: i64, a: i64, b: i64) -> i64 {
+    venta_simd_reg_fma512(acc, a, b)
+}
+
+// 512-bit Vector Type and Direct ABI Operations (Milestone 26.4)
+pub struct v512 {
+    pub q0: i64,
+    pub q1: i64,
+    pub q2: i64,
+    pub q3: i64,
+    pub q4: i64,
+    pub q5: i64,
+    pub q6: i64,
+    pub q7: i64,
+}
+
+pub fn vec_load512(src_ptr: i64) -> v512 {
+    venta_simd_vec_load512(src_ptr)
+}
+
+pub fn vec_store512(dest_ptr: i64, val: v512) {
+    venta_simd_vec_store512(dest_ptr, val);
+}
+
+pub fn vec_add512(a: v512, b: v512) -> v512 {
+    venta_simd_vec_add512(a, b)
+}
+
+pub fn vec_fma512(acc: v512, a: v512, b: v512) -> v512 {
+    venta_simd_vec_fma512(acc, a, b)
+}

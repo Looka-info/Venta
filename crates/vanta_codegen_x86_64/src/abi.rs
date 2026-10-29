@@ -18,6 +18,8 @@ pub enum AbiClass {
     Integer2 { size: usize },
     /// 256-bit vector (32 bytes, 1 SSE + 3 SSEUP eightbytes), returned in %ymm0, passed in %ymm0..%ymm7.
     Vector256,
+    /// 512-bit vector (64 bytes, 1 SSE + 7 SSEUP eightbytes), returned in %zmm0, passed in %zmm0..%zmm7.
+    Vector512,
     /// Memory class: returned via caller-provided storage passed as a hidden first
     /// pointer argument in %rdi (`sret`). Callee returns %rdi in %rax.
     Memory { size: usize, align: usize },
@@ -36,10 +38,22 @@ impl AbiClass {
         matches!(self, AbiClass::Void)
     }
 
-    /// Whether this type is a 256-bit vector.
+    /// Whether this type is a vector (256-bit or 512-bit).
     #[inline]
     pub fn is_vector(&self) -> bool {
+        matches!(self, AbiClass::Vector256 | AbiClass::Vector512)
+    }
+
+    /// Whether this type is specifically a 256-bit vector.
+    #[inline]
+    pub fn is_vector256(&self) -> bool {
         matches!(self, AbiClass::Vector256)
+    }
+
+    /// Whether this type is specifically a 512-bit vector.
+    #[inline]
+    pub fn is_vector512(&self) -> bool {
+        matches!(self, AbiClass::Vector512)
     }
 
     /// Total byte size of the type.
@@ -49,6 +63,7 @@ impl AbiClass {
             AbiClass::Integer1 { size } => *size,
             AbiClass::Integer2 { size } => *size,
             AbiClass::Vector256 => 32,
+            AbiClass::Vector512 => 64,
             AbiClass::Memory { size, .. } => *size,
         }
     }
@@ -60,6 +75,7 @@ impl AbiClass {
             AbiClass::Integer1 { size } => (*size).min(8).max(1),
             AbiClass::Integer2 { .. } => 8,
             AbiClass::Vector256 => 32,
+            AbiClass::Vector512 => 64,
             AbiClass::Memory { align, .. } => *align,
         }
     }
@@ -163,6 +179,24 @@ pub fn compute_fn_call_layout(
                         offset: off,
                         size: 32,
                         align: 32,
+                    });
+                }
+            }
+            AbiClass::Vector512 => {
+                if sse_reg_idx < VECTOR_ARG_REGS.len() {
+                    let reg = VECTOR_ARG_REGS[sse_reg_idx];
+                    sse_reg_idx += 1;
+                    arg_locations.push(ArgLocation::VectorReg(reg));
+                } else {
+                    // Argument register exhaustion: passed on stack.
+                    // Under System V ABI, 512-bit vector stack arguments are 64-byte aligned.
+                    current_stack_offset = (current_stack_offset + 63) & !63;
+                    let off = current_stack_offset as i32;
+                    current_stack_offset += 64;
+                    arg_locations.push(ArgLocation::Stack {
+                        offset: off,
+                        size: 64,
+                        align: 64,
                     });
                 }
             }
@@ -288,6 +322,19 @@ pub fn classify_type(
                 return AbiClass::Memory { size: 24, align: 8 };
             }
 
+            // 512-bit SIMD Vector classification (Milestone 26.4):
+            // Under System V AMD64 ABI, an object of 512 bits (64 bytes) with SSE/SSEUP eightbytes
+            // is classified as Vector512 (returned in %zmm0, passed in %zmm0..%zmm7).
+            if name == "v512"
+                || name == "Simd512"
+                || name == "v512i"
+                || name == "v512d"
+                || name.ends_with("__v512")
+                || name.ends_with("__Simd512")
+            {
+                return AbiClass::Vector512;
+            }
+
             // 256-bit SIMD Vector classification (Milestone 26.2):
             // Under System V AMD64 ABI, an object of 256 bits (32 bytes) with SSE/SSEUP eightbytes
             // is classified as Vector256 (returned in %ymm0, passed in %ymm0..%ymm7).
@@ -310,6 +357,11 @@ pub fn classify_type(
 
             let total_size = s_def.total_size;
             let align = s_def.alignment.max(8);
+
+            // If a struct is exactly 64 bytes and >=32-byte aligned, classify as Vector512
+            if total_size == 64 && align >= 32 {
+                return AbiClass::Vector512;
+            }
 
             // If a struct is exactly 32 bytes and 16/32-byte aligned, classify as Vector256
             if total_size == 32 && align >= 16 {
@@ -562,6 +614,27 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_vector512() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        assert_eq!(
+            classify_type(&Type::Struct("v512".into()), &structs, &enums),
+            AbiClass::Vector512
+        );
+        assert_eq!(
+            classify_type(&Type::Struct("Simd512".into()), &structs, &enums),
+            AbiClass::Vector512
+        );
+        assert_eq!(AbiClass::Vector512.size(), 64);
+        assert_eq!(AbiClass::Vector512.align(), 64);
+        assert!(AbiClass::Vector512.is_vector());
+        assert!(AbiClass::Vector512.is_vector512());
+        assert!(!AbiClass::Vector512.is_vector256());
+        assert!(!AbiClass::Vector512.is_memory());
+    }
+
+    #[test]
     fn test_fn_call_layout_single_vector() {
         let structs = HashMap::new();
         let enums = HashMap::new();
@@ -577,6 +650,25 @@ mod tests {
         assert_eq!(layout.arg_locations[0], ArgLocation::VectorReg(SimdReg(0)));
         assert_eq!(layout.stack_arg_bytes, 0);
         assert_eq!(layout.ret_class, AbiClass::Vector256);
+        assert!(!layout.has_sret);
+    }
+
+    #[test]
+    fn test_fn_call_layout_single_vector512() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        let layout = compute_fn_call_layout(
+            &[Type::Struct("v512".into())],
+            &Type::Struct("v512".into()),
+            &structs,
+            &enums,
+        );
+
+        assert_eq!(layout.arg_locations.len(), 1);
+        assert_eq!(layout.arg_locations[0], ArgLocation::VectorReg(SimdReg(0)));
+        assert_eq!(layout.stack_arg_bytes, 0);
+        assert_eq!(layout.ret_class, AbiClass::Vector512);
         assert!(!layout.has_sret);
     }
 
@@ -605,6 +697,33 @@ mod tests {
             }
         );
         assert_eq!(layout.stack_arg_bytes, 32);
+    }
+
+    #[test]
+    fn test_fn_call_layout_multiple_vector512_and_exhaustion() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        // 9 512-bit vector arguments: 8 in registers (zmm0..zmm7), 9th on stack with 64-byte alignment
+        let params = vec![Type::Struct("v512".into()); 9];
+        let layout = compute_fn_call_layout(&params, &Type::Unit, &structs, &enums);
+
+        assert_eq!(layout.arg_locations.len(), 9);
+        for i in 0..8 {
+            assert_eq!(
+                layout.arg_locations[i],
+                ArgLocation::VectorReg(SimdReg(i as u8))
+            );
+        }
+        assert_eq!(
+            layout.arg_locations[8],
+            ArgLocation::Stack {
+                offset: 0,
+                size: 64,
+                align: 64,
+            }
+        );
+        assert_eq!(layout.stack_arg_bytes, 64);
     }
 
     #[test]

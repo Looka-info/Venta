@@ -53,6 +53,14 @@ flowchart LR
   - Correct scalar remainder loop preserving identical semantics for bounds checks, remainder iterations ($N \pmod 4 \in \{1, 2, 3\}$), and short trip counts.
   - Comprehensive runtime alias safety checks (`out + count*8 <= a || a + count*8 <= out`) and in-place update validation (`out == a`).
   - Verified target-feature gating (`+avx2`, `+fma`), differential CLI flag (`--no-vectorize`), and **6.3x–6.7x speedup** on vector addition kernels.
+- **AVX-512 ZMM Register Allocation, Spilling & Vector ABI (Milestone 26.4 - Completed)**:
+  - Extended linear scan register allocator to allocate virtual 512-bit vector values across 30 physical ZMM registers (`zmm0`–`zmm29`), reserving `zmm30` (`SCRATCH_A_512`) and `zmm31` (`SCRATCH_B_512`) as dedicated scratch registers.
+  - Full physical register file aliasing: `xmmN`, `ymmN`, and `zmmN` alias directly to `SimdReg(N)` ($0 \le N < 32$).
+  - Dynamic 64-byte stack frame alignment in function prologues (`and rsp, -64`) with robust epilogue frame restoration via `rbp`.
+  - System V AMD64 512-bit vector ABI: parameter classification for `v512`, `Simd512` (`AbiClass::Vector512`), argument passing in `zmm0`..`zmm7`, vector return in `zmm0`, and 64-byte aligned stack exhaustion passing.
+  - Intel EVEX compressed displacement ($Disp8 \times N$ with $N=64$ for full 512-bit vectors) and uncompressed Disp32 fallback.
+  - Bidirectional C ABI oracle interoperability with GCC (`__m512i` and `v512`).
+  - Gated execution with CPUID / OSXSAVE / XCR0 validation (`vanta_cpu_has_avx512f`).
 - **Target Performance**: Achieved $6.3\times\text{--}6.7\times$ speedup on array addition kernels, fully eliminating the historical scalar loop gap against GCC `-O3` and Rust `release`.
 
 ---

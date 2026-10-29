@@ -162,6 +162,11 @@ impl SemanticContext {
             {
                 return true;
             }
+            if (f_base == "v512" || f_base == "Simd512")
+                && (t_base == "v512" || t_base == "Simd512")
+            {
+                return true;
+            }
         }
         if from.is_integer() && to.is_integer() {
             return true;
@@ -746,6 +751,79 @@ impl SemanticContext {
             );
         }
 
+        // Value-based virtual 512-bit SIMD register intrinsics (Milestone 26.4)
+        for name in &["venta_simd_reg_load512", "simd_reg_load512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![(
+                        "src".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Unit),
+                        },
+                        false,
+                    )],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_store512", "simd_reg_store512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        ("val".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_add512", "simd_reg_add512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("a".into(), Type::I64, false),
+                        ("b".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_reg_fma512", "simd_reg_fma512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("acc".into(), Type::I64, false),
+                        ("a".into(), Type::I64, false),
+                        ("b".into(), Type::I64, false),
+                    ],
+                    ret_type: Type::I64,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
         // 256-bit Vector ABI Intrinsics (Milestone 26.2)
         for name in &["venta_simd_vec_load256", "simd_vec_load256"] {
             functions.insert(
@@ -829,6 +907,93 @@ impl SemanticContext {
                     ("b".into(), Type::Struct("v256".into()), false),
                 ],
                 ret_type: Type::Struct("v256".into()),
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
+
+        // 512-bit Direct SIMD Vector Operations (Milestone 26.4)
+        for name in &["venta_simd_vec_load512", "simd_vec_load512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![(
+                        "src".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Unit),
+                        },
+                        false,
+                    )],
+                    ret_type: Type::Struct("v512".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_store512", "simd_vec_store512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        (
+                            "dest".into(),
+                            Type::Ref {
+                                is_mut: true,
+                                inner: Box::new(Type::Unit),
+                            },
+                            false,
+                        ),
+                        ("val".into(), Type::Struct("v512".into()), false),
+                    ],
+                    ret_type: Type::Unit,
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_add512", "simd_vec_add512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("a".into(), Type::Struct("v512".into()), false),
+                        ("b".into(), Type::Struct("v512".into()), false),
+                    ],
+                    ret_type: Type::Struct("v512".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        for name in &["venta_simd_vec_fma512", "simd_vec_fma512"] {
+            functions.insert(
+                (*name).into(),
+                FnSignature {
+                    name: (*name).into(),
+                    params: vec![
+                        ("acc".into(), Type::Struct("v512".into()), false),
+                        ("a".into(), Type::Struct("v512".into()), false),
+                        ("b".into(), Type::Struct("v512".into()), false),
+                    ],
+                    ret_type: Type::Struct("v512".into()),
+                    span: Span::new(vanta_source::FileId(0), 0, 0),
+                },
+            );
+        }
+
+        // C Vector ABI Oracle Test Hook (Milestone 26.4 - AVX-512)
+        functions.insert(
+            "vanta_c_vector_add512".into(),
+            FnSignature {
+                name: "vanta_c_vector_add512".into(),
+                params: vec![
+                    ("a".into(), Type::Struct("v512".into()), false),
+                    ("b".into(), Type::Struct("v512".into()), false),
+                ],
+                ret_type: Type::Struct("v512".into()),
                 span: Span::new(vanta_source::FileId(0), 0, 0),
             },
         );
@@ -1122,6 +1287,81 @@ impl SemanticContext {
         declared_struct_names.insert("std__simd__v256".to_string());
         declared_struct_names.insert("Simd256".to_string());
         declared_struct_names.insert("std__simd__Simd256".to_string());
+
+        let v512_def = StructDef {
+            name: "v512".to_string(),
+            fields: vec![
+                StructField {
+                    name: "q0".into(),
+                    ty: Type::I64,
+                    offset: 0,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q1".into(),
+                    ty: Type::I64,
+                    offset: 8,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q2".into(),
+                    ty: Type::I64,
+                    offset: 16,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q3".into(),
+                    ty: Type::I64,
+                    offset: 24,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q4".into(),
+                    ty: Type::I64,
+                    offset: 32,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q5".into(),
+                    ty: Type::I64,
+                    offset: 40,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q6".into(),
+                    ty: Type::I64,
+                    offset: 48,
+                    size: 8,
+                    is_pub: true,
+                },
+                StructField {
+                    name: "q7".into(),
+                    ty: Type::I64,
+                    offset: 56,
+                    size: 8,
+                    is_pub: true,
+                },
+            ],
+            total_size: 64,
+            alignment: 64,
+            is_copy: true,
+            defining_module: String::new(),
+            span: Span::new(vanta_source::FileId(0), 0, 0),
+        };
+        structs.insert("v512".to_string(), v512_def.clone());
+        structs.insert("std__simd__v512".to_string(), v512_def.clone());
+        structs.insert("Simd512".to_string(), v512_def.clone());
+        structs.insert("std__simd__Simd512".to_string(), v512_def);
+        declared_struct_names.insert("v512".to_string());
+        declared_struct_names.insert("std__simd__v512".to_string());
+        declared_struct_names.insert("Simd512".to_string());
+        declared_struct_names.insert("std__simd__Simd512".to_string());
 
         Self {
             functions,

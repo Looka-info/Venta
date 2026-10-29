@@ -19,6 +19,7 @@ pub struct FrameLayout {
     pub sret_offset: Option<i32>,
     pub has_simd_spills: bool,
     pub requires_32byte_alignment: bool,
+    pub requires_64byte_alignment: bool,
     pub total_frame_size: i32,
 }
 
@@ -67,8 +68,15 @@ impl FrameLayout {
 
         // 2. Allocate slots for local variables
         for slot in &func.slots {
-            let is_vec = slot.size == 32 && slot.align >= 32;
-            let align = if is_vec { 32 } else { slot.align.max(8) as i32 };
+            let is_vec512 = slot.size == 64 && slot.align >= 64;
+            let is_vec256 = slot.size == 32 && slot.align >= 32;
+            let align = if is_vec512 {
+                64
+            } else if is_vec256 {
+                32
+            } else {
+                slot.align.max(8) as i32
+            };
             let size = slot.size.max(8) as i32;
             current_offset = (current_offset + align - 1) & !(align - 1);
             current_offset += size;
@@ -153,29 +161,58 @@ impl FrameLayout {
             }
         }
 
-        // 5. Allocate 32-byte aligned spill slots for SIMD vector values
+        // 5. Allocate aligned spill slots for SIMD vector values
         let num_simd_spills = simd_alloc_res.map(|s| s.num_spills).unwrap_or(0);
         let has_simd_spills = num_simd_spills > 0;
-        for spill_idx in 0..num_simd_spills as u32 {
-            let offset = (spill_idx as i32) * 32;
-            simd_spill_offsets.insert(spill_idx, offset);
+        let mut simd_current = 0i32;
+        let mut has_512_spill = false;
+        if let Some(s_res) = simd_alloc_res {
+            for spill_idx in 0..num_simd_spills as u32 {
+                let width = s_res
+                    .spill_widths
+                    .get(&spill_idx)
+                    .copied()
+                    .unwrap_or(VectorWidth::V256);
+                let align = width.align() as i32;
+                let size = width.byte_size() as i32;
+                if width == VectorWidth::V512 {
+                    has_512_spill = true;
+                }
+                simd_current = (simd_current + align - 1) & !(align - 1);
+                simd_spill_offsets.insert(spill_idx, simd_current);
+                simd_current += size;
+            }
         }
-        let simd_area_bytes = (num_simd_spills as i32) * 32;
+        let simd_area_bytes = simd_current;
 
-        let has_vector_params = func
+        let has_vector512_params = func
             .params
             .iter()
-            .any(|(_, ty)| classify_type(ty, structs, enums).is_vector());
-        let has_vector_ret = classify_type(&func.ret_type, structs, enums).is_vector();
-        let has_vector_slots = func.slots.iter().any(|s| s.size == 32 && s.align >= 32);
-        let requires_32byte_alignment =
-            has_simd_spills || has_vector_params || has_vector_ret || has_vector_slots;
+            .any(|(_, ty)| classify_type(ty, structs, enums).is_vector512());
+        let has_vector512_ret = classify_type(&func.ret_type, structs, enums).is_vector512();
+        let has_vector512_slots = func.slots.iter().any(|s| s.size == 64 && s.align >= 64);
+        let requires_64byte_alignment =
+            has_512_spill || has_vector512_params || has_vector512_ret || has_vector512_slots;
+
+        let has_vector256_params = func
+            .params
+            .iter()
+            .any(|(_, ty)| classify_type(ty, structs, enums).is_vector256());
+        let has_vector256_ret = classify_type(&func.ret_type, structs, enums).is_vector256();
+        let has_vector256_slots = func.slots.iter().any(|s| s.size == 32 && s.align >= 32);
+        let requires_32byte_alignment = requires_64byte_alignment
+            || has_simd_spills
+            || has_vector256_params
+            || has_vector256_ret
+            || has_vector256_slots;
 
         // Align stack frame:
-        // When dynamic 32-byte alignment is required, frame size is a multiple of 32 bytes to ensure
-        // that [rsp + 32*k] maintains guaranteed 32-byte alignment at runtime.
+        // When dynamic 64-byte alignment is required, frame size is a multiple of 64 bytes.
+        // When dynamic 32-byte alignment is required, frame size is a multiple of 32 bytes.
         let total = current_offset + simd_area_bytes;
-        let aligned_total = if requires_32byte_alignment {
+        let aligned_total = if requires_64byte_alignment {
+            (total + 63) & !63
+        } else if requires_32byte_alignment {
             (total + 31) & !31
         } else {
             (total + 15) & !15
@@ -192,6 +229,7 @@ impl FrameLayout {
             sret_offset,
             has_simd_spills,
             requires_32byte_alignment,
+            requires_64byte_alignment,
             total_frame_size: frame_size,
         }
     }
@@ -250,10 +288,15 @@ impl FrameLayout {
         for reg in &self.used_callee_saved {
             insts.push(MachineInst::Push(*reg));
         }
-        // If the function contains SIMD operations or spills, dynamically align %rsp to 32 bytes
-        // to guarantee that all 32-byte slots at [rsp + 32*k] are 32-byte aligned
+        // If the function contains SIMD operations or spills, dynamically align %rsp to 64 or 32 bytes
+        // to guarantee that all vector slots maintain runtime alignment
         // regardless of incoming caller alignment.
-        if self.requires_32byte_alignment {
+        if self.requires_64byte_alignment {
+            insts.push(MachineInst::And {
+                dest: Operand::Reg(Reg::Rsp),
+                src: Operand::Imm(-64),
+            });
+        } else if self.requires_32byte_alignment {
             insts.push(MachineInst::And {
                 dest: Operand::Reg(Reg::Rsp),
                 src: Operand::Imm(-32),
@@ -288,40 +331,50 @@ impl FrameLayout {
             let class = classify_type(ty, structs, enums);
             if class.is_vector() {
                 let slot_op = self.get_slot_op(*slot);
+                let is_512 = class.is_vector512();
+                let width = if is_512 {
+                    VectorWidth::V512
+                } else {
+                    VectorWidth::V256
+                };
+                let scratch = SimdRegisterAllocator::scratch_a(is_512);
+
                 if vec_reg_idx < 8 {
-                    let ymm = crate::register::SimdReg(vec_reg_idx as u8);
+                    let vreg = crate::register::SimdReg(vec_reg_idx as u8);
                     vec_reg_idx += 1;
                     if let Operand::Mem { base, offset } = slot_op {
                         insts.push(MachineInst::Vmovups {
-                            width: VectorWidth::V256,
+                            width,
                             dest: SimdOperand::Mem { base, offset },
-                            src: SimdOperand::Reg(ymm),
+                            src: SimdOperand::Reg(vreg),
                         });
                     }
                 } else {
-                    current_stack_offset = (current_stack_offset + 31) & !31;
+                    let align_mask = if is_512 { 63 } else { 31 };
+                    let slot_size = if is_512 { 64 } else { 32 };
+                    current_stack_offset = (current_stack_offset + align_mask) & !align_mask;
                     let stack_off = current_stack_offset as i32;
-                    current_stack_offset += 32;
+                    current_stack_offset += slot_size;
                     if let Operand::Mem {
                         base,
                         offset: slot_off,
                     } = slot_op
                     {
                         insts.push(MachineInst::Vmovups {
-                            width: VectorWidth::V256,
-                            dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                            width,
+                            dest: SimdOperand::Reg(scratch),
                             src: SimdOperand::Mem {
                                 base: Reg::Rbp,
                                 offset: 16 + stack_off,
                             },
                         });
                         insts.push(MachineInst::Vmovups {
-                            width: VectorWidth::V256,
+                            width,
                             dest: SimdOperand::Mem {
                                 base,
                                 offset: slot_off,
                             },
-                            src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                            src: SimdOperand::Reg(scratch),
                         });
                     }
                 }
@@ -494,7 +547,10 @@ impl FrameLayout {
             for reg in self.used_callee_saved.iter().rev() {
                 insts.push(MachineInst::Pop(*reg));
             }
-        } else if self.total_frame_size > 0 || self.requires_32byte_alignment {
+        } else if self.total_frame_size > 0
+            || self.requires_32byte_alignment
+            || self.requires_64byte_alignment
+        {
             insts.push(MachineInst::Mov {
                 dest: Operand::Reg(Reg::Rsp),
                 src: Operand::Reg(Reg::Rbp),

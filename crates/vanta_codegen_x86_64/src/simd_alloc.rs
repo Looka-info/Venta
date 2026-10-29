@@ -24,13 +24,17 @@ impl fmt::Display for SimdValueId {
     }
 }
 
-/// Identifies all MIR ValueIds that represent virtual SIMD vector values.
-pub fn identify_simd_values(
+/// Identifies all MIR ValueIds that represent virtual SIMD vector values along with their width.
+pub fn identify_simd_values_with_width(
     func: &MirFunction,
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
-) -> HashMap<ValueId, SimdValueId> {
-    let mut map = HashMap::new();
+) -> (
+    HashMap<ValueId, SimdValueId>,
+    HashMap<SimdValueId, VectorWidth>,
+) {
+    let mut val_map = HashMap::new();
+    let mut width_map = HashMap::new();
     let mut next_id = 0u32;
 
     for block in &func.blocks {
@@ -42,7 +46,19 @@ pub fn identify_simd_values(
                     ret_type,
                     ..
                 } => {
-                    let is_intrinsic = callee == "venta_simd_reg_load256"
+                    let is_intrinsic_512 = callee == "venta_simd_vec_load512"
+                        || callee == "simd_vec_load512"
+                        || callee == "venta_simd_vec_add512"
+                        || callee == "simd_vec_add512"
+                        || callee == "venta_simd_vec_fma512"
+                        || callee == "simd_vec_fma512"
+                        || callee == "venta_simd_reg_load512"
+                        || callee == "simd_reg_load512"
+                        || callee == "venta_simd_reg_add512"
+                        || callee == "simd_reg_add512"
+                        || callee == "venta_simd_reg_fma512"
+                        || callee == "simd_reg_fma512";
+                    let is_intrinsic_256 = callee == "venta_simd_reg_load256"
                         || callee == "simd_reg_load256"
                         || callee == "venta_simd_reg_add256"
                         || callee == "simd_reg_add256"
@@ -54,15 +70,36 @@ pub fn identify_simd_values(
                         || callee == "simd_vec_add256"
                         || callee == "venta_simd_vec_fma256"
                         || callee == "simd_vec_fma256";
-                    let is_vector_ret = classify_type(ret_type, structs, enums).is_vector();
-                    if is_intrinsic || is_vector_ret {
-                        map.insert(*d, SimdValueId(next_id));
+                    let ret_cls = classify_type(ret_type, structs, enums);
+                    let is_512 = is_intrinsic_512 || ret_cls.is_vector512();
+                    let is_256 = is_intrinsic_256 || ret_cls.is_vector256();
+                    if is_512 || is_256 {
+                        let sid = SimdValueId(next_id);
+                        val_map.insert(*d, sid);
+                        width_map.insert(
+                            sid,
+                            if is_512 {
+                                VectorWidth::V512
+                            } else {
+                                VectorWidth::V256
+                            },
+                        );
                         next_id += 1;
                     }
                 }
                 Instruction::Load { dest, ty, .. } => {
-                    if classify_type(ty, structs, enums).is_vector() {
-                        map.insert(*dest, SimdValueId(next_id));
+                    let cls = classify_type(ty, structs, enums);
+                    if cls.is_vector() {
+                        let sid = SimdValueId(next_id);
+                        val_map.insert(*dest, sid);
+                        width_map.insert(
+                            sid,
+                            if cls.is_vector512() {
+                                VectorWidth::V512
+                            } else {
+                                VectorWidth::V256
+                            },
+                        );
                         next_id += 1;
                     }
                 }
@@ -70,15 +107,24 @@ pub fn identify_simd_values(
             }
         }
     }
-    map
+    (val_map, width_map)
+}
+
+/// Identifies all MIR ValueIds that represent virtual SIMD vector values.
+pub fn identify_simd_values(
+    func: &MirFunction,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+) -> HashMap<ValueId, SimdValueId> {
+    identify_simd_values_with_width(func, structs, enums).0
 }
 
 /// Physical location of a virtual SIMD value after allocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SimdLocation {
-    /// Allocated to a physical SIMD register (e.g. YMM0..YMM13).
+    /// Allocated to a physical SIMD register (e.g. YMM0..YMM13 or ZMM0..ZMM29).
     Reg(SimdReg),
-    /// Spilled to a 32-byte aligned stack frame slot (0-based index).
+    /// Spilled to an aligned stack frame slot (0-based index).
     Spill(u32),
 }
 
@@ -97,8 +143,10 @@ pub struct SimdLiveInterval {
 pub struct SimdAllocResult {
     /// Mapping from virtual SIMD value to assigned physical register or spill slot.
     pub assignments: HashMap<SimdValueId, SimdLocation>,
-    /// Total number of 32-byte spill slots required.
+    /// Total number of spill slots required.
     pub num_spills: usize,
+    /// Mapping from spill slot index to required vector width.
+    pub spill_widths: HashMap<u32, VectorWidth>,
     /// Physical vector registers utilized by the allocation.
     pub used_registers: Vec<SimdReg>,
     /// Set of values that were spilled specifically due to crossing a function call.
@@ -129,14 +177,81 @@ impl SimdRegisterAllocator {
         SimdReg(13),
     ];
 
-    /// Dedicated scratch register A for reloading/storing spilled operand 1.
+    /// Dedicated scratch register A for reloading/storing spilled operand 1 (AVX/AVX2).
     pub const SCRATCH_A: SimdReg = SimdReg(14);
-    /// Dedicated scratch register B for reloading/storing spilled operand 2.
+    /// Dedicated scratch register B for reloading/storing spilled operand 2 (AVX/AVX2).
     pub const SCRATCH_B: SimdReg = SimdReg(15);
 
-    /// Allocates physical YMM registers for the given list of SIMD live intervals
-    /// using a deterministic linear-scan algorithm with furthest-end-point spill selection.
-    pub fn allocate(mut intervals: Vec<SimdLiveInterval>) -> SimdAllocResult {
+    /// Allocatable physical ZMM registers: ZMM0 through ZMM29 (30 registers).
+    ///
+    /// ZMM30 and ZMM31 are reserved as dedicated scratch buffers for
+    /// emitting 512-bit memory reloads and stores around spilled operands.
+    pub const ALLOCATABLE_ZMM: [SimdReg; 30] = [
+        SimdReg(0),
+        SimdReg(1),
+        SimdReg(2),
+        SimdReg(3),
+        SimdReg(4),
+        SimdReg(5),
+        SimdReg(6),
+        SimdReg(7),
+        SimdReg(8),
+        SimdReg(9),
+        SimdReg(10),
+        SimdReg(11),
+        SimdReg(12),
+        SimdReg(13),
+        SimdReg(14),
+        SimdReg(15),
+        SimdReg(16),
+        SimdReg(17),
+        SimdReg(18),
+        SimdReg(19),
+        SimdReg(20),
+        SimdReg(21),
+        SimdReg(22),
+        SimdReg(23),
+        SimdReg(24),
+        SimdReg(25),
+        SimdReg(26),
+        SimdReg(27),
+        SimdReg(28),
+        SimdReg(29),
+    ];
+
+    /// Dedicated scratch register A for reloading/storing spilled operand 1 (AVX-512).
+    pub const SCRATCH_A_512: SimdReg = SimdReg(30);
+    /// Dedicated scratch register B for reloading/storing spilled operand 2 (AVX-512).
+    pub const SCRATCH_B_512: SimdReg = SimdReg(31);
+
+    pub fn scratch_a(is_512: bool) -> SimdReg {
+        if is_512 {
+            Self::SCRATCH_A_512
+        } else {
+            Self::SCRATCH_A
+        }
+    }
+
+    pub fn scratch_b(is_512: bool) -> SimdReg {
+        if is_512 {
+            Self::SCRATCH_B_512
+        } else {
+            Self::SCRATCH_B
+        }
+    }
+
+    /// Allocates physical vector registers using AVX2 defaults.
+    pub fn allocate(intervals: Vec<SimdLiveInterval>) -> SimdAllocResult {
+        Self::allocate_with_target(intervals, false)
+    }
+
+    /// Allocates physical vector registers with target-feature awareness:
+    /// - When `is_avx512` is true: uses 30 allocatable ZMM registers (`zmm0`..`zmm29`).
+    /// - Otherwise: uses 14 allocatable YMM registers (`ymm0`..`ymm13`).
+    pub fn allocate_with_target(
+        mut intervals: Vec<SimdLiveInterval>,
+        is_avx512: bool,
+    ) -> SimdAllocResult {
         let mut result = SimdAllocResult::default();
 
         if intervals.is_empty() {
@@ -146,8 +261,12 @@ impl SimdRegisterAllocator {
         // Sort intervals by start point ascending, breaking ties deterministically by SimdValueId
         intervals.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| a.val.0.cmp(&b.val.0)));
 
-        // Free pool initialized in reverse order so pop() yields YMM0, YMM1, ...
-        let mut free_regs: Vec<SimdReg> = Self::ALLOCATABLE_YMM.iter().copied().rev().collect();
+        // Free pool initialized in reverse order so pop() yields register 0, register 1, ...
+        let mut free_regs: Vec<SimdReg> = if is_avx512 {
+            Self::ALLOCATABLE_ZMM.iter().copied().rev().collect()
+        } else {
+            Self::ALLOCATABLE_YMM.iter().copied().rev().collect()
+        };
 
         #[derive(Debug)]
         struct Active {
@@ -178,6 +297,7 @@ impl SimdRegisterAllocator {
                 result
                     .assignments
                     .insert(iv.val, SimdLocation::Spill(next_spill_slot));
+                result.spill_widths.insert(next_spill_slot, iv.width);
                 result.call_crossing_spills.insert(iv.val);
                 next_spill_slot += 1;
                 continue;
@@ -193,7 +313,7 @@ impl SimdRegisterAllocator {
                     reg,
                 });
             } else {
-                // Register pressure: all 14 allocatable YMM registers are currently occupied.
+                // Register pressure: all allocatable vector registers are currently occupied.
                 // Find active interval with the furthest end point to evict.
                 let mut latest_idx = None;
                 let mut max_end = iv.end;
@@ -211,6 +331,7 @@ impl SimdRegisterAllocator {
                     result
                         .assignments
                         .insert(evicted.val, SimdLocation::Spill(next_spill_slot));
+                    result.spill_widths.insert(next_spill_slot, iv.width);
                     next_spill_slot += 1;
 
                     // Assign the evicted physical register to the current interval
@@ -228,6 +349,7 @@ impl SimdRegisterAllocator {
                     result
                         .assignments
                         .insert(iv.val, SimdLocation::Spill(next_spill_slot));
+                    result.spill_widths.insert(next_spill_slot, iv.width);
                     next_spill_slot += 1;
                 }
             }
@@ -441,5 +563,99 @@ mod tests {
         for id in [SimdValueId(1), SimdValueId(2), SimdValueId(3)] {
             assert_eq!(res1.assignments[&id], res2.assignments[&id]);
         }
+    }
+
+    #[test]
+    fn test_avx512_allocates_up_to_30_zmm_registers() {
+        // Create 30 simultaneous live intervals (all overlapping)
+        let mut intervals = Vec::new();
+        for i in 0..30 {
+            intervals.push(SimdLiveInterval {
+                val: SimdValueId(i),
+                width: VectorWidth::V512,
+                start: 0,
+                end: 20 + (i as usize),
+                does_cross_call: false,
+            });
+        }
+
+        // In AVX-512 mode, all 30 allocatable ZMM registers (zmm0..zmm29) are available
+        let res = SimdRegisterAllocator::allocate_with_target(intervals, true);
+        assert_eq!(res.num_spills, 0);
+        assert_eq!(res.assignments.len(), 30);
+        assert_eq!(res.used_registers.len(), 30);
+
+        for i in 0..30 {
+            assert!(matches!(
+                res.assignments[&SimdValueId(i)],
+                SimdLocation::Reg(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_avx512_pressure_above_30_spills() {
+        // Create 32 simultaneous live intervals (capacity is 30)
+        let mut intervals = Vec::new();
+        for i in 0..32 {
+            intervals.push(SimdLiveInterval {
+                val: SimdValueId(i),
+                width: VectorWidth::V512,
+                start: 0,
+                end: 10 + (i as usize * 2),
+                does_cross_call: false,
+            });
+        }
+
+        let res = SimdRegisterAllocator::allocate_with_target(intervals, true);
+        // 32 - 30 = 2 spills
+        assert_eq!(res.num_spills, 2);
+
+        // Furthest end points (v30 and v31) must be spilled
+        assert!(matches!(
+            res.assignments[&SimdValueId(30)],
+            SimdLocation::Spill(_)
+        ));
+        assert!(matches!(
+            res.assignments[&SimdValueId(31)],
+            SimdLocation::Spill(_)
+        ));
+
+        // Spill widths must be recorded as 512-bit
+        assert_eq!(res.spill_widths.get(&0), Some(&VectorWidth::V512));
+        assert_eq!(res.spill_widths.get(&1), Some(&VectorWidth::V512));
+    }
+
+    #[test]
+    fn test_avx512_call_crossing_spills_with_512_width() {
+        let intervals = vec![
+            SimdLiveInterval {
+                val: SimdValueId(1),
+                width: VectorWidth::V512,
+                start: 0,
+                end: 10,
+                does_cross_call: true,
+            },
+            SimdLiveInterval {
+                val: SimdValueId(2),
+                width: VectorWidth::V512,
+                start: 2,
+                end: 6,
+                does_cross_call: false,
+            },
+        ];
+
+        let res = SimdRegisterAllocator::allocate_with_target(intervals, true);
+        assert_eq!(res.num_spills, 1);
+        assert!(matches!(
+            res.assignments[&SimdValueId(1)],
+            SimdLocation::Spill(0)
+        ));
+        assert_eq!(res.spill_widths.get(&0), Some(&VectorWidth::V512));
+        assert!(res.call_crossing_spills.contains(&SimdValueId(1)));
+        assert!(matches!(
+            res.assignments[&SimdValueId(2)],
+            SimdLocation::Reg(_)
+        ));
     }
 }

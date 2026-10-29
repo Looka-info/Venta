@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0-alpha.5] - 2026-10-30 (Milestone 26.4 — AVX-512 ZMM Register Allocation, Spilling & System V Vector ABI)
+
+**Fifth Feature Milestone for v1.1 SIMD & Vectorization**
+
+### Added
+- **Expanded Physical ZMM Vector Register File & Allocation (`crates/vanta_codegen_x86_64/src/simd_alloc.rs`)**:
+  - Extended linear scan register allocator to allocate virtual 512-bit vector values across 30 physical ZMM registers (`zmm0`–`zmm29`).
+  - Allocated dedicated scratch registers `zmm30` (`SCRATCH_A_512`) and `zmm31` (`SCRATCH_B_512`) for spilling and reloads.
+  - Retained strict physical register aliasing: `xmmN`, `ymmN`, and `zmmN` share the unified physical register index `SimdReg(N)` ($0 \le N < 32$).
+  - Added width-aware vector allocation (`VectorWidth::V512` vs `VectorWidth::V256`) and dynamic spill slot sizing.
+- **Dynamic 64-Byte Stack Frame Realignment & Epilogue Tear-down (`crates/vanta_codegen_x86_64/src/frame.rs`)**:
+  - Implemented dynamic 64-byte stack alignment in function prologues (`and rsp, -64`, opcode `48 83 e4 c0`) whenever 512-bit parameters, local variables, return values, or spills are active.
+  - Enforced 64-byte frame size alignment (`(total + 63) & !63`) and sequential 64-byte spill slot placement.
+  - Protected caller stack arguments (`[rbp + 16 + off]`) from dynamic `rsp` changes, with robust epilogue frame recovery via `rbp` (`lea rsp, [rbp - callee_bytes]` or `mov rsp, rbp`).
+- **Intel EVEX Compressed Displacement ($Disp8 \times N$) (`crates/vanta_codegen_x86_64/src/encoding.rs`)**:
+  - Implemented full EVEX memory operand encoder (`emit_evex_mem_operand`) adhering to the Intel EVEX compressed displacement specification ($N = 64$ for 512-bit full vectors, $N = 32$ for 256-bit vectors).
+  - Automatically emits 1-byte ModR/M disp8 when offsets are divisible by $N$ within $[-128, 127]$, and uncompressed ModR/M disp32 (mod=10) when offsets are not divisible by $N$ (e.g. caller stack parameter ingestion at `16(%rbp)`).
+- **System V AMD64 512-bit Vector Calling Convention (`crates/vanta_codegen_x86_64/src/abi.rs`)**:
+  - Implemented `AbiClass::Vector512` classification for 64-byte vector types (`v512`, `Simd512`, and 64-byte aligned structs).
+  - First 8 vector arguments passed in physical registers `zmm0` through `zmm7`.
+  - 9th and subsequent vector arguments passed on stack with guaranteed 64-byte alignment (`offset = (offset + 63) & !63; offset += 64`).
+  - Single vector return in `zmm0`.
+  - Independent integer and vector register assignment counters, allowing arbitrary interleaving of scalar and 512-bit vector parameters.
+- **Intrinsic Lowering & Standard Library Primitives (`library/std/simd.va`, `crates/vanta_sema`)**:
+  - Added `pub struct v512` (64-byte aligned struct with 8 64-bit lanes `q0`..`q7`).
+  - Added direct vector ABI intrinsics: `venta_simd_vec_load512`, `venta_simd_vec_store512`, `venta_simd_vec_add512`, `venta_simd_vec_fma512`.
+  - Added virtual SIMD register value intrinsics: `venta_simd_reg_load512`, `venta_simd_reg_store512`, `venta_simd_reg_add512`, `venta_simd_reg_fma512`.
+- **Runtime CPUID & OSXSAVE/XCR0 Validation (`runtime/vanta_rt.c`)**:
+  - Extended `vanta_cpu_has_avx512f()` to verify CPUID Leaf 7 EBX bit 16, CPUID Leaf 1 ECX bit 27 (OSXSAVE), and XCR0 mask `0xE6` via `xgetbv` before executing 512-bit vector instructions.
+  - Implemented bidirectional C ABI oracle function `vanta_c_vector_add512(__m512i a, __m512i b) -> __m512i`.
+- **Comprehensive Integration Test Suite (`crates/vanta_driver/tests/simd_avx512_tests.rs`)**:
+  - 7 automated tests covering code generation, dynamic 64-byte alignment, 30-register ZMM utilization, 64-byte aligned spill slots, 9-vector parameter exhaustion, mixed scalar/vector arguments, GCC C ABI oracle interoperability, and negative target-feature gating.
+
+---
+
 ## [1.1.0-alpha.4] - 2026-10-29 (Milestone 26.3 — Loop Auto-Vectorization & Strip-Mining)
 
 **Fourth Feature Milestone for v1.1 SIMD & Vectorization**

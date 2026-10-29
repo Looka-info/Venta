@@ -168,6 +168,38 @@ impl CodeEmitter {
         }
     }
 
+    /// Emit memory operand for EVEX instructions using Compressed Displacement (Disp8*N).
+    fn emit_evex_mem_operand(&mut self, reg_field: u8, base: Reg, offset: i32, scale_n: i32) {
+        let base_hw = base.hw_encoding();
+        if offset == 0 && base_hw != 5 {
+            // mod = 00 (no displacement, except RBP/R13 where rm=5 encodes RIP-relative)
+            let mod_rm = Self::mod_rm(0b00, reg_field, base_hw);
+            self.emit_u8(mod_rm);
+            if base_hw == 4 {
+                // RSP / R12 requires SIB byte
+                self.emit_u8(Self::sib(0, 4, 4));
+            }
+        } else if scale_n > 0 && offset % scale_n == 0 && (-128..=127).contains(&(offset / scale_n))
+        {
+            // mod = 01 (disp8 compressed by scale_n)
+            let mod_rm = Self::mod_rm(0b01, reg_field, base_hw);
+            self.emit_u8(mod_rm);
+            if base_hw == 4 {
+                self.emit_u8(Self::sib(0, 4, 4));
+            }
+            let disp8 = (offset / scale_n) as i8 as u8;
+            self.emit_u8(disp8);
+        } else {
+            // mod = 10 (disp32, uncompressed)
+            let mod_rm = Self::mod_rm(0b10, reg_field, base_hw);
+            self.emit_u8(mod_rm);
+            if base_hw == 4 {
+                self.emit_u8(Self::sib(0, 4, 4));
+            }
+            self.emit_i32(offset);
+        }
+    }
+
     /// Emit 2-byte (0xC5) or 3-byte (0xC4) VEX prefix.
     ///
     /// - `map`: 1 for 0F, 2 for 0F38, 3 for 0F3A
@@ -246,7 +278,7 @@ impl CodeEmitter {
         map: u8,
         w: bool,
         reg: u8,
-        _rm_reg: u8,
+        rm_reg: u8,
         rm_is_extended: bool,
         vvvv: u8,
         use_vvvv: bool,
@@ -257,7 +289,7 @@ impl CodeEmitter {
 
         // Byte 1: [~R:1][~X:1][~B:1][~R':1][00:2][mm:2]
         let not_r = (reg & 0b1000) == 0;
-        let not_x = true;
+        let not_x = (rm_reg & 0b10000) == 0;
         let not_b = !rm_is_extended;
         let not_r_prime = (reg & 0b10000) == 0;
 
@@ -798,6 +830,9 @@ impl CodeEmitter {
                                 *width,
                                 0,
                             );
+                            self.emit_u8(0x10);
+                            let scale_n = if *width == VectorWidth::V512 { 64 } else { 32 };
+                            self.emit_evex_mem_operand(dst.hw_encoding(), *base, *offset, scale_n);
                         } else {
                             self.emit_vex(
                                 1,
@@ -810,9 +845,9 @@ impl CodeEmitter {
                                 l_bit,
                                 0,
                             );
+                            self.emit_u8(0x10);
+                            self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                         }
-                        self.emit_u8(0x10);
-                        self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                     }
                     (SimdOperand::Mem { base, offset }, SimdOperand::Reg(s)) => {
                         if !is_512 && s.index() >= 16 {
@@ -830,6 +865,9 @@ impl CodeEmitter {
                                 *width,
                                 0,
                             );
+                            self.emit_u8(0x11);
+                            let scale_n = if *width == VectorWidth::V512 { 64 } else { 32 };
+                            self.emit_evex_mem_operand(s.hw_encoding(), *base, *offset, scale_n);
                         } else {
                             self.emit_vex(
                                 1,
@@ -842,9 +880,9 @@ impl CodeEmitter {
                                 l_bit,
                                 0,
                             );
+                            self.emit_u8(0x11);
+                            self.emit_mem_operand(s.hw_encoding(), *base, *offset);
                         }
-                        self.emit_u8(0x11);
-                        self.emit_mem_operand(s.hw_encoding(), *base, *offset);
                     }
                     _ => {
                         return Err(CodegenError::UnsupportedOperandCombination(
@@ -944,6 +982,9 @@ impl CodeEmitter {
                                 *width,
                                 1,
                             );
+                            self.emit_u8(0xD4);
+                            let scale_n = if *width == VectorWidth::V512 { 64 } else { 32 };
+                            self.emit_evex_mem_operand(dest.hw_encoding(), *base, *offset, scale_n);
                         } else {
                             self.emit_vex(
                                 1,
@@ -956,9 +997,9 @@ impl CodeEmitter {
                                 l_bit,
                                 1,
                             );
+                            self.emit_u8(0xD4);
+                            self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
                         }
-                        self.emit_u8(0xD4);
-                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
                     }
                     SimdOperand::Val(_) => {
                         panic!("Virtual SIMD operand in vpaddq was not allocated prior to code emission");
@@ -1067,6 +1108,9 @@ impl CodeEmitter {
                                 *width,
                                 1,
                             );
+                            self.emit_u8(0xB8);
+                            let scale_n = if *width == VectorWidth::V512 { 64 } else { 32 };
+                            self.emit_evex_mem_operand(dest.hw_encoding(), *base, *offset, scale_n);
                         } else {
                             self.emit_vex(
                                 2,
@@ -1079,9 +1123,9 @@ impl CodeEmitter {
                                 l_bit,
                                 1,
                             );
+                            self.emit_u8(0xB8);
+                            self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
                         }
-                        self.emit_u8(0xB8);
-                        self.emit_mem_operand(dest.hw_encoding(), *base, *offset);
                     }
                     SimdOperand::Val(_) => {
                         panic!("Virtual SIMD operand in vfmadd231pd was not allocated prior to code emission");

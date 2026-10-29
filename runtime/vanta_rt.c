@@ -766,10 +766,20 @@ int64_t vanta_cpu_has_fma(void) {
 
 int64_t vanta_cpu_has_avx512f(void) {
     unsigned int eax, ebx, ecx, edx;
-    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
-        if (ebx & (1 << 16)) {
-            return 1;
-        }
+    // 1. Check OSXSAVE in CPUID Leaf 1 (ECX bit 27)
+    if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx) || !(ecx & (1 << 27))) {
+        return 0;
+    }
+    // 2. Check AVX-512F in CPUID Leaf 7 (EBX bit 16)
+    if (!__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx) || !(ebx & (1 << 16))) {
+        return 0;
+    }
+    // 3. Check XCR0 register via xgetbv:
+    // Bits: 1 (SSE), 2 (AVX), 5 (opmask), 6 (ZMM_Hi256), 7 (Hi16_ZMM) -> Mask 0xE6
+    uint32_t xcr0_low = 0, xcr0_high = 0;
+    __asm__ __volatile__("xgetbv" : "=a"(xcr0_low), "=d"(xcr0_high) : "c"(0));
+    if ((xcr0_low & 0xE6) == 0xE6) {
+        return 1;
     }
     return 0;
 }
@@ -779,6 +789,11 @@ int64_t vanta_cpu_has_avx512f(void) {
 __attribute__((target("avx2")))
 __m256i vanta_c_vector_add(__m256i a, __m256i b) {
     return _mm256_add_epi64(a, b);
+}
+
+__attribute__((target("avx512f")))
+__m512i vanta_c_vector_add512(__m512i a, __m512i b) {
+    return _mm512_add_epi64(a, b);
 }
 #else
 int64_t vanta_cpu_has_avx(void) { return 0; }
