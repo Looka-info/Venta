@@ -4,9 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 pub use vanta_build::{
-    ArtifactType, BuildStats, CacheCleanReport, CacheEntryMetadata, CacheManager, CacheStats,
-    CacheVerificationReport, CompilerIdentity, ContentFingerprint, Domain, FingerprintBuilder,
-    IncrementalBuildEngine, IncrementalOptions,
+    ArtifactType, BuildConfiguration, BuildManifest, BuildNode, BuildStats, CacheCleanReport,
+    CacheEntryMetadata, CacheManager, CacheStats, CacheVerificationReport, CompilerIdentity,
+    ContentFingerprint, DependencyKind, Domain, FingerprintBuilder, FunctionFragment,
+    IncrementalBuildEngine, IncrementalOptions, ManifestFunction, ManifestModule,
+    ManifestSourceFile, ManifestType, NodeId, NodeKind, TargetFeaturesConfig,
 };
 use vanta_codegen_aarch64::AArch64Backend;
 pub use vanta_codegen_x86_64::TargetFeatures;
@@ -232,6 +234,46 @@ impl CompilerSession {
         Ok(())
     }
 
+    fn build_configuration(options: &CompilerOptions) -> BuildConfiguration {
+        let target_spec = options.target.spec();
+        BuildConfiguration {
+            target_triple: target_spec.triple.to_string(),
+            arch: format!("{:?}", target_spec.arch),
+            os: format!("{:?}", target_spec.os),
+            abi: format!("{:?}", target_spec.abi),
+            object_format: format!("{:?}", target_spec.object_format),
+            opt_level: format!("{:?}", options.opt_level),
+            target_features: TargetFeaturesConfig {
+                avx: options.target_features.avx,
+                avx2: options.target_features.avx2,
+                fma: options.target_features.fma,
+                avx512f: options.target_features.avx512f,
+                bmi1: false,
+                bmi2: false,
+            },
+            enable_reg_alloc: options.enable_reg_alloc,
+            enable_tail_calls: options.enable_tail_calls,
+            enable_block_layout: options.enable_block_layout,
+            enable_code_align: options.enable_code_align,
+            enable_mem2reg: options.enable_mem2reg,
+            enable_gvn: options.enable_gvn,
+            enable_inline: options.enable_inline,
+            enable_ipa_constprop: options.enable_ipa_constprop,
+            enable_licm: options.enable_licm,
+            enable_indvar: options.enable_indvar,
+            enable_strength_reduction: options.enable_strength_reduction,
+            enable_sroa: options.enable_sroa,
+            enable_loop_peel: options.enable_loop_peel,
+            enable_loop_unroll: options.enable_loop_unroll,
+            enable_vectorize: options.enable_vectorize,
+            enable_instruction_schedule: options.enable_instruction_schedule,
+            enable_global_dce: options.enable_global_dce,
+            debug_info: options.debug_info,
+            std_fingerprint: None,
+            runtime_fingerprint: None,
+        }
+    }
+
     /// Full compilation pipeline from source to requested emit target.
     pub fn compile(&mut self, options: &CompilerOptions) -> Result<Option<Vec<u8>>, String> {
         if options.emit_target == EmitTarget::Tokens {
@@ -254,10 +296,8 @@ impl CompilerSession {
         let is_codegen_or_link = matches!(options.emit_target, EmitTarget::Obj | EmitTarget::Exe);
 
         // Incremental fast-path: check if we can reuse cached object or entire executable
-        let incremental_state = if options.incremental && is_codegen_or_link {
-            let src = fs::read_to_string(&options.input_file).map_err(|e| {
-                format!("Failed to read input file {:?}: {}", options.input_file, e)
-            })?;
+        let mut incremental_engine = if options.incremental && is_codegen_or_link {
+            let build_config = Self::build_configuration(options);
             let inc_opts = IncrementalOptions {
                 enabled: true,
                 cache_dir: options
@@ -270,48 +310,115 @@ impl CompilerSession {
                 debug_info: options.debug_info,
                 explain_rebuild: options.explain_rebuild,
                 build_stats: options.build_stats,
+                build_config: Some(build_config.clone()),
             };
             let mut engine = IncrementalBuildEngine::new(inc_opts)?;
-            engine.stats_mut().source_files_total = 1;
-            let source_fp = engine.compute_source_fingerprint(&options.input_file, &src);
 
-            if let Some(cached_obj_bytes) =
-                engine.query_cached_object(&options.input_file, &source_fp)
-            {
-                if options.emit_target == EmitTarget::Obj {
-                    fs::write(&options.output_file, &cached_obj_bytes)
-                        .map_err(|e| format!("Failed to write object file: {}", e))?;
-                    self.last_build_stats = Some(engine.stats().clone());
-                    self.rebuild_explanations = engine.explanations().to_vec();
-                    return Ok(Some(cached_obj_bytes));
-                }
+            let prev_manifest_opt = engine.load_manifest();
 
-                if options.emit_target == EmitTarget::Exe {
-                    let obj_fp = engine.compute_object_fingerprint(&source_fp);
-                    let link_fp = engine.compute_link_fingerprint(
-                        &[obj_fp],
-                        &options.link_archives,
-                        &options.additional_inputs,
-                    );
-                    if engine.check_link_reusable(&link_fp, &options.output_file) {
-                        // Complete no-op hit: zero compilation, zero relinking!
-                        self.last_build_stats = Some(engine.stats().clone());
-                        self.rebuild_explanations = engine.explanations().to_vec();
-                        return Ok(Some(cached_obj_bytes));
+            // Check if we can take the complete no-op or link-only fast-path using the persisted manifest
+            if let Some(prev_manifest) = &prev_manifest_opt {
+                let current_compiler_id = engine.cache().compiler_identity().fingerprint().to_hex();
+                let current_config_fp =
+                    build_config.fingerprint(engine.cache().compiler_identity());
+
+                let mut can_fast_path = prev_manifest.compiler_id == current_compiler_id
+                    && prev_manifest.config_fingerprint == current_config_fp
+                    && prev_manifest.target_triple == options.target.spec().triple.to_string()
+                    && prev_manifest.root_file == options.input_file.to_string_lossy().to_string();
+
+                if !can_fast_path {
+                    if prev_manifest.compiler_id != current_compiler_id {
+                        engine.add_rebuild_reason("compiler", "compiler identity changed");
+                    } else if prev_manifest.config_fingerprint != current_config_fp {
+                        engine.add_rebuild_reason("config", "build configuration changed");
+                    } else if prev_manifest.target_triple
+                        != options.target.spec().triple.to_string()
+                    {
+                        engine.add_rebuild_reason("target", "target triple changed");
+                    } else {
+                        engine.add_rebuild_reason("root", "root file changed");
                     }
-
-                    // Relink using cached object artifact
-                    let target_spec = options.target.spec();
-                    Self::link_target_executable(options, &target_spec, &cached_obj_bytes)?;
-                    let _ =
-                        engine.record_linked_executable(&link_fp, &options.output_file, &[obj_fp]);
-                    self.last_build_stats = Some(engine.stats().clone());
-                    self.rebuild_explanations = engine.explanations().to_vec();
-                    return Ok(Some(cached_obj_bytes));
+                } else {
+                    for sf in &prev_manifest.source_files {
+                        let path = Path::new(&sf.path);
+                        if !path.exists() {
+                            can_fast_path = false;
+                            engine.add_rebuild_reason(&sf.path, "file removed");
+                            break;
+                        }
+                        if let Ok(content) = fs::read_to_string(path) {
+                            let curr_fp = engine.compute_source_fingerprint(path, &content);
+                            if curr_fp != sf.fingerprint {
+                                can_fast_path = false;
+                                engine.add_rebuild_reason(&sf.path, "source content modified");
+                                break;
+                            }
+                        } else {
+                            can_fast_path = false;
+                            engine.add_rebuild_reason(&sf.path, "unable to read file");
+                            break;
+                        }
+                    }
                 }
+
+                if can_fast_path {
+                    let root_src = fs::read_to_string(&options.input_file).unwrap_or_default();
+                    let root_fp = engine.compute_source_fingerprint(&options.input_file, &root_src);
+                    if let Some(cached_obj_bytes) =
+                        engine.query_cached_object(&options.input_file, &root_fp)
+                    {
+                        engine.stats_mut().source_files_total = prev_manifest.source_files.len();
+                        engine.stats_mut().source_files_unchanged =
+                            prev_manifest.source_files.len();
+                        engine.stats_mut().functions_total = prev_manifest.functions.len();
+                        engine.stats_mut().functions_cached = prev_manifest.functions.len();
+                        engine.stats_mut().functions_recompiled = 0;
+
+                        if options.emit_target == EmitTarget::Obj {
+                            fs::write(&options.output_file, &cached_obj_bytes)
+                                .map_err(|e| format!("Failed to write object file: {}", e))?;
+                            self.last_build_stats = Some(engine.stats().clone());
+                            self.rebuild_explanations = engine.explanations().to_vec();
+                            return Ok(Some(cached_obj_bytes));
+                        }
+
+                        if options.emit_target == EmitTarget::Exe {
+                            let obj_fp = prev_manifest.object_fingerprint;
+                            let link_fp = engine.compute_link_fingerprint(
+                                &[obj_fp],
+                                &[options.link_archives.clone()].concat(),
+                                &options.additional_inputs,
+                            );
+                            if engine.check_link_reusable(&link_fp, &options.output_file) {
+                                // Full no-op hit: zero compilation, zero relinking!
+                                self.last_build_stats = Some(engine.stats().clone());
+                                self.rebuild_explanations = engine.explanations().to_vec();
+                                return Ok(Some(cached_obj_bytes));
+                            }
+
+                            // Relink using cached object artifact (Link-only rebuild)
+                            let target_spec = options.target.spec();
+                            Self::link_target_executable(options, &target_spec, &cached_obj_bytes)?;
+                            let _ = engine.record_linked_executable(
+                                &link_fp,
+                                &options.output_file,
+                                &[obj_fp],
+                            );
+                            self.last_build_stats = Some(engine.stats().clone());
+                            self.rebuild_explanations = engine.explanations().to_vec();
+                            return Ok(Some(cached_obj_bytes));
+                        }
+                    }
+                }
+            } else {
+                engine.add_rebuild_reason(
+                    options.input_file.to_string_lossy().as_ref(),
+                    "cold build - no prior manifest",
+                );
             }
 
-            Some((engine, source_fp))
+            Some((engine, prev_manifest_opt))
         } else {
             None
         };
@@ -387,33 +494,220 @@ impl CompilerSession {
 
         // Native Code Generation & Relocatable Object Emission
         let target_spec = options.target.spec();
-        let obj_bytes = match target_spec.arch {
-            Arch::X86_64 => match X86_64Backend::compile_to_object_full_with_debug(
-                &mir,
-                &target_spec,
-                options.enable_reg_alloc,
-                options.enable_tail_calls,
-                options.enable_block_layout,
-                options.enable_code_align,
-                options.target_features,
-                options.debug_info,
-                if options.debug_info {
-                    Some(&self.source_map)
-                } else {
-                    None
+        let obj_bytes = if let Some((ref mut engine, _)) = incremental_engine {
+            match target_spec.arch {
+                Arch::X86_64 => match X86_64Backend::compile_to_object_incremental(
+                    &mir,
+                    &target_spec,
+                    options.enable_reg_alloc,
+                    options.enable_tail_calls,
+                    options.enable_block_layout,
+                    options.enable_code_align,
+                    options.target_features,
+                    options.debug_info,
+                    if options.debug_info {
+                        Some(&self.source_map)
+                    } else {
+                        None
+                    },
+                    engine,
+                ) {
+                    Ok(bytes) => bytes,
+                    Err(e) => return Err(format!("Backend code generation failed: {}", e)),
                 },
-            ) {
-                Ok(bytes) => bytes,
-                Err(e) => return Err(format!("Backend code generation failed: {}", e)),
-            },
-            Arch::AArch64 => match AArch64Backend::compile_to_macho(&mir) {
-                Ok(bytes) => bytes,
-                Err(e) => return Err(format!("AArch64 backend code generation failed: {}", e)),
-            },
+                Arch::AArch64 => match AArch64Backend::compile_to_macho(&mir) {
+                    Ok(bytes) => bytes,
+                    Err(e) => return Err(format!("AArch64 backend code generation failed: {}", e)),
+                },
+            }
+        } else {
+            match target_spec.arch {
+                Arch::X86_64 => match X86_64Backend::compile_to_object_full_with_debug(
+                    &mir,
+                    &target_spec,
+                    options.enable_reg_alloc,
+                    options.enable_tail_calls,
+                    options.enable_block_layout,
+                    options.enable_code_align,
+                    options.target_features,
+                    options.debug_info,
+                    if options.debug_info {
+                        Some(&self.source_map)
+                    } else {
+                        None
+                    },
+                ) {
+                    Ok(bytes) => bytes,
+                    Err(e) => return Err(format!("Backend code generation failed: {}", e)),
+                },
+                Arch::AArch64 => match AArch64Backend::compile_to_macho(&mir) {
+                    Ok(bytes) => bytes,
+                    Err(e) => return Err(format!("AArch64 backend code generation failed: {}", e)),
+                },
+            }
         };
 
-        if let Some((mut engine, source_fp)) = incremental_state {
+        if let Some((mut engine, prev_manifest_opt)) = incremental_engine {
+            let root_src = fs::read_to_string(&options.input_file).unwrap_or_default();
+            let source_fp = engine.compute_source_fingerprint(&options.input_file, &root_src);
             let _ = engine.store_compiled_object(&source_fp, &obj_bytes);
+            let obj_fp = engine.compute_object_fingerprint(&source_fp);
+
+            // Populate build graph with nodes and dependencies
+            engine
+                .graph_mut()
+                .add_node(BuildNode::new(NodeId::workspace(), NodeKind::Workspace));
+
+            let mut manifest_source_files = Vec::new();
+            let mut fid = 1u32;
+            while let Some(file) = self.source_map.get_file(vanta_source::FileId(fid)) {
+                let is_user_source =
+                    !file.path.starts_with("<embedded>") && !file.path.contains("library/std");
+                if is_user_source {
+                    let s_fp = engine.compute_source_fingerprint(Path::new(&file.path), &file.src);
+                    let src_node_id = NodeId::source(&file.path);
+                    engine.graph_mut().add_node(BuildNode::new(
+                        src_node_id.clone(),
+                        NodeKind::SourceFile {
+                            path: file.path.clone(),
+                            fingerprint: s_fp,
+                        },
+                    ));
+                    manifest_source_files.push(ManifestSourceFile {
+                        path: file.path.clone(),
+                        fingerprint: s_fp,
+                    });
+                }
+                fid += 1;
+            }
+
+            engine.stats_mut().source_files_total = manifest_source_files.len();
+            let mut changed = 0;
+            let mut unchanged = 0;
+            if let Some(prev) = &prev_manifest_opt {
+                for sf in &manifest_source_files {
+                    if let Some(prev_sf) = prev.source_files.iter().find(|p| p.path == sf.path) {
+                        if prev_sf.fingerprint == sf.fingerprint {
+                            unchanged += 1;
+                        } else {
+                            changed += 1;
+                        }
+                    } else {
+                        changed += 1;
+                    }
+                }
+            } else {
+                changed = manifest_source_files.len();
+            }
+            engine.stats_mut().source_files_changed = changed;
+            engine.stats_mut().source_files_unchanged = unchanged;
+
+            if engine.explanations().is_empty() {
+                engine.add_rebuild_reason(
+                    options.input_file.to_string_lossy().as_ref(),
+                    "cold build - no prior manifest",
+                );
+            }
+
+            let mut manifest_modules = Vec::new();
+            for m in &module_tree.modules {
+                let mod_node_id = NodeId::module(&m.name);
+                let iface_fp =
+                    engine.compute_source_fingerprint(&m.file_path, &format!("{:?}", m.items));
+                engine.graph_mut().add_node(BuildNode::new(
+                    mod_node_id.clone(),
+                    NodeKind::Module {
+                        name: m.name.clone(),
+                        file_id: m.file_id.0,
+                        interface_fingerprint: iface_fp,
+                    },
+                ));
+                let src_node_id = NodeId::source(&m.file_path.to_string_lossy());
+                engine
+                    .graph_mut()
+                    .add_dependency(mod_node_id, src_node_id, DependencyKind::Body);
+                manifest_modules.push(ManifestModule {
+                    name: m.name.clone(),
+                    path_str: m.path_str(),
+                    file_path: m.file_path.to_string_lossy().to_string(),
+                    interface_fingerprint: iface_fp,
+                });
+            }
+
+            let mut manifest_functions = Vec::new();
+            let build_config = Self::build_configuration(options);
+            let compiler_id = engine.cache().compiler_identity().clone();
+
+            for f in &mir.functions {
+                let (sig_fp, body_fp) = X86_64Backend::compute_function_fingerprints(
+                    f,
+                    &mir,
+                    Some(&build_config),
+                    &compiler_id,
+                );
+                let fn_node_id = NodeId::function("main", &f.name);
+                engine.graph_mut().add_node(BuildNode::new(
+                    fn_node_id.clone(),
+                    NodeKind::Function {
+                        name: f.name.clone(),
+                        module: "main".into(),
+                        body_fingerprint: body_fp,
+                        sig_fingerprint: sig_fp,
+                    },
+                ));
+                manifest_functions.push(ManifestFunction {
+                    name: f.name.clone(),
+                    module: "main".into(),
+                    body_fingerprint: body_fp,
+                    sig_fingerprint: sig_fp,
+                });
+            }
+
+            let mut manifest_types = Vec::new();
+            let mut sorted_structs: Vec<_> = mir.structs.iter().collect();
+            sorted_structs.sort_by_key(|(k, _)| *k);
+            for (_sname, s) in sorted_structs {
+                let type_fp = engine.compute_source_fingerprint(
+                    Path::new(&options.input_file),
+                    &format!("{:?}", s),
+                );
+                let type_node_id = NodeId::type_interface(&s.name);
+                engine.graph_mut().add_node(BuildNode::new(
+                    type_node_id,
+                    NodeKind::TypeInterface {
+                        name: s.name.clone(),
+                        layout_fingerprint: type_fp,
+                    },
+                ));
+                manifest_types.push(ManifestType {
+                    name: s.name.clone(),
+                    layout_fingerprint: type_fp,
+                });
+            }
+
+            let link_fp = engine.compute_link_fingerprint(
+                &[obj_fp],
+                &options.link_archives,
+                &options.additional_inputs,
+            );
+
+            let manifest = BuildManifest {
+                schema_version: CompilerIdentity::CURRENT_CACHE_SCHEMA_VERSION,
+                compiler_id: compiler_id.fingerprint().to_hex(),
+                target_triple: target_spec.triple.to_string(),
+                root_file: options.input_file.to_string_lossy().to_string(),
+                config_fingerprint: build_config.fingerprint(&compiler_id),
+                source_files: manifest_source_files,
+                modules: manifest_modules,
+                functions: manifest_functions,
+                types: manifest_types,
+                graph_edges: Vec::new(),
+                object_fingerprint: obj_fp,
+                link_fingerprint: link_fp,
+            };
+
+            let _ = engine.save_manifest(&manifest);
+
             if options.emit_target == EmitTarget::Obj {
                 fs::write(&options.output_file, &obj_bytes)
                     .map_err(|e| format!("Failed to write object file: {}", e))?;
@@ -426,12 +720,6 @@ impl CompilerSession {
             engine.stats_mut().linking_performed = true;
             engine.stats_mut().linking_reason = Some("cold build or modified object".into());
             Self::link_target_executable(options, &target_spec, &obj_bytes)?;
-            let obj_fp = engine.compute_object_fingerprint(&source_fp);
-            let link_fp = engine.compute_link_fingerprint(
-                &[obj_fp],
-                &options.link_archives,
-                &options.additional_inputs,
-            );
             let _ = engine.record_linked_executable(&link_fp, &options.output_file, &[obj_fp]);
             self.last_build_stats = Some(engine.stats().clone());
             self.rebuild_explanations = engine.explanations().to_vec();

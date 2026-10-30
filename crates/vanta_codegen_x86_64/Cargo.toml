@@ -11,6 +11,7 @@ vanta_diagnostics = { workspace = true }
 vanta_sema = { workspace = true }
 vanta_mir = { workspace = true }
 vanta_target = { workspace = true }
+vanta_build = { workspace = true }
 
 [dev-dependencies]
 vanta_lexer = { workspace = true }

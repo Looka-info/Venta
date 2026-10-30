@@ -40,16 +40,21 @@ def generate_benchmark_project(base_dir, num_modules, funcs_per_mod):
         lines = []
         for f in range(funcs_per_mod):
             lines.append(f"""
-fn calc_{f}(x: i64) -> i64 {{
+pub fn calc_{f}(x: i64) -> i64 {{
     return x * 2 + {f};
 }}
 """)
         with open(file_path, "w") as fp:
             fp.write("\n".join(lines))
             
-    # Generate main.va
+    # Generate main.va referencing all modules
     main_path = os.path.join(base_dir, "main.va")
     main_lines = []
+    for mod_name in mod_names:
+        main_lines.append(f"mod {mod_name};")
+    for mod_name in mod_names:
+        main_lines.append(f"import {mod_name}::calc_0;")
+
     main_lines.append("""
 fn helper_sum() -> i64 {
     let mut s: i64 = 0;
@@ -61,9 +66,14 @@ fn helper_sum() -> i64 {
     return s;
 }
 
-fn main() -> i64 {
-    let h = helper_sum();
-    return h;
+pub fn main() -> i64 {
+    let mut total: i64 = helper_sum();
+""")
+    for mod_name in mod_names:
+        main_lines.append(f"    total = total + {mod_name}::calc_0(2);")
+
+    main_lines.append("""
+    return total;
 }
 """)
     with open(main_path, "w") as fp:
@@ -82,9 +92,16 @@ def main():
     main_src = os.path.join(bench_dir, "main.va")
     out_exe = os.path.join(bench_dir, "app.out")
 
-    generate_benchmark_project(bench_dir, num_modules=10, funcs_per_mod=10)
+    num_modules = 20
+    funcs_per_mod = 10
+    total_funcs = num_modules * funcs_per_mod + 2
+    generate_benchmark_project(bench_dir, num_modules=num_modules, funcs_per_mod=funcs_per_mod)
 
-    results = {}
+    results = {
+        "num_modules": num_modules,
+        "funcs_per_module": funcs_per_mod,
+        "total_functions": total_funcs,
+    }
 
     # 1. Clean Non-Incremental Build
     clean_times = []
@@ -97,7 +114,7 @@ def main():
         clean_times.append(dur * 1000.0)
     clean_med = statistics.median(clean_times)
     results["clean_build_ms"] = round(clean_med, 2)
-    print(f"1. Clean Build (Baseline):       {clean_med:.2f} ms")
+    print(f"1. Clean Build (Baseline, {total_funcs} funcs): {clean_med:.2f} ms")
 
     # 2. Cold Incremental Build (empty cache)
     run_cmd(f"rm -rf {cache_dir} {out_exe}")
@@ -126,24 +143,25 @@ def main():
     # 4. Single-Function Body Edit
     edit_times = []
     for i in range(5):
-        # Modify body of helper_sum
-        with open(main_src, "w") as fp:
-            fp.write(f"""
-fn helper_sum() -> i64 {{
-    let mut s: i64 = {i + 1};
-    let mut i: i64 = 0;
-    while i < 100 {{
-        s = s + i;
-        i = i + 1;
-    }}
-    return s;
-}}
-
-fn main() -> i64 {{
-    let h = helper_sum();
-    return h;
+        # Modify single function body in mod_0.va (all other 19 modules and 199 functions reused)
+        mod0_path = os.path.join(bench_dir, "mod_0.va")
+        lines = []
+        for f in range(funcs_per_mod):
+            if f == 0:
+                lines.append(f"""
+pub fn calc_0(x: i64) -> i64 {{
+    return x * 3 + {10 + i};
 }}
 """)
+            else:
+                lines.append(f"""
+pub fn calc_{f}(x: i64) -> i64 {{
+    return x * 2 + {f};
+}}
+""")
+        with open(mod0_path, "w") as fp:
+            fp.write("\n".join(lines))
+
         code, stdout, stderr, dur = run_cmd(f"{VENTAC_BIN} {main_src} -o {out_exe} --incremental --cache-dir={cache_dir} --build-stats")
         if code != 0:
             print(f"Body edit build failed: {stderr}")
@@ -151,7 +169,9 @@ fn main() -> i64 {{
         edit_times.append(dur * 1000.0)
     edit_med = statistics.median(edit_times)
     results["single_function_edit_ms"] = round(edit_med, 2)
-    print(f"4. Single-Function Edit Rebuild: {edit_med:.2f} ms")
+    edit_speedup = clean_med / edit_med if edit_med > 0 else 0
+    results["single_function_speedup_x"] = round(edit_speedup, 2)
+    print(f"4. Single-Function Edit Rebuild: {edit_med:.2f} ms (Speedup: {edit_speedup:.2f}x vs clean)")
 
     # 5. Link-Only Rebuild
     link_times = []

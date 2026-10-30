@@ -4,8 +4,10 @@
 //! invalidation propagation, and user-facing rebuild explanations.
 
 use crate::cache::{ArtifactType, CacheManager};
-use crate::fingerprint::{ContentFingerprint, Domain, FingerprintBuilder};
+use crate::fingerprint::{BuildConfiguration, ContentFingerprint, Domain, FingerprintBuilder};
+use crate::fragment::FunctionFragment;
 use crate::graph::BuildGraph;
+use crate::manifest::BuildManifest;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +23,7 @@ pub struct IncrementalOptions {
     pub debug_info: bool,
     pub explain_rebuild: bool,
     pub build_stats: bool,
+    pub build_config: Option<BuildConfiguration>,
 }
 
 impl Default for IncrementalOptions {
@@ -34,6 +37,7 @@ impl Default for IncrementalOptions {
             debug_info: false,
             explain_rebuild: false,
             build_stats: false,
+            build_config: None,
         }
     }
 }
@@ -114,6 +118,14 @@ impl IncrementalBuildEngine {
         self.rebuild_explanations.push((unit.into(), reason.into()));
     }
 
+    pub fn build_config(&self) -> Option<&BuildConfiguration> {
+        self.options.build_config.as_ref()
+    }
+
+    pub fn set_build_config(&mut self, cfg: BuildConfiguration) {
+        self.options.build_config = Some(cfg);
+    }
+
     /// Compute cryptographic fingerprint for a source file.
     pub fn compute_source_fingerprint(&self, path: &Path, content: &str) -> ContentFingerprint {
         let mut builder = FingerprintBuilder::new(Domain::Source);
@@ -126,10 +138,14 @@ impl IncrementalBuildEngine {
     pub fn compute_object_fingerprint(&self, source_fp: &ContentFingerprint) -> ContentFingerprint {
         let mut builder = FingerprintBuilder::new(Domain::Object);
         builder.update_fingerprint(source_fp);
-        builder.update_str(&self.options.target_triple);
-        builder.update_str(&self.options.opt_level);
-        builder.update_str(&self.options.target_features);
-        builder.update_bool(self.options.debug_info);
+        if let Some(cfg) = &self.options.build_config {
+            builder.update_fingerprint(&cfg.fingerprint(self.cache.compiler_identity()));
+        } else {
+            builder.update_str(&self.options.target_triple);
+            builder.update_str(&self.options.opt_level);
+            builder.update_str(&self.options.target_features);
+            builder.update_bool(self.options.debug_info);
+        }
         builder.finish()
     }
 
@@ -141,6 +157,7 @@ impl IncrementalBuildEngine {
         extra_inputs: &[PathBuf],
     ) -> ContentFingerprint {
         let mut builder = FingerprintBuilder::new(Domain::Link);
+        builder.update_fingerprint(&self.cache.compiler_identity().fingerprint());
         builder.update_str(&self.options.target_triple);
         builder.update_bool(self.options.debug_info);
         builder.update_u32(object_fps.len() as u32);
@@ -149,13 +166,19 @@ impl IncrementalBuildEngine {
         }
         for arch in archive_paths {
             builder.update_str(&arch.to_string_lossy());
-            if let Ok(meta) = fs::metadata(arch) {
+            if let Ok(bytes) = fs::read(arch) {
+                let arch_fp = ContentFingerprint::for_bytes(Domain::Archive, &bytes);
+                builder.update_fingerprint(&arch_fp);
+            } else if let Ok(meta) = fs::metadata(arch) {
                 builder.update_u64(meta.len());
             }
         }
         for extra in extra_inputs {
             builder.update_str(&extra.to_string_lossy());
-            if let Ok(meta) = fs::metadata(extra) {
+            if let Ok(bytes) = fs::read(extra) {
+                let extra_fp = ContentFingerprint::for_bytes(Domain::Object, &bytes);
+                builder.update_fingerprint(&extra_fp);
+            } else if let Ok(meta) = fs::metadata(extra) {
                 builder.update_u64(meta.len());
             }
         }
@@ -256,6 +279,69 @@ impl IncrementalBuildEngine {
         self.cache.record_link(link_key, exe_path, input_fps)
     }
 
+    /// Check if a cached function fragment exists for the given function fingerprint.
+    pub fn query_cached_function(
+        &mut self,
+        fn_key: &ContentFingerprint,
+    ) -> Option<FunctionFragment> {
+        if !self.options.enabled {
+            return None;
+        }
+
+        match self
+            .cache
+            .read_artifact(fn_key, ArtifactType::FunctionFragment)
+        {
+            Ok(Some(bytes)) => match FunctionFragment::from_bytes(&bytes) {
+                Ok(fragment) => {
+                    self.stats.cache_hits += 1;
+                    self.stats.functions_cached += 1;
+                    Some(fragment)
+                }
+                Err(e) => {
+                    self.stats.cache_corruptions += 1;
+                    self.stats.cache_misses += 1;
+                    self.stats.functions_recompiled += 1;
+                    self.add_rebuild_reason(
+                        format!("fn:{}", fn_key.to_hex()),
+                        format!("cached fragment deserialize error: {}", e),
+                    );
+                    None
+                }
+            },
+            _ => {
+                self.stats.cache_misses += 1;
+                self.stats.functions_recompiled += 1;
+                None
+            }
+        }
+    }
+
+    /// Store a compiled function fragment in the cache.
+    pub fn store_cached_function(
+        &mut self,
+        fn_key: &ContentFingerprint,
+        fragment: &FunctionFragment,
+        input_fps: &[ContentFingerprint],
+    ) -> Result<PathBuf, String> {
+        let bytes = fragment.to_bytes()?;
+        self.cache
+            .store_artifact(fn_key, ArtifactType::FunctionFragment, &bytes, input_fps)
+    }
+
+    /// Load the persistent build manifest for the current target, if it exists.
+    pub fn load_manifest(&self) -> Option<BuildManifest> {
+        if !self.options.enabled {
+            return None;
+        }
+        BuildManifest::load_from_dir(&self.cache.target_dir())
+    }
+
+    /// Save the persistent build manifest to disk in the target cache directory.
+    pub fn save_manifest(&self, manifest: &BuildManifest) -> Result<(), String> {
+        manifest.save_to_dir(&self.cache.target_dir())
+    }
+
     /// Format build stats string for CLI output.
     pub fn format_stats(&self) -> String {
         format!(
@@ -264,6 +350,10 @@ impl IncrementalBuildEngine {
     Total:                 {}
     Unchanged:             {}
     Changed:                {}
+  Functions:
+    Total:                 {}
+    Cached:                {}
+    Recompiled:            {}
   Objects:
     Reused:                 {}
     Regenerated:            {}
@@ -277,6 +367,9 @@ impl IncrementalBuildEngine {
             self.stats.source_files_total,
             self.stats.source_files_unchanged,
             self.stats.source_files_changed,
+            self.stats.functions_total,
+            self.stats.functions_cached,
+            self.stats.functions_recompiled,
             self.stats.objects_reused,
             self.stats.objects_regenerated,
             if self.stats.linking_performed {
@@ -306,5 +399,96 @@ impl IncrementalBuildEngine {
             }
         }
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_link_fingerprint_archive_content_change_same_size() {
+        let dir = tempdir().unwrap();
+        let arch_path = dir.path().join("libmath.a");
+
+        // Write first version: 16 bytes of 'A'
+        fs::write(&arch_path, vec![b'A'; 16]).unwrap();
+
+        let engine = IncrementalBuildEngine::new(IncrementalOptions::default()).unwrap();
+        let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"obj1");
+        let link_fp1 = engine.compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[]);
+
+        // Write second version: 16 bytes of 'B' (exact same byte size!)
+        fs::write(&arch_path, vec![b'B'; 16]).unwrap();
+
+        let link_fp2 = engine.compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[]);
+
+        assert_ne!(
+            link_fp1, link_fp2,
+            "Link fingerprint MUST change when archive contents change, even with identical file size!"
+        );
+    }
+
+    #[test]
+    fn test_function_fragment_caching_and_stats() {
+        let dir = tempdir().unwrap();
+        let mut opts = IncrementalOptions::default();
+        opts.cache_dir = dir.path().join("cache");
+
+        let mut engine = IncrementalBuildEngine::new(opts).unwrap();
+        let fn_key = ContentFingerprint::for_bytes(Domain::FunctionCodegen, b"my_func");
+
+        let fragment = FunctionFragment::new(
+            "my_func".into(),
+            ContentFingerprint::for_bytes(Domain::FunctionMir, b"sig"),
+            fn_key,
+            vec![0x48, 0x31, 0xc0, 0xc3], // xor rax, rax; ret
+            vec![],
+            vec![],
+            None,
+            16,
+        );
+
+        // Store fragment
+        engine
+            .store_cached_function(&fn_key, &fragment, &[])
+            .unwrap();
+
+        // Query fragment
+        let loaded = engine.query_cached_function(&fn_key).unwrap();
+        assert_eq!(loaded.name, "my_func");
+        assert_eq!(loaded.code, vec![0x48, 0x31, 0xc0, 0xc3]);
+        assert_eq!(engine.stats().functions_cached, 1);
+    }
+
+    #[test]
+    fn test_link_validity_tampered_executable_fails() {
+        let dir = tempdir().unwrap();
+        let mut opts = IncrementalOptions::default();
+        opts.cache_dir = dir.path().join("cache");
+
+        let mut engine = IncrementalBuildEngine::new(opts).unwrap();
+        let exe_path = dir.path().join("prog");
+        fs::write(&exe_path, b"ORIGINAL_EXE_BYTES").unwrap();
+
+        let link_key = ContentFingerprint::for_bytes(Domain::Link, b"link_key_1");
+        let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"obj");
+
+        engine
+            .record_linked_executable(&link_key, &exe_path, &[obj_fp])
+            .unwrap();
+
+        // Valid initially
+        assert!(engine.check_link_reusable(&link_key, &exe_path));
+
+        // Tamper executable content (keep size identical!)
+        fs::write(&exe_path, b"MODIFIED_EXE_BYTES").unwrap();
+
+        // Must detect checksum mismatch and reject reuse
+        assert!(
+            !engine.check_link_reusable(&link_key, &exe_path),
+            "Tampered executable content must invalidate link cache!"
+        );
     }
 }

@@ -1,9 +1,13 @@
 {
-  "clean_build_ms": 70.32,
-  "cold_incremental_ms": 72.32,
-  "warm_noop_ms": 17.41,
-  "noop_speedup_x": 4.04,
-  "single_function_edit_ms": 72.01,
-  "link_only_rebuild_ms": 18.94,
-  "corruption_recovery_ms": 71.63
+  "num_modules": 20,
+  "funcs_per_module": 10,
+  "total_functions": 202,
+  "clean_build_ms": 66.36,
+  "cold_incremental_ms": 71.88,
+  "warm_noop_ms": 16.54,
+  "noop_speedup_x": 4.01,
+  "single_function_edit_ms": 72.85,
+  "single_function_speedup_x": 0.91,
+  "link_only_rebuild_ms": 17.7,
+  "corruption_recovery_ms": 72.87
 }

@@ -77,6 +77,8 @@ pub enum Domain {
     Archive,
     Link,
     CompilerIdentity,
+    CompilerConfig,
+    Manifest,
 }
 
 impl Domain {
@@ -93,6 +95,8 @@ impl Domain {
             Domain::Archive => "VENTA:ARCHIVE:v1",
             Domain::Link => "VENTA:LINK:v1",
             Domain::CompilerIdentity => "VENTA:COMPILER_ID:v1",
+            Domain::CompilerConfig => "VENTA:COMPILER_CONFIG:v1",
+            Domain::Manifest => "VENTA:MANIFEST:v1",
         }
     }
 }
@@ -161,12 +165,14 @@ impl CompilerIdentity {
     pub const CURRENT_CACHE_SCHEMA_VERSION: u32 = 1;
 
     pub fn current(target_triple: &str) -> Self {
+        let rev = option_env!("VENTA_GIT_REV")
+            .or(option_env!("VENTA_BUILD_GIT_REV"))
+            .unwrap_or("unknown-untrusted-rev")
+            .to_string();
         Self {
             compiler_version: env!("CARGO_PKG_VERSION").to_string(),
             cache_schema_version: Self::CURRENT_CACHE_SCHEMA_VERSION,
-            git_revision: option_env!("VENTA_GIT_REV")
-                .unwrap_or("cc21660")
-                .to_string(),
+            git_revision: rev,
             target_triple: target_triple.to_string(),
         }
     }
@@ -177,6 +183,99 @@ impl CompilerIdentity {
         builder.update_u32(self.cache_schema_version);
         builder.update_str(&self.git_revision);
         builder.update_str(&self.target_triple);
+        builder.finish()
+    }
+}
+
+/// Target CPU feature flags affecting instruction selection and code generation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetFeaturesConfig {
+    pub avx: bool,
+    pub avx2: bool,
+    pub fma: bool,
+    pub avx512f: bool,
+    pub bmi1: bool,
+    pub bmi2: bool,
+}
+
+/// Canonical representation of all output-affecting compiler and linker configuration flags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildConfiguration {
+    pub target_triple: String,
+    pub arch: String,
+    pub os: String,
+    pub abi: String,
+    pub object_format: String,
+    pub opt_level: String,
+    pub target_features: TargetFeaturesConfig,
+    pub enable_reg_alloc: bool,
+    pub enable_tail_calls: bool,
+    pub enable_block_layout: bool,
+    pub enable_code_align: bool,
+    pub enable_mem2reg: bool,
+    pub enable_gvn: bool,
+    pub enable_inline: bool,
+    pub enable_ipa_constprop: bool,
+    pub enable_licm: bool,
+    pub enable_indvar: bool,
+    pub enable_strength_reduction: bool,
+    pub enable_sroa: bool,
+    pub enable_loop_peel: bool,
+    pub enable_loop_unroll: bool,
+    pub enable_vectorize: bool,
+    pub enable_instruction_schedule: bool,
+    pub enable_global_dce: bool,
+    pub debug_info: bool,
+    pub std_fingerprint: Option<ContentFingerprint>,
+    pub runtime_fingerprint: Option<ContentFingerprint>,
+}
+
+impl BuildConfiguration {
+    pub fn fingerprint(&self, compiler_id: &CompilerIdentity) -> ContentFingerprint {
+        let mut builder = FingerprintBuilder::new(Domain::CompilerConfig);
+        builder.update_fingerprint(&compiler_id.fingerprint());
+        builder.update_str(&self.target_triple);
+        builder.update_str(&self.arch);
+        builder.update_str(&self.os);
+        builder.update_str(&self.abi);
+        builder.update_str(&self.object_format);
+        builder.update_str(&self.opt_level);
+        builder.update_bool(self.target_features.avx);
+        builder.update_bool(self.target_features.avx2);
+        builder.update_bool(self.target_features.fma);
+        builder.update_bool(self.target_features.avx512f);
+        builder.update_bool(self.target_features.bmi1);
+        builder.update_bool(self.target_features.bmi2);
+        builder.update_bool(self.enable_reg_alloc);
+        builder.update_bool(self.enable_tail_calls);
+        builder.update_bool(self.enable_block_layout);
+        builder.update_bool(self.enable_code_align);
+        builder.update_bool(self.enable_mem2reg);
+        builder.update_bool(self.enable_gvn);
+        builder.update_bool(self.enable_inline);
+        builder.update_bool(self.enable_ipa_constprop);
+        builder.update_bool(self.enable_licm);
+        builder.update_bool(self.enable_indvar);
+        builder.update_bool(self.enable_strength_reduction);
+        builder.update_bool(self.enable_sroa);
+        builder.update_bool(self.enable_loop_peel);
+        builder.update_bool(self.enable_loop_unroll);
+        builder.update_bool(self.enable_vectorize);
+        builder.update_bool(self.enable_instruction_schedule);
+        builder.update_bool(self.enable_global_dce);
+        builder.update_bool(self.debug_info);
+        if let Some(fp) = &self.std_fingerprint {
+            builder.update_bool(true);
+            builder.update_fingerprint(fp);
+        } else {
+            builder.update_bool(false);
+        }
+        if let Some(fp) = &self.runtime_fingerprint {
+            builder.update_bool(true);
+            builder.update_fingerprint(fp);
+        } else {
+            builder.update_bool(false);
+        }
         builder.finish()
     }
 }
@@ -378,5 +477,113 @@ mod tests {
         let hex = fp.to_hex();
         let parsed = ContentFingerprint::from_hex(&hex).expect("parse hex");
         assert_eq!(fp, parsed);
+    }
+
+    #[test]
+    fn test_compiler_identity_invalidation() {
+        let id1 = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_a".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+        };
+        let id2 = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_b".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+        };
+        assert_ne!(id1.fingerprint(), id2.fingerprint());
+    }
+
+    #[test]
+    fn test_build_configuration_options_invalidation() {
+        let id = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_base".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+        };
+        let base_cfg = BuildConfiguration {
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            arch: "x86_64".into(),
+            os: "linux".into(),
+            abi: "systemv".into(),
+            object_format: "elf64".into(),
+            opt_level: "O1".into(),
+            target_features: TargetFeaturesConfig::default(),
+            enable_reg_alloc: true,
+            enable_tail_calls: true,
+            enable_block_layout: true,
+            enable_code_align: true,
+            enable_mem2reg: true,
+            enable_gvn: true,
+            enable_inline: true,
+            enable_ipa_constprop: true,
+            enable_licm: true,
+            enable_indvar: true,
+            enable_strength_reduction: true,
+            enable_sroa: true,
+            enable_loop_peel: true,
+            enable_loop_unroll: true,
+            enable_vectorize: false,
+            enable_instruction_schedule: true,
+            enable_global_dce: true,
+            debug_info: false,
+            std_fingerprint: None,
+            runtime_fingerprint: None,
+        };
+
+        let base_fp = base_cfg.fingerprint(&id);
+
+        // 1. Opt level -O0 vs -O1
+        let mut cfg_o0 = base_cfg.clone();
+        cfg_o0.opt_level = "O0".into();
+        assert_ne!(base_fp, cfg_o0.fingerprint(&id));
+
+        // 2. Vectorization toggled
+        let mut cfg_vec = base_cfg.clone();
+        cfg_vec.enable_vectorize = true;
+        assert_ne!(base_fp, cfg_vec.fingerprint(&id));
+
+        // 3. AVX2 toggled
+        let mut cfg_avx2 = base_cfg.clone();
+        cfg_avx2.target_features.avx2 = true;
+        assert_ne!(base_fp, cfg_avx2.fingerprint(&id));
+
+        // 4. AVX-512 toggled
+        let mut cfg_avx512 = base_cfg.clone();
+        cfg_avx512.target_features.avx512f = true;
+        assert_ne!(base_fp, cfg_avx512.fingerprint(&id));
+
+        // 5. Reg alloc toggled
+        let mut cfg_noreg = base_cfg.clone();
+        cfg_noreg.enable_reg_alloc = false;
+        assert_ne!(base_fp, cfg_noreg.fingerprint(&id));
+
+        // 6. Debug info toggled
+        let mut cfg_dbg = base_cfg.clone();
+        cfg_dbg.debug_info = true;
+        assert_ne!(base_fp, cfg_dbg.fingerprint(&id));
+
+        // 7. Tail calls toggled
+        let mut cfg_tail = base_cfg.clone();
+        cfg_tail.enable_tail_calls = false;
+        assert_ne!(base_fp, cfg_tail.fingerprint(&id));
+
+        // 8. Block layout toggled
+        let mut cfg_layout = base_cfg.clone();
+        cfg_layout.enable_block_layout = false;
+        assert_ne!(base_fp, cfg_layout.fingerprint(&id));
+
+        // 9. Instruction schedule toggled
+        let mut cfg_sched = base_cfg.clone();
+        cfg_sched.enable_instruction_schedule = false;
+        assert_ne!(base_fp, cfg_sched.fingerprint(&id));
+
+        // 10. Target ABI changed
+        let mut cfg_abi = base_cfg.clone();
+        cfg_abi.abi = "msvc".into();
+        assert_ne!(base_fp, cfg_abi.fingerprint(&id));
     }
 }

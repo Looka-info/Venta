@@ -140,3 +140,16 @@ Milestone 32 connects `vanta_linker` directly to the `vanta_build` dependency gr
 3. **Object Reuse on Relink:**
    When an executable is missing or link options change (such as map file generation), cached object artifacts are supplied directly to `vanta_linker` without invoking frontend compilation or backend machine code generation.
 
+---
+
+## 7. Content-Based Archive Hashing & Link Correctness Hardening (Milestone 32.5)
+
+Milestone 32.5 extends the incremental linking pipeline to guarantee provable correctness under archive and binary alterations:
+
+1. **Full Byte-Level Archive Hashing:**
+   `compute_link_fingerprint` in `vanta_build` reads and hashes the raw bytes of all linked static archives (`.a` / `.lib`) using `Domain::Archive`. Even when an archive is replaced with different content of the exact same filename and byte length, the link fingerprint changes deterministically, forcing an immediate relink.
+2. **Cryptographic Executable Verification (`LinkRecord`):**
+   A link cache hit is only permitted after reading the existing executable from disk, confirming its size, and verifying that its SHA-256 hash matches the recorded `checksum`. Any external deletion, truncation, or tampering triggers an automatic relink.
+3. **Zero-Pass Fast Path:**
+   When all source and archive inputs are unchanged, the compiler performs 0 object compilations, 0 section merges, and 0 relinks, achieving instantaneous executable execution.
+

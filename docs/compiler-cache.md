@@ -60,3 +60,31 @@ When reading an artifact:
 2. The data payload length is validated against `artifact_size`.
 3. The SHA-256 digest of the data file is verified against `artifact_checksum`.
 4. If truncation, bit rot, or schema mismatch is detected, the corrupted files are immediately removed, the entry is recorded as a cache miss, and the compiler cleanly regenerates the artifact from source without emitting corrupted machine code.
+
+---
+
+## Function Fragment Storage (`functions/`)
+
+Functions are cached as self-contained binary blobs with:
+- Function symbol name
+- Signature content fingerprint
+- Body content fingerprint
+- Raw machine code bytes (16-byte aligned)
+- Relative relocations (PC32, PLT32, ADDR64, etc.)
+- Line entry records (Dwarf line table offsets)
+- Local variable and parameter debug info records
+
+Fragments are serialized with version-stamped binary headers. When an object is reassembled from fragments, cached fragments are mapped into the new `.text` section without re-running register allocation or instruction encoding.
+
+---
+
+## Link Record Validation (`links/`)
+
+Linked executables are indexed by their composite link fingerprint (`Domain::Link`). The record stores:
+- Target executable path
+- Exact file length
+- Cryptographic SHA-256 checksum of the executable image
+- Object dependency fingerprints
+- Compiler identity at link time
+
+On warm builds, `get_cached_link` reads the executable, computes its SHA-256 digest in real time, and checks it against the recorded checksum. If the binary was deleted, truncated, or tampered with, the link cache entry is invalidated and a relink is performed automatically.

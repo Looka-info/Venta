@@ -44,6 +44,27 @@ impl ArtifactType {
             ArtifactType::LinkExecutable => "link",
         }
     }
+
+    pub fn domain(&self) -> Domain {
+        match self {
+            ArtifactType::Object => Domain::Object,
+            ArtifactType::ModuleInterface => Domain::ModuleInterface,
+            ArtifactType::Mir => Domain::FunctionMir,
+            ArtifactType::FunctionFragment => Domain::FunctionCodegen,
+            ArtifactType::Archive => Domain::Archive,
+            ArtifactType::LinkExecutable => Domain::Link,
+        }
+    }
+}
+
+/// Detailed link record stored for an executable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkRecord {
+    pub exe_path: String,
+    pub exe_size: u64,
+    pub exe_checksum: ContentFingerprint,
+    pub link_key: ContentFingerprint,
+    pub compiler_id: String,
 }
 
 /// Metadata recorded for every cache entry.
@@ -137,6 +158,10 @@ impl CacheManager {
 
     pub fn target_triple(&self) -> &str {
         &self.target_triple
+    }
+
+    pub fn compiler_identity(&self) -> &CompilerIdentity {
+        &self.compiler_identity
     }
 
     pub fn target_dir(&self) -> PathBuf {
@@ -233,7 +258,7 @@ impl CacheManager {
         }
 
         // Validate cryptographic checksum
-        let actual_checksum = ContentFingerprint::for_bytes(Domain::Object, &data);
+        let actual_checksum = ContentFingerprint::for_bytes(expected_type.domain(), &data);
         if actual_checksum != metadata.artifact_checksum {
             self.recovery_counter.fetch_add(1, Ordering::Relaxed);
             self.miss_counter.fetch_add(1, Ordering::Relaxed);
@@ -257,6 +282,31 @@ impl CacheManager {
         let locks_dir = self.target_dir().join("locks");
         fs::create_dir_all(&locks_dir).map_err(|e| format!("Create locks dir: {}", e))?;
 
+        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
+        // Try to acquire atomic per-key lock with stale lock recovery
+        for _ in 0..50 {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_file)
+            {
+                Ok(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    if let Ok(meta) = fs::metadata(&lock_file) {
+                        if let Ok(modified) = meta.modified() {
+                            if let Ok(elapsed) = modified.elapsed() {
+                                if elapsed.as_secs() > 15 {
+                                    let _ = fs::remove_file(&lock_file);
+                                }
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(e) => return Err(format!("Failed to acquire lock: {}", e)),
+            }
+        }
+
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -277,7 +327,7 @@ impl CacheManager {
             file.flush().map_err(|e| format!("Flush tmp data: {}", e))?;
         }
 
-        let checksum = ContentFingerprint::for_bytes(Domain::Object, data);
+        let checksum = ContentFingerprint::for_bytes(artifact_type.domain(), data);
         let metadata = CacheEntryMetadata {
             artifact_type,
             schema_version: CompilerIdentity::CURRENT_CACHE_SCHEMA_VERSION,
@@ -303,18 +353,31 @@ impl CacheManager {
 
         // 3. Atomically rename data file into destination
         let final_art_path = self.artifact_path(key, artifact_type);
-        fs::rename(&tmp_data_path, &final_art_path).map_err(|e| {
+        if let Err(e) = fs::rename(&tmp_data_path, &final_art_path) {
             let _ = fs::remove_file(&tmp_data_path);
             let _ = fs::remove_file(&tmp_meta_path);
-            format!("Rename artifact to {}: {}", final_art_path.display(), e)
-        })?;
+            let _ = fs::remove_file(&lock_file);
+            return Err(format!(
+                "Rename artifact to {}: {}",
+                final_art_path.display(),
+                e
+            ));
+        }
 
         // 4. Atomically rename metadata file into destination
         let final_meta_path = self.metadata_path(key);
-        fs::rename(&tmp_meta_path, &final_meta_path).map_err(|e| {
+        if let Err(e) = fs::rename(&tmp_meta_path, &final_meta_path) {
             let _ = fs::remove_file(&tmp_meta_path);
-            format!("Rename metadata to {}: {}", final_meta_path.display(), e)
-        })?;
+            let _ = fs::remove_file(&lock_file);
+            return Err(format!(
+                "Rename metadata to {}: {}",
+                final_meta_path.display(),
+                e
+            ));
+        }
+
+        // Release lock
+        let _ = fs::remove_file(&lock_file);
 
         Ok(final_art_path)
     }
@@ -333,7 +396,7 @@ impl CacheManager {
         Ok(None)
     }
 
-    /// Read link record (link fingerprint -> destination executable path and validity).
+    /// Read link record (link fingerprint -> destination executable path, checksum, and validity).
     pub fn get_cached_link(&self, link_key: &ContentFingerprint, expected_exe_path: &Path) -> bool {
         if !expected_exe_path.exists() {
             self.miss_counter.fetch_add(1, Ordering::Relaxed);
@@ -342,29 +405,91 @@ impl CacheManager {
 
         match self.read_artifact(link_key, ArtifactType::LinkExecutable) {
             Ok(Some(bytes)) => {
-                let recorded_path = String::from_utf8_lossy(&bytes);
-                if Path::new(recorded_path.trim()) == expected_exe_path {
-                    true
-                } else {
-                    false
+                let record: LinkRecord = match serde_json::from_slice(&bytes) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                        return false;
+                    }
+                };
+
+                // Check path
+                if Path::new(&record.exe_path) != expected_exe_path {
+                    self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                    return false;
                 }
+
+                // Check compiler ID
+                let current_compiler_id = self.compiler_identity.fingerprint().to_hex();
+                if record.compiler_id != current_compiler_id {
+                    self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                    return false;
+                }
+
+                // Check file size
+                let meta = match fs::metadata(expected_exe_path) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                        return false;
+                    }
+                };
+                if meta.len() != record.exe_size {
+                    self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                    return false;
+                }
+
+                // Check cryptographic content checksum
+                let exe_bytes = match fs::read(expected_exe_path) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                        return false;
+                    }
+                };
+                let actual_checksum = ContentFingerprint::for_bytes(Domain::Link, &exe_bytes);
+                if actual_checksum != record.exe_checksum {
+                    self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                    return false;
+                }
+
+                true
             }
-            _ => false,
+            _ => {
+                self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                false
+            }
         }
     }
 
-    /// Record successful link operation for future incremental link skips.
+    /// Record successful link operation with cryptographic verification of executable.
     pub fn record_link(
         &self,
         link_key: &ContentFingerprint,
         exe_path: &Path,
         input_fingerprints: &[ContentFingerprint],
     ) -> Result<(), String> {
-        let path_str = exe_path.to_string_lossy().to_string();
+        let exe_bytes = fs::read(exe_path).map_err(|e| {
+            format!(
+                "Failed to read exe {} for link recording: {}",
+                exe_path.display(),
+                e
+            )
+        })?;
+        let exe_checksum = ContentFingerprint::for_bytes(Domain::Link, &exe_bytes);
+        let link_record = LinkRecord {
+            exe_path: exe_path.to_string_lossy().to_string(),
+            exe_size: exe_bytes.len() as u64,
+            exe_checksum,
+            link_key: *link_key,
+            compiler_id: self.compiler_identity.fingerprint().to_hex(),
+        };
+        let record_bytes = serde_json::to_vec_pretty(&link_record)
+            .map_err(|e| format!("Serialize LinkRecord: {}", e))?;
         self.store_artifact(
             link_key,
             ArtifactType::LinkExecutable,
-            path_str.as_bytes(),
+            &record_bytes,
             input_fingerprints,
         )?;
         Ok(())

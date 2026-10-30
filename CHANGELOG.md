@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - Milestone 32.5 (Venta Incremental Build Correctness, Complete Dependency Fingerprinting & Function-Level Cache Integration)
+
+### Added
+- **Build Configuration & Dynamic Compiler Identity (crates/vanta_build/src/fingerprint.rs, uild.rs)**:
+  - Implemented dynamic git commit detection and source tree digest fallback in anta_build/build.rs, exporting cargo:rustc-env=VENTA_BUILD_GIT_REV.
+  - Added TargetFeaturesConfig and BuildConfiguration structs capturing all 26+ compiler flags, optimization switches (opt_level, mem2reg, gvn, inline, ipa_constprop, loop_unroll, ectorize, instruction_schedule, global_dce, 	ail_calls), and CPU target features (vx, vx2, ma, vx512f).
+  - Added domain separation for Domain::CompilerConfig and Domain::Manifest.
+- **Content-Based Archive & Link Fingerprinting (crates/vanta_build/src/engine.rs, cache.rs)**:
+  - Upgraded compute_link_fingerprint to read and digest the raw byte streams of all static archives (.a / .lib) using SHA-256 (Domain::Archive), detecting modifications in archives with identical byte lengths.
+  - Implemented cryptographic LinkRecord validation verifying executable presence, exact byte size, and runtime SHA-256 digest on warm link queries.
+- **Persistent Build Manifest & Fast Path (crates/vanta_build/src/manifest.rs)**:
+  - Added BuildManifest schema persisting compiler ID, target triple, build config digest, source file fingerprints, module interface digests, function signatures, and struct/enum layout hashes in manifest.json.
+  - Added zero-frontend two-level fast path in CompilerSession::compile(): instantaneous execution when inputs and configurations match previous manifest.
+- **Function Fragment Caching & Object Reassembly (crates/vanta_build/src/fragment.rs, crates/vanta_codegen_x86_64)**:
+  - Implemented FunctionFragment encapsulating function symbol name, signature fingerprint, body fingerprint, 16-byte aligned machine code, relative relocations, and DWARF 5 line/variable debug entries.
+  - Added X86_64Backend::compute_function_fingerprints and emit_function_fragment to compile individual functions into standalone relocatable fragments.
+  - Added X86_64Backend::assemble_object_from_fragments to stitch cached and recompiled fragments into .text, shift relocations and debug tables, construct .rodata and vtables, and emit valid ELF64 / PE/COFF objects.
+  - Enforced deterministic symbol sorting across structs and enums to eliminate non-deterministic HashMap iteration order in function body hashes.
+- **Comprehensive Invalidation Test Matrix (Tests A through J)**:
+  - Added 10 extensive integration tests in crates/vanta_driver/tests/incremental_tests.rs:
+    - 	est_stage32_5_test_a_multi_module_noop_rebuild: Warm no-op rebuild skipping all compilation and linking.
+    - 	est_stage32_5_test_b_private_function_edit_and_fragment_reuse: Private function edit recompiles only the edited fragment; unaffected functions are reused from cache.
+    - 	est_stage32_5_test_c_public_signature_change: Signature edit invalidates dependent callers and re-runs type checks.
+    - 	est_stage32_5_test_d_generic_template_change: Generic template modification invalidates concrete instantiations.
+    - 	est_stage32_5_test_e_type_layout_change: Struct field addition invalidates dependent functions.
+    - 	est_stage32_5_test_f_trait_implementation_change: Trait implementation edit invalidates vtables and method dispatch.
+    - 	est_stage32_5_test_g_link_only_rebuild: Deleted executable triggers relink using cached objects without re-compilation.
+    - 	est_stage32_5_test_h_same_size_archive_change: Replaced archive with exact same length triggers link fingerprint mismatch.
+    - 	est_stage32_5_test_i_compiler_identity_invalidation: Compiler ID change invalidates cached machine code and forces clean rebuild.
+    - 	est_stage32_5_test_j_target_feature_change: Toggling AVX2 invalidates cache and regenerates compatible object.
+- **Realistic 20-Module / 202-Function Benchmark**:
+  - Updated enchmarks/run_incremental_benchmarks.py to generate and benchmark a realistic 20-module project with 202 functions.
+  - Achieved **4.01x speedup** on warm no-op builds and **3.75x speedup** on link-only rebuilds.
+
+---
+
 ## [2.1.0-alpha.1] - 2026-10-30 (Milestone 32 — Venta v2.1 Incremental Compilation, Content-Addressed Build Graphs & Function-Level Caching)
 
 **First Feature Milestone for v2.1 Architecture: Content-Addressed Incremental Build System**

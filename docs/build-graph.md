@@ -52,3 +52,36 @@ Edges in the graph carry explicit semantic strengths:
 1. **Deterministic Topological Sorting:** Uses a Kahn-style topological sort with lexicographical BTree tie-breaking to guarantee deterministic execution orders.
 2. **Recursive Function Safety:** Mutual recursion between functions is recognized and permitted via `Body` and `Signature` edges without being falsely flagged as illegal cyclic compilation graphs.
 3. **Stale Node Pruning:** Active node tracking ensures that deleted source files or removed functions have their corresponding nodes and reverse dependency edges safely pruned.
+
+---
+
+## Persistent Manifest Schema (`manifest.json`)
+
+To survive compiler restarts and allow instantaneous fast-path verification, `vanta_build` persists a snapshot of the active build graph as `manifest.json`:
+
+```json
+{
+  "schema_version": 1,
+  "compiler_id": "<64-hex-sha256>",
+  "target_triple": "x86_64-unknown-linux-gnu",
+  "root_file": "main.va",
+  "config_fingerprint": "<64-hex-sha256>",
+  "source_files": [
+    { "path": "main.va", "fingerprint": "<64-hex-sha256>" }
+  ],
+  "modules": [
+    { "name": "main", "path_str": "main", "file_path": "main.va", "interface_fingerprint": "<64-hex-sha256>" }
+  ],
+  "functions": [
+    { "name": "main", "module": "main", "body_fingerprint": "<64-hex-sha256>", "sig_fingerprint": "<64-hex-sha256>" }
+  ],
+  "types": [
+    { "name": "Point", "layout_fingerprint": "<64-hex-sha256>" }
+  ],
+  "graph_edges": [],
+  "object_fingerprint": "<64-hex-sha256>",
+  "link_fingerprint": "<64-hex-sha256>"
+}
+```
+
+The manifest enables the compiler to verify whether any source files or build flags changed in `O(N_files)` time without running lexical analysis or parser passes on unchanged code.
