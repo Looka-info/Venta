@@ -46,17 +46,24 @@ Every member payload is padded with a newline character (`0x0A`) if its length i
 
 Venta's parser supports all three major symbol index standards:
 
-### 3.1 GNU Symbol Table (`/`)
+### 3.1 GNU 32-bit Symbol Table (`/`)
 - Stored as the first member named `/`.
 - First 4 bytes: 32-bit big-endian unsigned integer indicating the number of symbol entries ($N$).
 - Next $N \times 4$ bytes: Array of 32-bit big-endian file offsets to each member header defining that symbol.
 - Trailing bytes: NUL-terminated (`\0`) ASCII string table of symbol names matching the offset array.
 
-### 3.2 COFF First Linker Member (`/`)
+### 3.2 GNU 64-bit Symbol Table (`/SYM64/`)
+- Emitted by modern GNU `ar` for 64-bit or large static archives.
+- First member named `/SYM64/`.
+- First 8 bytes: 64-bit big-endian unsigned integer indicating symbol count ($N$).
+- Next $N \times 8$ bytes: Array of 64-bit big-endian file offsets to each defining member.
+- Trailing bytes: NUL-terminated string table.
+
+### 3.3 COFF First Linker Member (`/`)
 - Common on Windows static libraries (`.lib`).
 - Similar layout to the GNU table, containing 32-bit symbol counts and member offsets.
 
-### 3.3 BSD / Darwin `__.SYMDEF`
+### 3.4 BSD / Darwin `__.SYMDEF` and `__.SYMDEF SORTED`
 - Used in traditional BSD and macOS Apple archives.
 - Begins with a table of `ranlib` structures: `ran_strx` (string table offset) and `ran_off` (member file offset).
 - Followed by an 8-byte length prefix and string pool.

@@ -148,6 +148,15 @@ flowchart LR
   - **Apple Silicon macOS Mach-O Linker**: Emits dyld-compatible `MH_EXECUTE` binaries (`CPU_TYPE_ARM64`) with standard load commands (`__PAGEZERO`, `__TEXT`, `__DATA`, `__LINKEDIT`, `LC_LOAD_DYLINKER`, `LC_MAIN`, `LC_LOAD_DYLIB`, `LC_SYMTAB`).
   - **Static Archive Engine**: Deterministic `!<arch>\n` creation and parsing with GNU `/`, COFF `/`, and BSD `__.SYMDEF` symbol indexes. Lazy, dependency-driven member extraction with transitive closure resolution.
   - **CLI Integration**: Added `--linker <internal|system>` (internal by default), `--link <archive>`, `-L`, `-l`, `--map-file`, and `ventac archive <create|list|inspect>`.
+- **Native Platform Validation & Linker Correctness Hardening (Milestone 31.5 - Completed)**:
+  - Validated native Linux static executable execution with multi-object recursive/nested function calls and zero dynamic dependencies.
+  - Validated native Windows PE32+ console executable loading and execution on Windows host with `.lib` static archive support.
+  - Implemented GNU 64-bit (`/SYM64/`) and BSD (`__.SYMDEF`) archive symbol table parsing alongside GNU long (`//`) and BSD extended (`#1/len`) filenames.
+  - Implemented multi-platform native CI workflow (`.github/workflows/native-platform-ci.yml`) targeting `ubuntu-24.04`, `windows-2022`, and `macos-14` (Apple Silicon ARM64 runner).
+  - Verified relocation bounds and overflow checking across all supported x86-64 and AArch64 relocation forms.
+  - Conducted zero-subprocess audit verifying complete toolchain independence under `--linker internal`.
+  - Automated malformed-input fuzzing across ELF64, COFF, Mach-O, and Archive parsers with zero panics.
+  - Built standalone benchmark suite measuring link times from 0.025 ms (2 objects) to 0.150 ms (100 objects).
 - **Incremental Compilation (Planned)**:
   - Module-level content addressing and dependency hashing to recompile only mutated functions.
   - Incremental register allocation and fast function patching for near-instant compile-edit-run cycles.

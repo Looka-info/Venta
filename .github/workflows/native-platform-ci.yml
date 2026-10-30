@@ -1,0 +1,188 @@
+name: Venta Native Multi-Platform CI & Linker Validation
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # =========================================================================
+  # 1. Linux Native Validation (x86-64)
+  # =========================================================================
+  linux-x86_64:
+    name: Linux x86-64 Native Linker Validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gdb build-essential binutils
+
+      - name: Set Up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+
+      - name: Build Venta Workspace
+        run: cargo build --workspace --verbose
+
+      - name: Run Linker Core Tests
+        run: cargo test -p vanta_linker --verbose
+
+      - name: Run Driver & Linker End-to-End Tests
+        run: cargo test -p vanta_driver --test linker_e2e_tests --test linker_hardened_tests --verbose
+
+      - name: Verify Multi-Object Internal Static Linking & Native Linux Execution
+        run: |
+          cat << 'EOF' > math.va
+          pub fn compute_sum(a: i64, b: i64) -> i64 {
+              return a + b;
+          }
+          EOF
+          target/debug/ventac compile --emit=obj math.va -o math.o --target linux
+          target/debug/ventac archive create libmath.a math.o
+
+          cat << 'EOF' > main.va
+          mod math;
+          import math::compute_sum;
+
+          fn main() -> i64 {
+              return compute_sum(25, 17);
+          }
+          EOF
+          target/debug/ventac compile main.va -o app_linux --target linux --linker internal --link libmath.a
+
+          # Independent inspection
+          file app_linux
+          readelf -h app_linux
+          readelf -l app_linux
+
+          # Native execution
+          chmod +x app_linux
+          ./app_linux
+          EXIT_CODE=$?
+          echo "Process exit status: ${EXIT_CODE}"
+          test "${EXIT_CODE}" -eq 42
+
+  # =========================================================================
+  # 2. Windows Native Validation (x86-64)
+  # =========================================================================
+  windows-x86_64:
+    name: Windows x86-64 Native Linker Validation
+    runs-on: windows-2022
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set Up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+
+      - name: Build Venta Workspace
+        run: cargo build --workspace --verbose
+        shell: bash
+
+      - name: Run Linker Core Tests
+        run: cargo test -p vanta_linker --verbose
+        shell: bash
+
+      - name: Run Driver & Linker End-to-End Tests
+        run: cargo test -p vanta_driver --test linker_e2e_tests --verbose
+        shell: bash
+
+      - name: Verify Multi-Object Internal PE32+ Linking & Native Windows Execution
+        run: |
+          echo "pub fn add_nums(a: i64, b: i64) -> i64 { return a + b; }" > math.va
+          target/debug/ventac.exe compile --emit=obj math.va -o math.obj --target windows
+          target/debug/ventac.exe archive create libmath.lib math.obj
+
+          echo "mod math; import math::add_nums; fn main() -> i64 { return add_nums(25, 17); }" > main.va
+          target/debug/ventac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
+
+          # Execute natively on Windows
+          ./app_win.exe || true
+          $ec = $LASTEXITCODE
+          Write-Output "Windows native exit code: $ec"
+          if ($ec -ne 42) {
+              Write-Error "Expected exit code 42, got $ec"
+              exit 1
+          }
+        shell: powershell
+
+  # =========================================================================
+  # 3. macOS Apple Silicon Native Validation (ARM64)
+  # =========================================================================
+  macos-arm64:
+    name: macOS Apple Silicon ARM64 Native Linker Validation
+    runs-on: macos-14 # Native Apple Silicon M1 (ARM64) GitHub Actions runner
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Verify Native ARM64 Architecture
+        run: |
+          uname -m
+          test "$(uname -m)" = "arm64"
+
+      - name: Set Up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+
+      - name: Build Venta Workspace
+        run: cargo build --workspace --verbose
+
+      - name: Run Linker Core Tests
+        run: cargo test -p vanta_linker --verbose
+
+      - name: Run Driver & Linker End-to-End Tests
+        run: cargo test -p vanta_driver --test linker_e2e_tests --verbose
+
+      - name: Verify Multi-Object Internal Mach-O Linking & Native Apple Silicon Execution
+        run: |
+          cat << 'EOF' > math.va
+          pub fn add_val(a: i64, b: i64) -> i64 {
+              return a + b;
+          }
+          EOF
+          target/debug/ventac compile --emit=obj math.va -o math.o --target macos
+          target/debug/ventac archive create libmath.a math.o
+
+          cat << 'EOF' > main.va
+          mod math;
+          import math::add_val;
+
+          fn main() -> i64 {
+              return add_val(25, 17);
+          }
+          EOF
+          target/debug/ventac compile main.va -o app_mac --target macos --linker internal --link libmath.a
+
+          # Independent Mach-O inspection
+          file app_mac
+          otool -h -l app_mac
+          otool -L app_mac
+
+          # Native execution on Apple Silicon
+          chmod +x app_mac
+          ./app_mac || true
+          EXIT_CODE=$?
+          echo "macOS native exit status: ${EXIT_CODE}"
+          test "${EXIT_CODE}" -eq 42

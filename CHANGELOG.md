@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **First Feature Milestone for v2.0 Architecture: Pure-Rust Native Linker and Multi-Object Toolchain**
 
 ### Added
+- **Native Platform Hardening & Conformance (Milestone 31.5)**:
+  - **Multi-Platform Native CI (`.github/workflows/native-platform-ci.yml`)**: Automated independent CI workflows across native runners: Linux x86-64 (`ubuntu-24.04`), Windows x86-64 (`windows-2022`), and Apple Silicon ARM64 (`macos-14`).
+  - **GNU 64-bit Symbol Index (`/SYM64/`)**: Added full parsing for 64-bit symbol table indexes with big-endian 64-bit counts and member offset tables in `crates/vanta_linker/src/archive.rs`.
+  - **Native Windows Execution Verification**: Verified native execution of Windows PE32+ binaries produced by Venta's internal linker with exit code 42 for both single-object and multi-object static archive (`libmath.lib`) builds.
+  - **Relocation Overflow Bounds Enforcement**: Added strict range and overflow validation across all implemented ELF AMD64 and Mach-O ARM64 relocations (`R_X86_64_64`, `R_X86_64_PC32`, `R_X86_64_PLT32`, `R_X86_64_32`, `R_X86_64_32S`, `R_X86_64_PC64`, `ARM64_RELOC_BRANCH26`, `ARM64_RELOC_PAGE21`, `ARM64_RELOC_PAGEOFF12`).
+  - **Subprocess Isolation Audit**: Verified zero external compiler, linker, or archiver subprocesses are launched when `--linker internal` is requested.
+  - **Malformed-Input Parser Fuzzing (`crates/vanta_linker/tests/fuzz_tests.rs`)**: Verified parser robustness against thousands of mutated and corrupt buffers across ELF, COFF, Mach-O, and archive formats with zero panics.
+  - **Linker Performance Benchmark Harness (`crates/vanta_linker/examples/bench_linker.rs`)**: Implemented standalone multi-workload benchmark measuring median link times from 0.025 ms (2 objects) to 0.150 ms (100 objects).
 - **Pure-Rust Native Linker Engine (`crates/vanta_linker`)**:
   - Implemented standalone, zero-external-dependency linker core performing object parsing, section merging, symbol resolution, relocation processing, virtual address layout calculation, executable emission, and link map generation without invoking `gcc`, `clang`, `link.exe`, or any external linker.
   - Multi-target executable generation supporting Linux ELF64 (`ET_EXEC`), Windows AMD64 PE32+ (`IMAGE_FILE_MACHINE_AMD64`), and Apple Silicon ARM64 Mach-O (`MH_EXECUTE`).

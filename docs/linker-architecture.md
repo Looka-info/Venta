@@ -6,12 +6,13 @@ Milestone 31 introduces a pure-Rust, self-contained native linker (`vanta_linker
 
 ### Core Capabilities:
 - **Multi-Object Linking**: Reads and combines relocatable object files across multiple modules and translation units.
-- **Static Archives**: Fully parses and emits deterministic `!<arch>\n` archives (`.a` on Linux/macOS, `.lib` on Windows) with GNU `/`, COFF `/`, and BSD `__.SYMDEF` symbol indexes.
+- **Static Archives**: Fully parses and emits deterministic `!<arch>\n` archives (`.a` on Linux/macOS, `.lib` on Windows) with GNU 32-bit `/`, GNU 64-bit `/SYM64/`, COFF `/`, and BSD `__.SYMDEF` symbol indexes.
 - **Lazy Archive Extraction**: Iteratively pulls in only required archive members to satisfy unresolved external references, resolving transitive dependencies until a fixed point is reached.
 - **Strict Symbol Resolution**: Implements strong versus weak symbol precedence, detects and rejects duplicate strong global symbols, and isolates local symbols with identical names across distinct object files.
+- **Zero-Subprocess Internal Linking**: When `--linker internal` is requested, the compiler toolchain executes 100% in pure Rust, spawning zero external child processes (`gcc`, `clang`, `ld`, `link.exe`, `lld-link`, or `ar`).
 - **Cross-Platform Target Support**:
-  - `x86_64-unknown-linux-gnu`: Emits standalone static ELF64 executables (`ET_EXEC`, `PT_LOAD`, `PT_GNU_STACK`) with a self-contained pure-Rust Linux syscall runtime (`sys_exit`, `sys_write`, `sys_mmap`).
-  - `x86_64-pc-windows-msvc`: Emits valid 64-bit PE32+ executables (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`, `PE32_PLUS_MAGIC = 0x020B`, Console subsystem) with synthesized `.idata` import directories for `KERNEL32.dll` (`ExitProcess`, `GetStdHandle`, `WriteFile`), `.pdata`/`.xdata` exception unwind directories, and `.reloc` base relocation page blocks.
+  - `x86_64-unknown-linux-gnu`: Emits standalone static ELF64 executables (`ET_EXEC`, `PT_LOAD`, `PT_GNU_STACK`) with a self-contained pure-Rust Linux syscall runtime (`sys_exit`, `sys_write`, `sys_mmap`). Verified through native Linux execution tests.
+  - `x86_64-pc-windows-msvc`: Emits valid 64-bit PE32+ executables (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`, `PE32_PLUS_MAGIC = 0x020B`, Console subsystem) with synthesized `.idata` import directories for `KERNEL32.dll` (`ExitProcess`, `GetStdHandle`, `WriteFile`), `.pdata`/`.xdata` exception unwind directories, and `.reloc` base relocation page blocks. Verified through native Windows execution tests.
   - `aarch64-apple-darwin`: Emits dyld-compatible `MH_EXECUTE` binaries (`CPU_TYPE_ARM64 = 0x0100000C`, `MH_MAGIC_64 = 0xFEEDFACF`) with standard Apple Silicon load commands (`LC_SEGMENT_64` for `__PAGEZERO`, `__TEXT`, `__DATA`, `__LINKEDIT`, `LC_LOAD_DYLINKER`, `LC_MAIN`, `LC_LOAD_DYLIB`, `LC_SYMTAB`).
 - **Reproducibility**: Byte-for-byte deterministic binary output without timestamps or random hash-map iteration ordering.
 - **Link Maps**: Formatted visual inspection maps detailing input objects, extracted archive members, segment layouts, virtual addresses, symbol addresses, and entry points.

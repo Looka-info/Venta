@@ -86,9 +86,11 @@ impl Archive {
             if name_raw == "//" {
                 gnu_strtab = Some(member_bytes.to_vec());
             }
-            // 2. GNU or COFF First Linker Member: "/"
+            // 2. GNU or COFF First Linker Member: "/" (32-bit) or "/SYM64/" (64-bit)
             else if name_raw == "/" {
                 parse_gnu_or_coff_symbol_index(member_bytes, &mut symbol_to_member_offset);
+            } else if name_raw == "/SYM64/" {
+                parse_gnu_64_symbol_index(member_bytes, &mut symbol_to_member_offset);
             }
             // 3. BSD ranlib symbol table: "__.SYMDEF" or "__.SYMDEF SORTED"
             else if name_raw.starts_with("__.SYMDEF") {
@@ -205,6 +207,53 @@ fn parse_gnu_or_coff_symbol_index(data: &[u8], symbols: &mut HashMap<String, usi
     }
 
     // String table follows offsets
+    let strtab = &data[offsets_end..];
+    let mut str_pos = 0;
+    for &mem_off in &member_offsets {
+        if str_pos >= strtab.len() {
+            break;
+        }
+        let sym_slice = &strtab[str_pos..];
+        let len = sym_slice
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(sym_slice.len());
+        let sym_name = String::from_utf8_lossy(&sym_slice[..len]).to_string();
+        str_pos += len + 1;
+        if !sym_name.is_empty() {
+            symbols.insert(sym_name, mem_off);
+        }
+    }
+}
+
+fn parse_gnu_64_symbol_index(data: &[u8], symbols: &mut HashMap<String, usize>) {
+    if data.len() < 8 {
+        return;
+    }
+    let num_symbols = u64::from_be_bytes([
+        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+    ]) as usize;
+    let offsets_end = 8 + num_symbols * 8;
+    if data.len() < offsets_end {
+        return;
+    }
+
+    let mut member_offsets = Vec::with_capacity(num_symbols);
+    for i in 0..num_symbols {
+        let off_bytes = &data[8 + i * 8..8 + (i + 1) * 8];
+        let off = u64::from_be_bytes([
+            off_bytes[0],
+            off_bytes[1],
+            off_bytes[2],
+            off_bytes[3],
+            off_bytes[4],
+            off_bytes[5],
+            off_bytes[6],
+            off_bytes[7],
+        ]) as usize;
+        member_offsets.push(off);
+    }
+
     let strtab = &data[offsets_end..];
     let mut str_pos = 0;
     for &mem_off in &member_offsets {
