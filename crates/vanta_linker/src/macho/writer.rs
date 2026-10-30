@@ -8,9 +8,11 @@ pub const MH_FLAGS_EXEC: u32 = 0x00200085; // MH_NOUNDEFS | MH_DYLDLINK | MH_TWO
 
 pub const LC_SEGMENT_64: u32 = 0x19;
 pub const LC_SYMTAB: u32 = 0x02;
+pub const LC_DYSYMTAB: u32 = 0x0B;
 pub const LC_LOAD_DYLINKER: u32 = 0x0E;
 pub const LC_MAIN: u32 = 0x80000028;
 pub const LC_LOAD_DYLIB: u32 = 0x0C;
+pub const LC_DYLD_INFO_ONLY: u32 = 0x80000022;
 
 pub const VM_PROT_NONE: u32 = 0;
 pub const VM_PROT_READ: u32 = 1;
@@ -56,11 +58,13 @@ impl MachOExecutableWriter {
         // 2. LC_SEGMENT_64 (__TEXT) - 72 + num_text_sects * 80 bytes
         // 3. LC_SEGMENT_64 (__DATA) - 72 + num_data_sects * 80 bytes (if present)
         // 4. LC_SEGMENT_64 (__LINKEDIT) - 72 bytes
-        // 5. LC_LOAD_DYLINKER (/usr/lib/dyld) - 32 bytes
-        // 6. LC_MAIN - 24 bytes
-        // 7. LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib) - 56 bytes
-        // 8. LC_SYMTAB - 24 bytes
-        let mut ncmds = 1 /* PAGEZERO */ + 1 /* TEXT */ + 1 /* LINKEDIT */ + 1 /* DYLINKER */ + 1 /* MAIN */ + 1 /* DYLIB */ + 1 /* SYMTAB */;
+        // 5. LC_DYLD_INFO_ONLY - 48 bytes
+        // 6. LC_SYMTAB - 24 bytes
+        // 7. LC_DYSYMTAB - 80 bytes
+        // 8. LC_LOAD_DYLINKER (/usr/lib/dyld) - 32 bytes
+        // 9. LC_MAIN - 24 bytes
+        // 10. LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib) - 56 bytes
+        let mut ncmds = 1 /* PAGEZERO */ + 1 /* TEXT */ + 1 /* LINKEDIT */ + 1 /* DYLD_INFO_ONLY */ + 1 /* SYMTAB */ + 1 /* DYSYMTAB */ + 1 /* DYLINKER */ + 1 /* MAIN */ + 1 /* DYLIB */;
         if !data_sections.is_empty() {
             ncmds += 1;
         }
@@ -73,19 +77,23 @@ impl MachOExecutableWriter {
             72 + data_sections.len() * 80
         };
         let cmd_linkedit_size = 72;
+        let cmd_dyld_info_size = 48;
+        let cmd_symtab_size = 24;
+        let cmd_dysymtab_size = 80;
         let cmd_dylinker_size = 32;
         let cmd_main_size = 24;
         let cmd_dylib_size = 56;
-        let cmd_symtab_size = 24;
 
         let sizeofcmds = cmd_pagezero_size
             + cmd_text_size
             + cmd_data_size
             + cmd_linkedit_size
+            + cmd_dyld_info_size
+            + cmd_symtab_size
+            + cmd_dysymtab_size
             + cmd_dylinker_size
             + cmd_main_size
-            + cmd_dylib_size
-            + cmd_symtab_size;
+            + cmd_dylib_size;
 
         let header_and_cmds_size = 32 + sizeofcmds;
 
@@ -270,7 +278,48 @@ impl MachOExecutableWriter {
             0,
         );
 
-        // 2.5 LC_LOAD_DYLINKER (/usr/lib/dyld)
+        // 2.5 LC_DYLD_INFO_ONLY
+        let dyld_info_start = out.len();
+        out.extend_from_slice(&LC_DYLD_INFO_ONLY.to_le_bytes());
+        out.extend_from_slice(&(cmd_dyld_info_size as u32).to_le_bytes());
+        out.extend_from_slice(&[0u8; 40]); // rebase, bind, weak_bind, lazy_bind, export (5 * 8 = 40 bytes)
+        debug_assert_eq!(out.len() - dyld_info_start, cmd_dyld_info_size);
+
+        // 2.6 LC_SYMTAB
+        let symtab_start = out.len();
+        out.extend_from_slice(&LC_SYMTAB.to_le_bytes());
+        out.extend_from_slice(&(cmd_symtab_size as u32).to_le_bytes());
+        out.extend_from_slice(&(symtab_off as u32).to_le_bytes());
+        out.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(strtab_off as u32).to_le_bytes());
+        out.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
+        debug_assert_eq!(out.len() - symtab_start, cmd_symtab_size);
+
+        // 2.7 LC_DYSYMTAB
+        let dysymtab_start = out.len();
+        out.extend_from_slice(&LC_DYSYMTAB.to_le_bytes());
+        out.extend_from_slice(&(cmd_dysymtab_size as u32).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // ilocalsym
+        out.extend_from_slice(&0u32.to_le_bytes()); // nlocalsym
+        out.extend_from_slice(&0u32.to_le_bytes()); // iextdefsym
+        out.extend_from_slice(&(symbols.len() as u32).to_le_bytes()); // nextdefsym
+        out.extend_from_slice(&(symbols.len() as u32).to_le_bytes()); // iundefsym
+        out.extend_from_slice(&0u32.to_le_bytes()); // nundefsym
+        out.extend_from_slice(&0u32.to_le_bytes()); // tocoff
+        out.extend_from_slice(&0u32.to_le_bytes()); // ntoc
+        out.extend_from_slice(&0u32.to_le_bytes()); // modtaboff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nmodtab
+        out.extend_from_slice(&0u32.to_le_bytes()); // extrefsymoff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nextrefsyms
+        out.extend_from_slice(&0u32.to_le_bytes()); // indirectsymoff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nindirectsyms
+        out.extend_from_slice(&0u32.to_le_bytes()); // extreloff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nextrel
+        out.extend_from_slice(&0u32.to_le_bytes()); // locreloff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nlocrel
+        debug_assert_eq!(out.len() - dysymtab_start, cmd_dysymtab_size);
+
+        // 2.8 LC_LOAD_DYLINKER (/usr/lib/dyld)
         let dylinker_start = out.len();
         out.extend_from_slice(&LC_LOAD_DYLINKER.to_le_bytes());
         out.extend_from_slice(&(cmd_dylinker_size as u32).to_le_bytes());
@@ -278,7 +327,7 @@ impl MachOExecutableWriter {
         out.extend_from_slice(b"/usr/lib/dyld\0\0\0\0\0\0\0"); // 13 chars + 7 nulls = 20 bytes -> 12 + 20 = 32 bytes
         debug_assert_eq!(out.len() - dylinker_start, cmd_dylinker_size);
 
-        // 2.6 LC_MAIN
+        // 2.9 LC_MAIN
         let main_start = out.len();
         out.extend_from_slice(&LC_MAIN.to_le_bytes());
         out.extend_from_slice(&(cmd_main_size as u32).to_le_bytes());
@@ -286,7 +335,7 @@ impl MachOExecutableWriter {
         out.extend_from_slice(&0u64.to_le_bytes()); // stacksize
         debug_assert_eq!(out.len() - main_start, cmd_main_size);
 
-        // 2.7 LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib)
+        // 2.10 LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib)
         let dylib_start = out.len();
         out.extend_from_slice(&LC_LOAD_DYLIB.to_le_bytes());
         out.extend_from_slice(&(cmd_dylib_size as u32).to_le_bytes());
@@ -296,16 +345,6 @@ impl MachOExecutableWriter {
         out.extend_from_slice(&0x01000000u32.to_le_bytes()); // compatibility version (1.0.0)
         out.extend_from_slice(b"/usr/lib/libSystem.B.dylib\0\0\0\0\0\0"); // 26 chars + 6 nulls = 32 bytes -> 24 + 32 = 56 bytes
         debug_assert_eq!(out.len() - dylib_start, cmd_dylib_size);
-
-        // 2.8 LC_SYMTAB
-        let symtab_start = out.len();
-        out.extend_from_slice(&LC_SYMTAB.to_le_bytes());
-        out.extend_from_slice(&(cmd_symtab_size as u32).to_le_bytes());
-        out.extend_from_slice(&(symtab_off as u32).to_le_bytes());
-        out.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
-        out.extend_from_slice(&(strtab_off as u32).to_le_bytes());
-        out.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
-        debug_assert_eq!(out.len() - symtab_start, cmd_symtab_size);
 
         assert_eq!(
             out.len() - 32,
