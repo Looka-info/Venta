@@ -4,17 +4,17 @@
 
 # ⚡ Vanta Programming Language
 
-**A Performance-First, Memory-Safe Systems Programming Language with a Custom SSA Optimizer and Native x86-64 Backend**
+**A Performance-First, Memory-Safe Systems Programming Language with a Custom SSA Optimizer, Multi-Platform Native Backends (x86-64 & AArch64), and a Self-Contained Pure-Rust Linker**
 
-[![CI Status](https://github.com/Looka-info/Venta/actions/workflows/release-validation.yml/badge.svg)](https://github.com/Looka-info/Venta/actions)
+[![Release Validation](https://github.com/Looka-info/Venta/actions/workflows/release-validation.yml/badge.svg)](https://github.com/Looka-info/Venta/actions)
+[![Multi-Platform CI](https://github.com/Looka-info/Venta/actions/workflows/native-platform-ci.yml/badge.svg)](https://github.com/Looka-info/Venta/actions)
 [![Release Candidate](https://img.shields.io/badge/Release-v1.0--RC2-blue.svg)](https://github.com/Looka-info/Venta/releases)
 [![NPM Package](https://img.shields.io/badge/npm-vanta--lang%401.0.0--rc.2-cb3837.svg?logo=npm)](https://www.npmjs.com/package/vanta-lang)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-green.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS%20ARM64-orange.svg)](#-native-multi-platform-backends--pure-rust-linker)
 [![VentaNext SSR](https://img.shields.io/badge/VentaNext%20SSR-128k%20req%2Fs-blueviolet.svg)](#-ventanext-full-stack-web-benchmarks-vs-nextjs-actix-fastapi)
 [![GPU Acceleration](https://img.shields.io/badge/GPU%20Acceleration-0.32%20%C2%B5s%20Dispatch-00c853.svg)](#-gpu-acceleration-benchmarks-venta-stdgpu-vs-python-cuda--pytorch)
-[![Target Architecture](https://img.shields.io/badge/Target-Linux%20x86--64-orange.svg)](#)
-[![Backend](https://img.shields.io/badge/Backend-Pure%20Rust%20%2B%20Pure%20Vanta-red.svg)](#)
-[![Language](https://img.shields.io/badge/Language-Vanta%20100%25-563d7c.svg)](#)
+[![Pure-Rust Linker](https://img.shields.io/badge/Linker-Pure%20Rust%20(ELF%20%7C%20PE%20%7C%20Mach--O)-blueviolet.svg)](#-native-multi-platform-backends--pure-rust-linker)
 
 ---
 
@@ -29,6 +29,9 @@
 - [🌐 Live Web Showcase & Pure Venta HTTP Server](#live-web-showcase--pure-venta-http-server)
 - [⚡ VentaNext Framework — Next.js for Venta (100% Pure Venta)](#ventanext-framework--nextjs-for-venta-in-pure-venta)
 - [⚡ GPU Acceleration & Hardware Compute (`std::gpu` vs Python CUDA)](#-gpu-acceleration--hardware-compute-stdgpu-vs-python-cuda)
+- [🛡 Native Multi-Platform Backends & Pure-Rust Linker](#-native-multi-platform-backends--pure-rust-linker)
+- [📦 Built-in Static Archive Manager (`ventac archive`)](#-built-in-static-archive-manager-ventac-archive)
+- [🔒 Fail-Closed Incremental Build Engine & Link Fingerprinting](#-fail-closed-incremental-build-engine--link-fingerprinting)
 - [⚡ Quick Installation](#quick-installation)
   - [Option 1: Via Node / NPM (Recommended)](#option-1-via-node-npm-recommended)
   - [Option 2: Universal 1-Line Shell Installer (`curl | bash`)](#option-2-universal-1-line-shell-installer-curl-bash)
@@ -147,6 +150,113 @@ flowchart TD
 - **Affine Lifetime Tracking**: Memory buffers are freed deterministically at scope exit via compile-time affine borrow checking, preventing GPU memory leaks and eliminating garbage collection pauses.
 - **Ultra-Lightweight Footprint**: Standalone **86 KB executable** requiring **< 2 MB RAM**, compared to Python's 2.5+ GB installation footprint and 1.5 GB idle RAM.
 
+---
+
+## 🛡 Native Multi-Platform Backends & Pure-Rust Linker
+
+Starting with Venta v2.0 (Milestone 31 & 31.5), Venta eliminates all external toolchain and system linker dependencies. While traditional language implementations rely on external C linkers (`gcc`, `clang`, GNU `ld`, LLVM `lld`, or MSVC `link.exe`), Venta features its **own native, pure-Rust multi-format linker (`vanta_linker`)** and native code generators for both **x86-64** and **Apple Silicon (AArch64)**:
+
+```mermaid
+flowchart TD
+    subgraph Codegen ["Venta Native Code Generators"]
+        MIR["SSA MIR Intermediate Representation"]
+        MIR --> CG_X86["vanta_codegen_x86_64<br>(AMD64 Regalloc & Encoding)"]
+        MIR --> CG_ARM["vanta_codegen_aarch64<br>(Apple Silicon ARM64 Regalloc & Encoding)"]
+    end
+
+    subgraph ObjectFiles ["Relocatable Machine Objects (.o / .obj)"]
+        CG_X86 -->|ELF64 Relocatable| OBJ_ELF["Linux ELF64 Object"]
+        CG_X86 -->|COFF Relocatable| OBJ_COFF["Windows COFF Object"]
+        CG_ARM -->|Mach-O 64 Relocatable| OBJ_MACHO["macOS ARM64 Object"]
+    end
+
+    subgraph InternalLinker ["Pure-Rust Self-Contained Linker (vanta_linker)"]
+        OBJ_ELF --> LINK_ELF["ELF64 Static Linker Engine"]
+        OBJ_COFF --> LINK_PE["PE32+ Executable Linker Engine"]
+        OBJ_MACHO --> LINK_MACHO["Mach-O 64-bit Dynamic Executable Engine"]
+        STATIC_AR["vanta_linker Archive Reader<br>(GNU 32/64, BSD, Extended)"] -.-> LINK_ELF
+        STATIC_AR -.-> LINK_PE
+        STATIC_AR -.-> LINK_MACHO
+    end
+
+    subgraph Executables ["Standalone Native Executables (Zero External Linker)"]
+        LINK_ELF --> EXE_LINUX["Native Linux Static ELF Executable<br>(PT_GNU_STACK, Zero Dependencies)"]
+        LINK_PE --> EXE_WIN["Native Windows PE32+ Executable (.exe)<br>(MZ / PE Header, Clean Section Table)"]
+        LINK_MACHO --> EXE_MAC["Native macOS Apple Silicon Executable<br>(LC_MAIN, LC_DYLD_INFO_ONLY, dyld)"]
+    end
+```
+
+### Supported Target Platforms
+
+| Target Architecture & OS | Binary Format | Code Generator | Linker Implementation | Subprocess Isolation |
+|:---|:---:|:---:|:---:|:---:|
+| **Linux x86-64** (`linux-x86_64`) | Static ELF64 | `vanta_codegen_x86_64` | `vanta_linker::elf` | **Zero External Commands** (Pure Rust) |
+| **Windows x86-64** (`windows-x86_64`) | PE32+ (`.exe`) | `vanta_codegen_x86_64` | `vanta_linker::pe` | **Zero External Commands** (Pure Rust) |
+| **macOS Apple Silicon** (`macos-arm64`) | Mach-O 64-bit | `vanta_codegen_aarch64` | `vanta_linker::macho` | **Zero External Commands** (Pure Rust) |
+
+### Key Capabilities:
+- **Subprocess Isolation**: When using `--linker internal`, Venta guarantees zero subprocess executions — no external linker, compiler driver, or assembler is spawned.
+- **Strict Calling Conventions**: Full compliance with System V AMD64 ABI on Linux, Microsoft x64 ABI on Windows, and Darwin ARM64 AAPCS64 on macOS.
+- **Mach-O dyld & Codesign Compliance**: Modern macOS Apple Silicon executables feature `LC_MAIN`, `LC_LOAD_DYLINKER`, `LC_LOAD_DYLIB` (`libSystem.B.dylib`), `LC_DYLD_INFO_ONLY`, and `LC_DYSYMTAB`, completely eliminating loader segmentation faults (`EXC_BAD_ACCESS`).
+- **Hardened Security**: Automatically injects non-executable stack flags (`PT_GNU_STACK` on ELF, `IMAGE_DLLCHARACTERISTICS_NX_COMPAT` on PE) to prevent stack execution attacks.
+
+---
+
+## 📦 Built-in Static Archive Manager (`ventac archive`)
+
+Venta includes a built-in static library and archive manager directly within `vantac`. It can construct, inspect, and extract `ar` archives conforming to GNU, BSD, and extended format specifications:
+
+```bash
+# 1. Compile source modules to relocatable object files
+vantac compile --emit=obj math.va -o math.o --target=linux
+
+# 2. Package into a static library archive (.a)
+vantac archive create libmath.a math.o
+
+# 3. List archive members and byte sizes
+vantac archive list libmath.a
+
+# 4. Inspect extracted symbol tables and member offsets
+vantac archive inspect libmath.a
+
+# 5. Link static archive directly into standalone executable
+vantac compile main.va -o app --linker=internal --link=libmath.a
+```
+
+### Archive Engine Features:
+- **Universal Format Parsing**: Full support for GNU 32-bit symbol tables, GNU 64-bit (`/SYM64/`) symbol tables, BSD style (`__.SYMDEF` and `__.SYMDEF SORTED`), GNU long member names (`//`), and BSD extended names (`#1/length`).
+- **Deterministic Archiving**: Archive timestamps, UIDs, and GIDs are normalized to ensure bit-for-bit reproducible static libraries.
+- **Symbol Index Resolution**: Symbols from static library members are indexed and linked on-demand during symbol resolution.
+
+---
+
+## 🔒 Fail-Closed Incremental Build Engine & Link Fingerprinting
+
+Venta introduces an industrial-grade incremental compilation and caching engine in [`crates/vanta_build/`](crates/vanta_build/) that guarantees **sound, reproducible, fail-closed incremental builds**:
+
+### 1. Fail-Closed Compiler Source Identity (Fix 1.1)
+- The compiler source identity is computed via a recursive SHA-256 traversal of the compiler source tree.
+- If workspace root discovery fails, directory traversal encounters errors, or any source file cannot be read, compilation **halts immediately with an explicit error**.
+- **Never fails open**: All-zero (`0000...`) or partial identity fallbacks are forbidden. A compiler can never be built with an unsafe or ambiguous cache identity.
+
+### 2. Canonical Link Configuration Fingerprinting (Fix 2)
+An executable cache entry is only reused when the complete effective linking configuration is identical:
+- **Target & Linker**: Target triple, object format, and linker kind (`Internal` vs `System`).
+- **Full Argument Vector**: User-supplied flags, search paths (`-L`), and output destinations.
+- **Domain-Separated Hashing**: Resolved libraries, static archives, runtime archives (`libvanta_rt.a`), and startup objects are fingerprinted with deterministic, length-prefixed domain tags.
+- **Single-Source-of-Truth Resolution**: The linker input plan is resolved once; the exact same plan is consumed by both the cache key calculation and the actual linking execution.
+
+### 3. Binary Content Fingerprinting & Delegated Linkers (Fix 2.1)
+- Paths and version strings alone are insufficient to guarantee compiler identity. Venta reads and hashes the **full binary contents** of the effective linker executable using SHA-256.
+- Detects downstream linkers selected by compiler drivers (e.g. Clang/GCC invoking `ld`, `lld`, or `-fuse-ld=gold`, or MSVC `link.exe`).
+- Fails closed with an explicit error if the linker executable is unreadable, moved, or corrupted.
+
+### 4. Lockstep Execution Verification (Fix 2.2)
+- Guarantees the executable recorded in `LinkConfiguration` is provably the exact binary invoked during linking.
+- Employs pinned resolution paths and pre-execution validation to detect post-resolution modification or TOCTOU (time-of-check to time-of-use) drift.
+
+---
+
 ## ⚡ Quick Installation
 
 Vanta can be installed globally using **Node/NPM**, a **1-line shell script**, or from **GitHub Releases**:
@@ -210,12 +320,15 @@ For custom prefixes and uninstallation steps, see the [Full Installation Guide](
 | Capability | Description |
 |:---|:---|
 | **Memory Safety Without GC** | Affine ownership, move semantics, and lexical borrow checking (`&T`, `&mut T`) eliminate dangling pointers, use-after-free, and data races at compile time with zero runtime overhead. |
-| **No LLVM / Cranelift Dependency** | Custom x86-64 instruction encoder and ELF64 writer compile directly from MIR to native Linux object files. |
+| **No LLVM / Cranelift Dependency** | Custom machine code instruction encoders and object writers compile directly from MIR to native machine code for x86-64 and Apple Silicon ARM64. |
+| **Pure-Rust Self-Contained Linker** | Built-in native linker (`vanta_linker`) generates static Linux ELF64, Windows PE32+, and macOS Apple Silicon Mach-O executables with zero external linker dependencies. |
 | **Lightning Compilation Speed** | Compiles typical workloads in **~0.24 seconds** — over **8x faster** than `rustc` with LLVM. |
-| **Minimal Binary Footprint** | Produces compact, standalone native ELF executables of **~22 KB** (over **500x smaller** than standard Rust release binaries). |
+| **Minimal Binary Footprint** | Produces compact, standalone native executables of **~22 KB** (over **500x smaller** than standard Rust release binaries). |
+| **Fail-Closed Incremental Builds** | Industrial-grade incremental compilation engine (`vanta_build`) with canonical domain-separated `LinkConfiguration` and binary-content SHA-256 fingerprinting. |
+| **Built-in Static Archiver** | Native archive manager (`ventac archive`) supporting GNU 32/64-bit, BSD, and extended archive formats with automatic symbol index extraction. |
 | **VentaNext Full-Stack SSR** | Full-stack server-side framework written 100% in pure Venta featuring dynamic routing, SSR microsecond page generation, and typed JSON APIs in an **86 KB standalone binary**. |
 | **GPU Acceleration (`std::gpu`)** | Zero-copy unified memory buffers, asynchronous stream dispatch, and hardware compute kernels outperforming Python CUDA without GIL contention or multi-gigabyte package bloat. |
-| **System V AMD64 ABI Native** | Direct register calling convention (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`, return in `rax`), enabling transparent C library interop and zero FFI marshaling penalties. |
+| **Multi-Platform ABI Compliance** | Full native compliance with System V AMD64 (Linux), Microsoft x64 (Windows), and Darwin AAPCS64 (macOS), enabling transparent C library interop and zero FFI marshaling penalties. |
 | **AI-First Tooling** | Machine-readable JSON diagnostic output (`--json`) across `check`, `compile`, and `run` subcommands for seamless IDE, CI, and agentic AI pair programming workflows. |
 
 ---
@@ -239,12 +352,22 @@ flowchart TD
         OPT_PASSES --> VERIFY2["Post-Optimization Verifier"]
     end
 
-    subgraph Backend ["Native x86-64 Backend (vanta_codegen_x86_64)"]
-        VERIFY2 --> REGALLOC["Linear Scan Register Allocator"]
-        REGALLOC --> ENCODE["x86-64 Machine Code Instruction Encoder"]
-        ENCODE --> ELF["ELF64 Relocatable Object Writer (.o)"]
-        ELF --> LINK["System V Linker (libvanta_rt.a)"]
-        LINK --> BIN["Native Linux ELF64 Binary (~22.5 KB)"]
+    subgraph Backend ["Native Multi-Platform Backends"]
+        VERIFY2 --> CG_X86["vanta_codegen_x86_64<br>(Linux ELF & Windows COFF)"]
+        VERIFY2 --> CG_ARM["vanta_codegen_aarch64<br>(macOS Apple Silicon Mach-O)"]
+    end
+
+    subgraph Toolchain ["Pure-Rust Linker & Incremental Engine"]
+        CG_X86 --> LINKER["vanta_linker<br>(Pure-Rust Multi-Format Linker)"]
+        CG_ARM --> LINKER
+        BUILD["vanta_build<br>(Fail-Closed Fingerprinting)"] <--> LINKER
+        ARCHIVE["ventac archive<br>(GNU / BSD Static Archives)"] -.-> LINKER
+    end
+
+    subgraph Output ["Verified Native Outputs"]
+        LINKER --> ELF["Linux Static ELF64 (~22 KB)"]
+        LINKER --> PE["Windows PE32+ (.exe)"]
+        LINKER --> MACHO["macOS Apple Silicon Mach-O"]
     end
 ```
 
@@ -700,7 +823,7 @@ Official language support, syntax grammar, and **3D gold lightning file icons** 
 
 ## 🖥 Command Line Interface (CLI)
 
-The `vanta` driver and `vantac` compiler provide a unified interface for checking, compiling, and running code:
+The `vanta` driver and `vantac` compiler provide a unified interface for checking, compiling, archiving, and running code:
 
 ```bash
 # Type check and borrow check without compiling (ultra fast)
@@ -715,8 +838,32 @@ vanta compile src/main.va -O1 -o my_app
 # Compile and execute immediately
 vanta run src/main.va
 
-# Independent optimization switches for differential testing
-vantac src/main.va -O1 --no-licm --no-tco --unroll-factor=4 -o my_app
+# Multi-Platform Native Compilation:
+# 1. Target Linux x86-64 (ELF64 static binary)
+vantac compile main.va -o app_linux --target=linux --linker=internal
+
+# 2. Target Windows x86-64 (PE32+ standalone executable)
+vantac compile main.va -o app_win.exe --target=windows --linker=internal
+
+# 3. Target macOS Apple Silicon (Mach-O ARM64 executable)
+vantac compile main.va -o app_mac --target=macos --linker=internal
+
+# Static Archive Management:
+# Create a static library archive from compiled object files
+vantac archive create libmath.a math.o utils.o
+
+# List archive contents and members
+vantac archive list libmath.a
+
+# Inspect symbol index and member offsets
+vantac archive inspect libmath.a
+
+# Link static archive into an executable
+vantac compile main.va -o app --linker=internal --link=libmath.a
+
+# Incremental Compilation Cache Inspection:
+vantac cache stats
+vantac cache clean
 ```
 
 ---
@@ -724,9 +871,9 @@ vantac src/main.va -O1 --no-licm --no-tco --unroll-factor=4 -o my_app
 ## 🔨 Building and Testing
 
 ### Prerequisites
-- **Linux x86-64** or **WSL2** (Ubuntu 22.04 / 24.04 / 26.04)
+- **Multi-Platform Support**: Linux x86-64 (Ubuntu 22.04+), Windows x86-64 (Windows 10/11 / Windows Server), or macOS Apple Silicon (macOS 14+ / macOS 15)
 - **Rust Toolchain**: 1.80+ (pinned to 1.93.1 in `rust-toolchain.toml`)
-- **GCC**: standard C toolchain for linking (`gcc`, `ar`, `make`)
+- **C Toolchain**: optional for standard runtime archives (`gcc`, `clang`, or MSVC)
 - **Python 3**: for version validation and benchmark harnesses
 - **Node.js**: 16.0+ (optional, for `vanta-lang` NPM package)
 
@@ -739,8 +886,17 @@ cd Venta
 # Build compiler binaries in release mode
 cargo build --release --bin vantac --bin vanta
 
-# Run full workspace test suite (148 tests)
+# Run full workspace test suite (all crates and integrations)
 cargo test --workspace
+
+# Run Pure-Rust Linker core test suite
+cargo test -p vanta_linker
+
+# Run Multi-Platform Native Linker & End-to-End Tests
+cargo test -p vanta_driver --test linker_e2e_tests --test linker_hardened_tests
+
+# Run Fail-Closed Incremental Build & Fingerprinting Tests
+cargo test -p vanta_build
 
 # Run specialized ABI and differential tests
 cargo test --test abi_tests
@@ -785,15 +941,20 @@ Venta/
 │   ├── icons/                       # 3D Gold Lightning File Icons (.svg, .png, icon theme)
 │   ├── syntaxes/vanta.tmLanguage.json # TextMate grammar for .va files
 │   └── language-configuration.json    # Brackets, auto-closing & comments
-├── crates/                          # Stage 0 Bootstrap Reference Compiler (Rust)
+├── crates/                          # Venta Core Engine & Toolchain Crates (Rust)
 │   ├── vanta_source                 # Source file mapping, Spans, FileId
 │   ├── vanta_diagnostics            # Terminal & JSON diagnostic emission
 │   ├── vanta_lexer                  # Tokenizer & comment stripper
 │   ├── vanta_parser                 # AST & precedence climbing parser
-│   ├── vanta_sema                   # Type checker & affine borrow checker
+│   ├── vanta_sema                   # Type checker & compile-time affine borrow checker
 │   ├── vanta_mir                    # SSA MIR, CFG, verifier & 14-pass optimizer
-│   ├── vanta_codegen_x86_64         # Linear scan regalloc, x86-64 encoder, ELF64 writer
-│   ├── vanta_driver                 # CLI drivers: vantac and vanta
+│   ├── vanta_codegen_x86_64         # Linear scan regalloc, x86-64 encoder, ELF/COFF writer
+│   ├── vanta_codegen_aarch64        # Apple Silicon ARM64 regalloc, encoder, Mach-O writer
+│   ├── vanta_linker                 # Pure-Rust multi-format linker (ELF64, PE32+, Mach-O) & archiver
+│   ├── vanta_build                  # Fail-closed incremental build engine & SHA-256 fingerprinting
+│   ├── vanta_target                 # Target triples (linux-x86_64, windows-x86_64, macos-arm64)
+│   ├── vanta_driver                 # CLI toolchain drivers: vantac and vanta
+│   ├── vanta_lsp                    # Language Server Protocol (LSP) implementation
 │   └── vanta_fmt                    # Source code formatter
 ├── runtime/
 │   ├── vanta_rt.c                   # Lightweight C runtime (memory, panic, strings)
