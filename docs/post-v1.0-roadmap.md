@@ -141,8 +141,13 @@ flowchart LR
 
 ### Version 2.0 — Proprietary Native Linker & Incremental Compilation
 **Target Focus**: Self-contained toolchain and sub-second rebuild times.
-- **Direct Native Executable Emission**:
-  - Embed a custom static ELF64 and PE32+ linker directly into `vantac`, eliminating dependencies on external `gcc` or `clang` linkers.
-- **Incremental Compilation**:
+- **Self-Contained Native Linker & Static Archives (Milestone 31 - Completed)**:
+  - Implemented pure-Rust native linker crate `vanta_linker` supporting multi-object linking, static archives, symbol resolution, and executable generation without external dependencies on `gcc`, `clang`, `link.exe`, `ld`, or `ar`.
+  - **Linux x86-64 Static ELF64 Linker**: Emits standalone `ET_EXEC` binaries (`0x400000`, `PT_LOAD`, `PT_GNU_STACK`) with a pure-Rust synthetic static runtime providing `_start`, `sys_exit`, and Linux syscalls.
+  - **Windows x86-64 PE32+ Linker**: Emits valid 64-bit PE32+ console executables (`0x140000000`) with synthesized `.idata` import directories for `KERNEL32.dll` (`ExitProcess`, `GetStdHandle`, `WriteFile`), `.pdata`/`.xdata` unwind exception metadata, and `.reloc` base relocation page blocks.
+  - **Apple Silicon macOS Mach-O Linker**: Emits dyld-compatible `MH_EXECUTE` binaries (`CPU_TYPE_ARM64`) with standard load commands (`__PAGEZERO`, `__TEXT`, `__DATA`, `__LINKEDIT`, `LC_LOAD_DYLINKER`, `LC_MAIN`, `LC_LOAD_DYLIB`, `LC_SYMTAB`).
+  - **Static Archive Engine**: Deterministic `!<arch>\n` creation and parsing with GNU `/`, COFF `/`, and BSD `__.SYMDEF` symbol indexes. Lazy, dependency-driven member extraction with transitive closure resolution.
+  - **CLI Integration**: Added `--linker <internal|system>` (internal by default), `--link <archive>`, `-L`, `-l`, `--map-file`, and `ventac archive <create|list|inspect>`.
+- **Incremental Compilation (Planned)**:
   - Module-level content addressing and dependency hashing to recompile only mutated functions.
   - Incremental register allocation and fast function patching for near-instant compile-edit-run cycles.

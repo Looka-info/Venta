@@ -116,3 +116,35 @@ ventac --target=macos --emit=obj main.va
 ventac --target=apple-silicon --emit=obj main.va
 ventac --target=linux --emit=obj main.va
 ```
+
+---
+
+## 6. Self-Contained Native Linker & Executable Emission (v2.0+)
+
+Starting with Venta v2.0 (Milestone 31), the compiler includes an integrated pure-Rust native linker (`--linker internal`, default).
+
+### 6.1 Executable Formats by Target
+- **Linux x86-64 (`x86_64-unknown-linux-gnu`)**:
+  - Emits loadable static ELF64 executables (`ET_EXEC`).
+  - No `PT_INTERP` or dynamic loader requirements.
+  - Pure-Rust synthetic runtime provides process startup (`_start`), termination (`sys_exit`), I/O, and page-backed heap management (`sys_mmap`).
+- **Windows x86-64 (`x86_64-pc-windows-msvc`)**:
+  - Emits PE32+ console executables (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`).
+  - Contains `.idata` for `KERNEL32.dll` dynamic imports (`ExitProcess`, `GetStdHandle`, `WriteFile`).
+  - Contains `.pdata` and `.xdata` exception unwind directories and `.reloc` base relocations.
+- **Apple Silicon macOS (`aarch64-apple-darwin`)**:
+  - Emits dyld-compatible `MH_EXECUTE` binaries (`CPU_TYPE_ARM64 = 0x0100000C`).
+  - Uses `LC_LOAD_DYLINKER` (`/usr/lib/dyld`) and `LC_LOAD_DYLIB` (`/usr/lib/libSystem.B.dylib`). Note: standard macOS applications cannot be fully static due to Apple kernel dyld requirements.
+
+### 6.2 Linking Commands
+```bash
+# Compile and link using pure-Rust internal linker
+ventac main.va -o program
+
+# Multi-object linking with static archives
+ventac main.va --link libmath.a -o program
+
+# Emit link map
+ventac main.va --map-file=program.map -o program
+```
+

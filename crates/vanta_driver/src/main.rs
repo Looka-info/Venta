@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel, TargetFeatures, TargetTriple,
+    LinkerKind, OptLevel, TargetFeatures, TargetTriple,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,8 +41,10 @@ USAGE:
 
 COMMANDS:
     compile               Compile the input file (default)
+    build                 Compile and link input files
     check                 Quickly verify syntax, types, borrows, and MIR without linking
     fmt                   Format {lang_name} source files canonically
+    archive <subcommand>  Manage static archives: create, list, inspect
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
@@ -76,6 +78,11 @@ OPTIONS:
                             x86_64-unknown-linux-gnu (linux, default)
                             x86_64-pc-windows-msvc (windows, win64)
                             aarch64-apple-darwin (macos, apple-silicon)
+    --linker=<kind>       Linker to use: internal (pure-Rust, default) or system
+    --link=<archive>      Link static archive (.a / .lib)
+    --map-file=<file>     Emit detailed link map file
+    -L <path>             Add library search path
+    -l <lib>              Link against specified library
     --json                Emit diagnostics formatted as JSON
     --diagnostics=<fmt>   Diagnostics format: human (default) or json
     --format=<fmt>        Alias for --diagnostics
@@ -140,6 +147,12 @@ fn main() {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
+    let mut linker = LinkerKind::Internal;
+    let mut link_archives: Vec<PathBuf> = Vec::new();
+    let mut additional_inputs: Vec<PathBuf> = Vec::new();
+    let mut map_file: Option<PathBuf> = None;
+    let mut lib_search_paths: Vec<PathBuf> = Vec::new();
+    let mut libs: Vec<String> = Vec::new();
 
     let mut idx = 1;
 
@@ -150,13 +163,110 @@ fn main() {
                 mode = CommandMode::Check;
                 idx += 1;
             }
-            "compile" => {
+            "compile" | "build" => {
                 mode = CommandMode::Compile;
                 idx += 1;
             }
             "fmt" => {
                 mode = CommandMode::Fmt;
                 idx += 1;
+            }
+            "archive" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!(
+                        "Error: 'archive' requires a subcommand: 'create', 'list', or 'inspect'"
+                    );
+                    process::exit(2);
+                }
+                match args[idx].as_str() {
+                    "create" => {
+                        idx += 1;
+                        if idx >= args.len() {
+                            eprintln!("Error: 'archive create' requires output archive path");
+                            process::exit(2);
+                        }
+                        let out_ar = PathBuf::from(&args[idx]);
+                        idx += 1;
+                        let member_paths: Vec<PathBuf> =
+                            args[idx..].iter().map(PathBuf::from).collect();
+                        if member_paths.is_empty() {
+                            eprintln!(
+                                "Error: 'archive create' requires at least one object member"
+                            );
+                            process::exit(2);
+                        }
+                        match vanta_linker::create_archive(&out_ar, &member_paths) {
+                            Ok(bytes) => {
+                                println!(
+                                    "Created static archive '{}' ({} bytes, {} members)",
+                                    out_ar.display(),
+                                    bytes,
+                                    member_paths.len()
+                                );
+                                process::exit(0);
+                            }
+                            Err(e) => {
+                                eprintln!("Error creating archive: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    }
+                    "list" => {
+                        idx += 1;
+                        if idx >= args.len() {
+                            eprintln!("Error: 'archive list' requires archive path");
+                            process::exit(2);
+                        }
+                        let ar_path = PathBuf::from(&args[idx]);
+                        match vanta_linker::list_archive(&ar_path) {
+                            Ok(members) => {
+                                for m in members {
+                                    println!("{}", m);
+                                }
+                                process::exit(0);
+                            }
+                            Err(e) => {
+                                eprintln!("Error listing archive: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    }
+                    "inspect" => {
+                        idx += 1;
+                        if idx >= args.len() {
+                            eprintln!("Error: 'archive inspect' requires archive path");
+                            process::exit(2);
+                        }
+                        let ar_path = PathBuf::from(&args[idx]);
+                        match vanta_linker::inspect_archive(&ar_path) {
+                            Ok(insp) => {
+                                println!("Archive: {}", insp.path.display());
+                                println!("Total size: {} bytes", insp.total_size);
+                                println!("Members ({}):", insp.members_count);
+                                for (name, sz) in &insp.members {
+                                    println!("  - {:<30} ({} bytes)", name, sz);
+                                }
+                                println!("Symbols ({}):", insp.symbols_count);
+                                for (sym, mem) in &insp.symbols {
+                                    println!("  - {:<30} -> {}", sym, mem);
+                                }
+                                process::exit(0);
+                            }
+                            Err(e) => {
+                                eprintln!("Error inspecting archive: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    }
+                    other => {
+                        eprintln!(
+                            "Error: Unknown archive subcommand '{}'. Expected 'create', 'list', or 'inspect'",
+                            other
+                        );
+                        process::exit(2);
+                    }
+                }
             }
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
@@ -439,6 +549,78 @@ fn main() {
                     process::exit(2);
                 }
             }
+            s if s.starts_with("--linker=") => {
+                let l_str = &s["--linker=".len()..];
+                linker = match l_str {
+                    "internal" => LinkerKind::Internal,
+                    "system" => LinkerKind::System,
+                    _ => {
+                        eprintln!(
+                            "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                            l_str
+                        );
+                        process::exit(2);
+                    }
+                };
+            }
+            "--linker" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --linker requires an argument");
+                    process::exit(2);
+                }
+                linker = match args[idx].as_str() {
+                    "internal" => LinkerKind::Internal,
+                    "system" => LinkerKind::System,
+                    _ => {
+                        eprintln!(
+                            "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                            args[idx]
+                        );
+                        process::exit(2);
+                    }
+                };
+            }
+            s if s.starts_with("--link=") => {
+                let p = s.split_once('=').unwrap().1;
+                link_archives.push(PathBuf::from(p));
+            }
+            "--link" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --link requires an archive path");
+                    process::exit(2);
+                }
+                link_archives.push(PathBuf::from(&args[idx]));
+            }
+            s if s.starts_with("--map-file=") || s.starts_with("--map=") => {
+                let p = s.split_once('=').unwrap().1;
+                map_file = Some(PathBuf::from(p));
+            }
+            "--map-file" | "--map" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --map-file requires a path");
+                    process::exit(2);
+                }
+                map_file = Some(PathBuf::from(&args[idx]));
+            }
+            "-L" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: -L requires a path");
+                    process::exit(2);
+                }
+                lib_search_paths.push(PathBuf::from(&args[idx]));
+            }
+            "-l" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: -l requires a library name");
+                    process::exit(2);
+                }
+                libs.push(args[idx].clone());
+            }
             s if s.starts_with('-') => {
                 eprintln!("Error: Unknown option '{}'", s);
                 process::exit(2);
@@ -446,12 +628,10 @@ fn main() {
             _ => {
                 if mode == CommandMode::Fmt {
                     fmt_files.push(PathBuf::from(arg));
-                } else {
-                    if input_file.is_some() {
-                        eprintln!("Error: Multiple input files not supported");
-                        process::exit(2);
-                    }
+                } else if input_file.is_none() {
                     input_file = Some(PathBuf::from(arg));
+                } else {
+                    additional_inputs.push(PathBuf::from(arg));
                 }
             }
         }
@@ -539,6 +719,12 @@ fn main() {
         enable_code_align,
         target_features,
         debug_info,
+        linker,
+        link_archives,
+        additional_inputs,
+        map_file,
+        lib_search_paths,
+        libs,
     };
 
     let mut session = CompilerSession::new();

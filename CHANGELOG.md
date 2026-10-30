@@ -7,7 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.4.0-alpha.1] - 2026-10-30 (Milestone 30 — Venta v1.4 Cross-Platform Native Code Generation: Windows x86-64 & macOS ARM64)
+## [2.0.0-alpha.1] - 2026-10-30 (Milestone 31 — Venta v2.0 Self-Contained Native Linker & Multi-Object Static Archives)
+
+**First Feature Milestone for v2.0 Architecture: Pure-Rust Native Linker and Multi-Object Toolchain**
+
+### Added
+- **Pure-Rust Native Linker Engine (`crates/vanta_linker`)**:
+  - Implemented standalone, zero-external-dependency linker core performing object parsing, section merging, symbol resolution, relocation processing, virtual address layout calculation, executable emission, and link map generation without invoking `gcc`, `clang`, `link.exe`, or any external linker.
+  - Multi-target executable generation supporting Linux ELF64 (`ET_EXEC`), Windows AMD64 PE32+ (`IMAGE_FILE_MACHINE_AMD64`), and Apple Silicon ARM64 Mach-O (`MH_EXECUTE`).
+  - Zero-panic error handling with comprehensive context reporting (`LinkerError` and `LinkResult<T>`) for file offsets, section names, symbol names, and relocation types.
+- **Multi-Object Static Archive Support (`crates/vanta_linker/src/archive.rs`)**:
+  - Implemented full parser for both Unix standard (`!<arch>\n`) archives and Windows COFF `.lib` static libraries.
+  - Implemented GNU/SysV style archive symbol directory (`/` member) with 32-bit big-endian symbol counts, member offset tables, and null-terminated string table.
+  - Implemented lazy archive member extraction: only archive members that define currently unresolved global symbols are extracted and linked, preventing unnecessary code bloat and symbol pollution.
+  - Implemented deterministic archive writer (`vanta_linker::create_archive`) with reproducible header fields (timestamps = 0, UID = 0, GID = 0, mode = 0644).
+- **Comprehensive Cross-Platform Relocation Processing**:
+  - **Linux x86-64 ELF Relocations (`crates/vanta_linker/src/elf/reloc.rs`)**: `R_X86_64_64`, `R_X86_64_PC32`, `R_X86_64_PLT32`, `R_X86_64_32`, `R_X86_64_32S`, `R_X86_64_PC64` with checked 32-bit signed/unsigned range overflow detection.
+  - **Windows AMD64 COFF Relocations (`crates/vanta_linker/src/coff/reloc.rs`)**: `IMAGE_REL_AMD64_ADDR64`, `IMAGE_REL_AMD64_ADDR32`, `IMAGE_REL_AMD64_ADDR32NB` (RVA calculations), `IMAGE_REL_AMD64_REL32` (relative branch/call displacements).
+  - **Apple Silicon ARM64 Mach-O Relocations (`crates/vanta_linker/src/macho/reloc.rs`)**: `ARM64_RELOC_UNSIGNED`, `ARM64_RELOC_BRANCH26` (26-bit immediate branch), `ARM64_RELOC_PAGE21` (`adrp` 21-bit page displacement), and `ARM64_RELOC_PAGEOFF12` (`add`/`ldr` 12-bit offset).
+- **Self-Contained Linux Static Executable & Pure-Rust Runtime**:
+  - Implemented pure-Rust static ELF64 executable writer (`crates/vanta_linker/src/elf/writer.rs`) emitting valid `ET_EXEC` binaries with loadable `PT_LOAD` segments, `PT_GNU_STACK` (non-executable NX stack), and entry symbol resolution (`_start`).
+  - Emitted pure-Rust synthetic static runtime object (`crates/vanta_linker/src/elf/runtime.rs`) providing direct Linux x86-64 syscall implementations for process startup (`_start`), termination (`sys_exit`), console I/O (`print_str`, `print_i64` via `sys_write`), panic handlers (`vanta_panic`, `vanta_bounds_check_fail`), memory management (`vanta_alloc`, `vanta_free`, `vanta_realloc` via `sys_mmap`/`sys_munmap`), and CPUID feature detection (`vanta_cpu_has_*`).
+- **Windows PE32+ Executable Emission (`crates/vanta_linker/src/coff/pe_writer.rs`)**:
+  - Emitted valid 64-bit PE32+ console executables with MS-DOS stub, PE file header, Optional Header (magic `0x020B`), section tables, synthesized `.idata` import table linking `ExitProcess` from `KERNEL32.dll`, base relocation directory (`.reloc`), and preserved `.pdata`/`.xdata` SEH unwind metadata.
+- **Apple Silicon ARM64 Mach-O Executable Emission (`crates/vanta_linker/src/macho/writer.rs`)**:
+  - Emitted dyld-compatible `MH_EXECUTE` binaries with `__PAGEZERO` guard segment, `__TEXT` code segment, `__DATA` mutable segment, `__LINKEDIT` metadata segment, `LC_LOAD_DYLINKER` (`/usr/lib/dyld`), `LC_MAIN` entry point command (`_main`), `LC_LOAD_DYLIB` (`/usr/lib/libSystem.B.dylib`), and `LC_SYMTAB`.
+- **Compiler Driver and CLI Integration (`crates/vanta_driver`)**:
+  - Added `--linker <internal|system>` (defaulting to `internal` across all targets).
+  - Added `--link <archive>` flag for linking static `.a` and `.lib` archives directly.
+  - Added `--map-file <path>` flag for generating detailed linker address and contribution maps.
+  - Supported multiple source files and object files in compilation command line (`ventac file1.va file2.o lib.a -o app`).
+  - Added static archive management subcommands to `ventac`:
+    - `ventac archive create <out.a> <member1.o> <member2.o> ...`
+    - `ventac archive list <archive.a>`
+    - `ventac archive inspect <archive.a>`
+- **Link Map Generator (`crates/vanta_linker/src/map_file.rs`)**:
+  - Emits human-readable link maps detailing input object files, archive extractions, section memory map with virtual addresses, file offsets, and sizes, section contributions per object, and global symbol addresses.
+- **Documentation**:
+  - Added `docs/linker-architecture.md`: full technical specification of the Venta linker architecture.
+  - Added `docs/static-archives.md`: archive format, symbol index structure, and lazy extraction rules.
+  - Updated `docs/abi-and-platforms.md`: documented Section 6 covering the v2.0 native linker, static runtime, PE32+ imports, and Mach-O load commands.
+  - Updated `docs/post-v1.0-roadmap.md`: marked Milestone 31 as Completed.
+
+---
 
 **First Feature Milestone for v1.4 Cross-Platform Architecture**
 

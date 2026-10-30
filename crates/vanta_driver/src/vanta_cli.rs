@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::{self, Command};
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel, TargetFeatures, TargetTriple,
+    LinkerKind, OptLevel, TargetFeatures, TargetTriple,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -366,6 +366,12 @@ fn handle_run(args: &[String]) {
         enable_code_align,
         target_features,
         debug_info,
+        linker: LinkerKind::Internal,
+        link_archives: Vec::new(),
+        additional_inputs: Vec::new(),
+        map_file: None,
+        lib_search_paths: Vec::new(),
+        libs: Vec::new(),
     };
 
     let mut session = CompilerSession::new();
@@ -679,6 +685,12 @@ fn handle_compile(args: &[String]) {
         enable_code_align,
         target_features,
         debug_info,
+        linker: LinkerKind::Internal,
+        link_archives: Vec::new(),
+        additional_inputs: Vec::new(),
+        map_file: None,
+        lib_search_paths: Vec::new(),
+        libs: Vec::new(),
     };
 
     let mut session = CompilerSession::new();
@@ -804,6 +816,12 @@ fn handle_check(args: &[String]) {
         enable_code_align: false,
         target_features: TargetFeatures::baseline(),
         debug_info: false,
+        linker: LinkerKind::Internal,
+        link_archives: Vec::new(),
+        additional_inputs: Vec::new(),
+        map_file: None,
+        lib_search_paths: Vec::new(),
+        libs: Vec::new(),
     };
 
     let mut session = CompilerSession::new();

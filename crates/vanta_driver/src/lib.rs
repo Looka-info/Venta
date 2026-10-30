@@ -17,6 +17,13 @@ pub use vanta_target::{Arch, ObjectFormat, Os, TargetAbi, TargetSpec, TargetTrip
 const RUNTIME_C: &str = include_str!("../../../runtime/vanta_rt.c");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinkerKind {
+    #[default]
+    Internal,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DiagnosticFormat {
     #[default]
     Human,
@@ -62,6 +69,12 @@ pub struct CompilerOptions {
     pub enable_code_align: bool,
     pub target_features: TargetFeatures,
     pub debug_info: bool,
+    pub linker: LinkerKind,
+    pub link_archives: Vec<PathBuf>,
+    pub additional_inputs: Vec<PathBuf>,
+    pub map_file: Option<PathBuf>,
+    pub lib_search_paths: Vec<PathBuf>,
+    pub libs: Vec<String>,
 }
 
 impl CompilerOptions {
@@ -95,6 +108,12 @@ impl CompilerOptions {
             enable_code_align: true,
             target_features: TargetFeatures::baseline(),
             debug_info: false,
+            linker: LinkerKind::System,
+            link_archives: Vec::new(),
+            additional_inputs: Vec::new(),
+            map_file: None,
+            lib_search_paths: Vec::new(),
+            libs: Vec::new(),
         }
     }
 }
@@ -327,6 +346,32 @@ impl CompilerSession {
         target_spec: &TargetSpec,
         obj_bytes: &[u8],
     ) -> Result<(), String> {
+        if options.linker == LinkerKind::Internal {
+            let mut link_config =
+                vanta_linker::LinkerConfig::new(options.target, options.output_file.clone());
+            link_config
+                .input_buffers
+                .push(("main.o".into(), obj_bytes.to_vec()));
+            link_config.debug_info = options.debug_info;
+            link_config.archives = options.link_archives.clone();
+            link_config.map_file = options.map_file.clone();
+            link_config.library_search_paths = options.lib_search_paths.clone();
+            link_config.libraries = options.libs.clone();
+
+            for extra in &options.additional_inputs {
+                let ext = extra.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if ext == "o" || ext == "obj" {
+                    link_config.input_objects.push(extra.clone());
+                } else if ext == "a" || ext == "lib" {
+                    link_config.archives.push(extra.clone());
+                }
+            }
+
+            vanta_linker::link(&link_config)
+                .map_err(|e| format!("Internal linking failed: {}", e))?;
+            return Ok(());
+        }
+
         match target_spec.os {
             Os::Linux => {
                 let rt_archive = Self::find_runtime_archive(options)?;
