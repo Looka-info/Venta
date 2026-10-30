@@ -187,6 +187,18 @@ impl Sha256 {
     }
 }
 
+/// Validates that a digest string is non-empty, exactly 64 hex characters, and not all zeros.
+pub fn is_valid_digest(d: &str) -> bool {
+    let d = d.trim();
+    if d.len() != 64 {
+        return false;
+    }
+    if d == "0000000000000000000000000000000000000000000000000000000000000000" {
+        return false;
+    }
+    d.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 /// Checks if a directory should be skipped during compiler source scanning.
 pub fn should_ignore_dir(dir_name: &str) -> bool {
     dir_name == ".git"
@@ -275,9 +287,10 @@ fn walk_dir(root: &Path, dir: &Path, files: &mut Vec<String>) -> Result<(), io::
             }
         } else if path.is_file() {
             if is_relevant_compiler_file(&name_str) {
-                if let Ok(rel) = path.strip_prefix(root) {
-                    files.push(normalize_path(rel));
-                }
+                let rel = path
+                    .strip_prefix(root)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                files.push(normalize_path(rel));
             }
         }
     }
@@ -288,41 +301,81 @@ fn walk_dir(root: &Path, dir: &Path, files: &mut Vec<String>) -> Result<(), io::
 /// Scans the given source tree root for all compiler components that affect generated artifacts.
 ///
 /// Returns relative, forward-slash-normalized paths sorted lexicographically.
+/// Fails if the workspace root does not exist, is not a directory, or if any directory
+/// read operation encounters a filesystem error.
 pub fn scan_compiler_source_files(root: &Path) -> Result<Vec<String>, io::Error> {
+    if !root.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Workspace root does not exist: {}", root.display()),
+        ));
+    }
+    if !root.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Workspace root is not a directory: {}", root.display()),
+        ));
+    }
+
     let mut files = Vec::new();
 
     // 1. Workspace manifests and lockfile at root
     for root_file in &["Cargo.toml", "Cargo.lock"] {
         let p = root.join(root_file);
-        if p.is_file() {
-            files.push(root_file.to_string());
+        if p.exists() {
+            if p.is_file() {
+                files.push(root_file.to_string());
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "Expected '{}' to be a regular file: {}",
+                        root_file,
+                        p.display()
+                    ),
+                ));
+            }
         }
     }
 
     // 2. Standard compiler subdirectories
     let standard_dirs = ["crates", "runtime", "library", "src"];
-    let has_any_standard = standard_dirs.iter().any(|d| root.join(d).is_dir());
-
-    if has_any_standard {
-        for d in &standard_dirs {
-            let dir_path = root.join(d);
+    let mut has_standard = false;
+    for d in &standard_dirs {
+        let dir_path = root.join(d);
+        if dir_path.exists() {
             if dir_path.is_dir() {
+                has_standard = true;
                 walk_dir(root, &dir_path, &mut files)?;
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "Expected directory for standard compiler component: {}",
+                        dir_path.display()
+                    ),
+                ));
             }
         }
-    } else {
-        // Fallback for custom mock test trees
-        if let Ok(entries) = fs::read_dir(root) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if p.is_dir() && !should_ignore_dir(&name_str) {
+    }
+
+    if !has_standard {
+        // Fallback for custom mock test trees: propagate all directory read errors
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            let p = entry.path();
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if p.is_dir() {
+                if !should_ignore_dir(&name_str) {
                     walk_dir(root, &p, &mut files)?;
-                } else if p.is_file() && is_relevant_compiler_file(&name_str) {
-                    if let Ok(rel) = p.strip_prefix(root) {
-                        files.push(normalize_path(rel));
-                    }
+                }
+            } else if p.is_file() {
+                if is_relevant_compiler_file(&name_str) {
+                    let rel = p
+                        .strip_prefix(root)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    files.push(normalize_path(rel));
                 }
             }
         }
@@ -334,11 +387,16 @@ pub fn scan_compiler_source_files(root: &Path) -> Result<Vec<String>, io::Error>
 }
 
 /// Computes a deterministic SHA-256 source-tree digest covering all compiler components
-/// that affect generated artifacts.
+/// that affect generated artifacts using the provided reader function.
 ///
-/// Includes relative paths, entry types, lengths, and file contents.
-/// Excludes `.git`, `target`, `.venta_cache`, temporary files, and binaries.
-pub fn compute_source_tree_digest(root: &Path) -> Result<SourceTreeDigest, io::Error> {
+/// Fails immediately if any file read fails or if source scanning encounters an error.
+pub fn compute_source_tree_digest_with_reader<F>(
+    root: &Path,
+    read_fn: F,
+) -> Result<SourceTreeDigest, io::Error>
+where
+    F: Fn(&Path) -> Result<Vec<u8>, io::Error>,
+{
     let files = scan_compiler_source_files(root)?;
 
     let mut hasher = Sha256::new();
@@ -349,9 +407,8 @@ pub fn compute_source_tree_digest(root: &Path) -> Result<SourceTreeDigest, io::E
 
     for rel_path in &files {
         let full_path = root.join(rel_path);
-        let metadata = fs::metadata(&full_path)?;
-        let file_len = metadata.len();
-        let content = fs::read(&full_path)?;
+        let content = read_fn(&full_path)?;
+        let file_len = content.len() as u64;
 
         // 1. Relative path (length-prefixed)
         let path_bytes = rel_path.as_bytes();
@@ -371,4 +428,15 @@ pub fn compute_source_tree_digest(root: &Path) -> Result<SourceTreeDigest, io::E
 
     let bytes = hasher.finalize();
     Ok(SourceTreeDigest { bytes })
+}
+
+/// Computes a deterministic SHA-256 source-tree digest covering all compiler components
+/// that affect generated artifacts.
+///
+/// Includes relative paths, entry types, lengths, and file contents.
+/// Excludes `.git`, `target`, `.venta_cache`, temporary files, and binaries.
+///
+/// Fails immediately if any discovered file cannot be read or if directory scanning fails.
+pub fn compute_source_tree_digest(root: &Path) -> Result<SourceTreeDigest, io::Error> {
+    compute_source_tree_digest_with_reader(root, |p| fs::read(p))
 }

@@ -166,21 +166,60 @@ pub struct CompilerIdentity {
 impl CompilerIdentity {
     pub const CURRENT_CACHE_SCHEMA_VERSION: u32 = 1;
 
+    /// Returns the current compiler identity, failing closed if compile-time source digest
+    /// was not embedded or is invalid.
     pub fn current(target_triple: &str) -> Self {
+        match Self::try_current(target_triple) {
+            Ok(id) => id,
+            Err(e) => {
+                panic!(
+                    "FATAL: Compiler identity cannot be established: {}\n\
+                     The compiler must be built with a valid source tree digest via build.rs.",
+                    e
+                );
+            }
+        }
+    }
+
+    /// Try to construct the current compiler identity, returning an explicit error if
+    /// the source digest is missing, empty, or invalid.
+    pub fn try_current(target_triple: &str) -> Result<Self, String> {
         let rev = option_env!("VENTA_GIT_REV")
             .or(option_env!("VENTA_BUILD_GIT_REV"))
             .unwrap_or("unknown-untrusted-rev")
             .to_string();
         let source_digest = option_env!("VENTA_COMPILER_SOURCE_DIGEST")
-            .unwrap_or("")
+            .ok_or_else(|| "VENTA_COMPILER_SOURCE_DIGEST is missing at compile time".to_string())?
             .to_string();
-        Self {
+        let id = Self {
             compiler_version: env!("CARGO_PKG_VERSION").to_string(),
             cache_schema_version: Self::CURRENT_CACHE_SCHEMA_VERSION,
             git_revision: rev,
             target_triple: target_triple.to_string(),
             source_digest,
+        };
+        id.validate()?;
+        Ok(id)
+    }
+
+    /// Explicit validation of compiler identity fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.compiler_version.trim().is_empty() {
+            return Err("compiler_version cannot be empty".to_string());
         }
+        if self.cache_schema_version == 0 {
+            return Err("cache_schema_version must be greater than zero".to_string());
+        }
+        if self.target_triple.trim().is_empty() {
+            return Err("target_triple cannot be empty".to_string());
+        }
+        if !crate::source_digest::is_valid_digest(&self.source_digest) {
+            return Err(format!(
+                "source_digest is missing, all-zero, or invalid (must be 64 valid hex chars): '{}'",
+                self.source_digest
+            ));
+        }
+        Ok(())
     }
 
     /// Compute compiler identity directly from a source tree on disk.
@@ -188,18 +227,33 @@ impl CompilerIdentity {
         target_triple: &str,
         root: &std::path::Path,
     ) -> Result<Self, std::io::Error> {
-        let digest = crate::source_digest::compute_source_tree_digest(root)?;
+        Self::from_source_tree_with_reader(target_triple, root, |p| std::fs::read(p))
+    }
+
+    /// Compute compiler identity directly from a source tree on disk using a custom file reader.
+    pub fn from_source_tree_with_reader<F>(
+        target_triple: &str,
+        root: &std::path::Path,
+        read_fn: F,
+    ) -> Result<Self, std::io::Error>
+    where
+        F: Fn(&std::path::Path) -> Result<Vec<u8>, std::io::Error>,
+    {
+        let digest = crate::source_digest::compute_source_tree_digest_with_reader(root, read_fn)?;
         let rev = option_env!("VENTA_GIT_REV")
             .or(option_env!("VENTA_BUILD_GIT_REV"))
             .unwrap_or("unknown-untrusted-rev")
             .to_string();
-        Ok(Self {
+        let id = Self {
             compiler_version: env!("CARGO_PKG_VERSION").to_string(),
             cache_schema_version: Self::CURRENT_CACHE_SCHEMA_VERSION,
             git_revision: rev,
             target_triple: target_triple.to_string(),
             source_digest: digest.to_hex(),
-        })
+        };
+        id.validate()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(id)
     }
 
     pub fn fingerprint(&self) -> ContentFingerprint {
@@ -512,16 +566,20 @@ mod tests {
             cache_schema_version: 1,
             git_revision: "commit_a".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
-            source_digest: "digest_1".into(),
+            source_digest: "1111111111111111111111111111111111111111111111111111111111111111"
+                .into(),
         };
         let id2 = CompilerIdentity {
             compiler_version: "2.1.0".into(),
             cache_schema_version: 1,
             git_revision: "commit_a".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
-            source_digest: "digest_2".into(),
+            source_digest: "2222222222222222222222222222222222222222222222222222222222222222"
+                .into(),
         };
         assert_ne!(id1.fingerprint(), id2.fingerprint());
+        assert!(id1.validate().is_ok());
+        assert!(id2.validate().is_ok());
 
         // Also test git revision invalidation
         let id3 = CompilerIdentity {
@@ -529,9 +587,41 @@ mod tests {
             cache_schema_version: 1,
             git_revision: "commit_b".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
-            source_digest: "digest_1".into(),
+            source_digest: "1111111111111111111111111111111111111111111111111111111111111111"
+                .into(),
         };
         assert_ne!(id1.fingerprint(), id3.fingerprint());
+    }
+
+    #[test]
+    fn test_compiler_identity_validation_failures() {
+        let id_empty_digest = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_a".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "".into(),
+        };
+        assert!(id_empty_digest.validate().is_err());
+
+        let id_zero_digest = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_a".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                .into(),
+        };
+        assert!(id_zero_digest.validate().is_err());
+
+        let id_short_digest = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_a".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "deadbeef".into(),
+        };
+        assert!(id_short_digest.validate().is_err());
     }
 
     #[test]
@@ -541,7 +631,8 @@ mod tests {
             cache_schema_version: 1,
             git_revision: "commit_base".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
-            source_digest: "digest_base".into(),
+            source_digest: "3333333333333333333333333333333333333333333333333333333333333333"
+                .into(),
         };
         let base_cfg = BuildConfiguration {
             target_triple: "x86_64-unknown-linux-gnu".into(),

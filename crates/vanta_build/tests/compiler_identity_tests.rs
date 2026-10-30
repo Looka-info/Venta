@@ -1,8 +1,12 @@
 use std::fs;
+use std::io;
+use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 use vanta_build::fingerprint::CompilerIdentity;
-use vanta_build::source_digest::compute_source_tree_digest;
+use vanta_build::source_digest::{
+    compute_source_tree_digest, compute_source_tree_digest_with_reader, scan_compiler_source_files,
+};
 
 fn create_mock_compiler_tree() -> TempDir {
     let tmp = tempfile::tempdir().expect("create temp dir");
@@ -296,4 +300,112 @@ fn test_8_workspace_root_digest_evaluation() {
         id.source_digest, hex,
         "Embedded compile-time digest matches current workspace evaluation"
     );
+}
+
+#[test]
+fn test_failclosed_1_nonexistent_workspace_root_returns_error() {
+    let non_existent = Path::new("nonexistent/path/for/venta/workspace/does/not/exist");
+    assert!(
+        scan_compiler_source_files(non_existent).is_err(),
+        "Scanning a non-existent workspace root must return an io::Error"
+    );
+    assert!(
+        compute_source_tree_digest(non_existent).is_err(),
+        "Computing digest on a non-existent workspace root must return an io::Error"
+    );
+}
+
+#[test]
+fn test_failclosed_2_regular_file_instead_of_dir_returns_error() {
+    let tmp_file = tempfile::NamedTempFile::new().expect("create named temp file");
+    let file_path = tmp_file.path();
+
+    assert!(
+        scan_compiler_source_files(file_path).is_err(),
+        "Supplying a regular file instead of a directory must return an io::Error"
+    );
+    assert!(
+        compute_source_tree_digest(file_path).is_err(),
+        "Computing digest on a file instead of a directory must return an io::Error"
+    );
+}
+
+#[test]
+fn test_failclosed_3_failed_source_file_read_returns_error_rather_than_partial_digest() {
+    let tree = create_mock_compiler_tree();
+    let root = tree.path();
+
+    // Use injectable file reader where reading runtime/vanta_rt.c fails deterministically
+    let result = compute_source_tree_digest_with_reader(root, |path| {
+        let path_str = path.to_string_lossy();
+        if path_str.contains("vanta_rt.c") {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Deterministic simulated read failure on vanta_rt.c",
+            ))
+        } else {
+            fs::read(path)
+        }
+    });
+
+    assert!(
+        result.is_err(),
+        "A failed source-file read must immediately fail closed and return an Err, not a partial digest"
+    );
+}
+
+#[test]
+fn test_failclosed_4_discovery_failure_cannot_produce_valid_compiler_identity() {
+    let non_existent = Path::new("nonexistent/path/for/compiler/identity");
+    let result = CompilerIdentity::from_source_tree("x86_64-unknown-linux-gnu", non_existent);
+    assert!(
+        result.is_err(),
+        "Discovery failure must return Err and prevent constructing CompilerIdentity"
+    );
+
+    let tree = create_mock_compiler_tree();
+    let root = tree.path();
+    let read_err_result =
+        CompilerIdentity::from_source_tree_with_reader("x86_64-unknown-linux-gnu", root, |_| {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Injected read failure",
+            ))
+        });
+    assert!(
+        read_err_result.is_err(),
+        "File read error during identity calculation must return Err"
+    );
+
+    // Validation checks on corrupt or missing source digests
+    let bad_empty = CompilerIdentity {
+        compiler_version: "2.1.0".into(),
+        cache_schema_version: 1,
+        git_revision: "rev".into(),
+        target_triple: "x86_64-unknown-linux-gnu".into(),
+        source_digest: String::new(),
+    };
+    assert!(bad_empty.validate().is_err());
+
+    let bad_all_zero = CompilerIdentity {
+        compiler_version: "2.1.0".into(),
+        cache_schema_version: 1,
+        git_revision: "rev".into(),
+        target_triple: "x86_64-unknown-linux-gnu".into(),
+        source_digest: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+    };
+    assert!(bad_all_zero.validate().is_err());
+}
+
+#[test]
+fn test_failclosed_5_valid_source_tree_produces_identical_digest_as_before() {
+    let tree = create_mock_compiler_tree();
+    let root = tree.path();
+
+    let d1 = compute_source_tree_digest(root).expect("digest 1");
+    let d2 = compute_source_tree_digest(root).expect("digest 2");
+
+    assert_eq!(d1, d2);
+    assert_eq!(d1.to_hex().len(), 64);
+    assert!(vanta_build::source_digest::is_valid_digest(&d1.to_hex()));
 }

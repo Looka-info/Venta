@@ -28,15 +28,48 @@ fn find_workspace_root() -> Option<PathBuf> {
 fn main() {
     println!("cargo:rerun-if-env-changed=VENTA_GIT_REV");
 
-    let ws_root = find_workspace_root().unwrap_or_else(|| PathBuf::from("../.."));
+    // Discover workspace root (fail-closed: stop build immediately if missing or invalid)
+    let ws_root = match find_workspace_root() {
+        Some(root) => root,
+        None => {
+            panic!(
+                "FATAL: Failed to discover Venta workspace root for compiler identity generation. \
+                 Ensure CARGO_MANIFEST_DIR or current_dir is within the Venta workspace."
+            );
+        }
+    };
+
+    if !ws_root.exists() || !ws_root.is_dir() {
+        panic!(
+            "FATAL: Discovered workspace root '{}' does not exist or is not a directory.",
+            ws_root.display()
+        );
+    }
 
     // 1. Tell Cargo to rerun this build script whenever ANY compiler source file changes!
-    if let Ok(files) = source_digest::scan_compiler_source_files(&ws_root) {
-        for rel in &files {
-            let full = ws_root.join(rel);
-            println!("cargo:rerun-if-changed={}", full.display());
+    let files = match source_digest::scan_compiler_source_files(&ws_root) {
+        Ok(f) => f,
+        Err(e) => {
+            panic!(
+                "FATAL: Failed to scan compiler source files in '{}': {}",
+                ws_root.display(),
+                e
+            );
         }
+    };
+
+    if files.is_empty() {
+        panic!(
+            "FATAL: No relevant compiler source files discovered in '{}'. Compiler identity cannot be established.",
+            ws_root.display()
+        );
     }
+
+    for rel in &files {
+        let full = ws_root.join(rel);
+        println!("cargo:rerun-if-changed={}", full.display());
+    }
+
     // Also explicitly monitor key manifests and root directories
     println!(
         "cargo:rerun-if-changed={}",
@@ -67,14 +100,25 @@ fn main() {
         );
     }
 
-    // 2. Compute the deterministic source-tree digest
-    let source_digest_hex = match source_digest::compute_source_tree_digest(&ws_root) {
-        Ok(d) => d.to_hex(),
+    // 2. Compute the deterministic source-tree digest (fail-closed: abort build on any error)
+    let source_digest = match source_digest::compute_source_tree_digest(&ws_root) {
+        Ok(d) => d,
         Err(e) => {
-            eprintln!("Warning: failed to compute source tree digest: {}", e);
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+            panic!(
+                "FATAL: Failed to compute compiler source tree digest for '{}': {}",
+                ws_root.display(),
+                e
+            );
         }
     };
+    let source_digest_hex = source_digest.to_hex();
+    if !source_digest::is_valid_digest(&source_digest_hex) {
+        panic!(
+            "FATAL: Computed source digest '{}' is invalid or all-zeros. Cannot build compiler with unsafe identity.",
+            source_digest_hex
+        );
+    }
+
     println!(
         "cargo:rustc-env=VENTA_COMPILER_SOURCE_DIGEST={}",
         source_digest_hex

@@ -25,4 +25,7 @@ pub use graph::{BuildGraph, BuildNode, DependencyKind, InvalidationReason, NodeI
 pub use manifest::{
     BuildManifest, ManifestFunction, ManifestModule, ManifestSourceFile, ManifestType,
 };
-pub use source_digest::{compute_source_tree_digest, scan_compiler_source_files, SourceTreeDigest};
+pub use source_digest::{
+    compute_source_tree_digest, compute_source_tree_digest_with_reader, is_valid_digest,
+    scan_compiler_source_files, SourceTreeDigest,
+};
