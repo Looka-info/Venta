@@ -180,11 +180,13 @@ jobs:
           file app_mac
           otool -h -l app_mac
           otool -L app_mac
+          otool -tvV app_mac
 
           # Native execution on Apple Silicon
           codesign -s - -f app_mac || true
           chmod +x app_mac
           set +e
+          lldb -b -o "r" -o "bt" -o "quit" ./app_mac
           ./app_mac
           EXIT_CODE=$?
           set -e

@@ -162,16 +162,16 @@ pub fn link_macho_executable(config: &LinkerConfig) -> LinkResult<MachOLinkOutpu
     }
 
     let mut merged_sections: Vec<MergedSection> = Vec::new();
-    if !text_merged.contributions.is_empty() {
+    if !text_merged.contributions.is_empty() && !text_merged.data.is_empty() {
         merged_sections.push(text_merged);
     }
-    if !const_merged.contributions.is_empty() {
+    if !const_merged.contributions.is_empty() && !const_merged.data.is_empty() {
         merged_sections.push(const_merged);
     }
-    if !data_merged.contributions.is_empty() {
+    if !data_merged.contributions.is_empty() && (!data_merged.data.is_empty() || data_merged.size > 0) {
         merged_sections.push(data_merged);
     }
-    if !bss_merged.contributions.is_empty() {
+    if !bss_merged.contributions.is_empty() && bss_merged.size > 0 {
         merged_sections.push(bss_merged);
     }
 
@@ -187,7 +187,7 @@ pub fn link_macho_executable(config: &LinkerConfig) -> LinkResult<MachOLinkOutpu
         } else {
             sec.data.len()
         };
-        current_va = (current_va + sec_len as u64 + 0x3FFF) & !0x3FFF;
+        current_va = (current_va + sec_len as u64 + 15) & !15;
     }
 
     // 8. Symbol address computation
