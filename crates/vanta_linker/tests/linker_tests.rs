@@ -382,6 +382,52 @@ fn test_macho_64_executable_generation_and_layout() {
     // MH_EXECUTE: 2
     let filetype = u32::from_le_bytes([binary[12], binary[13], binary[14], binary[15]]);
     assert_eq!(filetype, 2);
+
+    let ncmds = u32::from_le_bytes([binary[16], binary[17], binary[18], binary[19]]);
+    let sizeofcmds = u32::from_le_bytes([binary[20], binary[21], binary[22], binary[23]]) as usize;
+
+    // Parse and validate all load commands
+    let mut offset = 32;
+    let end = 32 + sizeofcmds;
+    let mut parsed_cmds = Vec::new();
+    while offset < end {
+        let cmd = u32::from_le_bytes([
+            binary[offset],
+            binary[offset + 1],
+            binary[offset + 2],
+            binary[offset + 3],
+        ]);
+        let cmdsize = u32::from_le_bytes([
+            binary[offset + 4],
+            binary[offset + 5],
+            binary[offset + 6],
+            binary[offset + 7],
+        ]) as usize;
+        parsed_cmds.push((cmd, cmdsize));
+        offset += cmdsize;
+    }
+    assert_eq!(offset, end, "Load commands must parse to exact end of sizeofcmds");
+    assert_eq!(parsed_cmds.len() as u32, ncmds, "Parsed count must match ncmds");
+
+    // Verify critical commands
+    let cmd_ids: Vec<u32> = parsed_cmds.iter().map(|(c, _)| *c).collect();
+    assert!(cmd_ids.contains(&0x19), "Must contain LC_SEGMENT_64");
+    assert!(cmd_ids.contains(&0x0E), "Must contain LC_LOAD_DYLINKER");
+    assert!(cmd_ids.contains(&0x80000028), "Must contain LC_MAIN");
+    assert!(cmd_ids.contains(&0x0C), "Must contain LC_LOAD_DYLIB");
+    assert!(cmd_ids.contains(&0x02), "Must contain LC_SYMTAB");
+
+    // Check __text section in __TEXT segment
+    // Section header offset is 32 + 72 (after __PAGEZERO) + 72 (after __TEXT segment header) = 176
+    let sect_addr = u64::from_le_bytes([
+        binary[208], binary[209], binary[210], binary[211],
+        binary[212], binary[213], binary[214], binary[215],
+    ]);
+    let sect_offset = u32::from_le_bytes([
+        binary[224], binary[225], binary[226], binary[227],
+    ]);
+    assert_eq!(sect_addr, 0x100004000);
+    assert_eq!(sect_offset, 0x4000);
 }
 
 #[test]

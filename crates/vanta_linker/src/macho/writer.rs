@@ -90,22 +90,39 @@ impl MachOExecutableWriter {
         let header_and_cmds_size = 32 + sizeofcmds;
 
         // Calculate __TEXT segment layout
-        let text_filesize =
-            header_and_cmds_size + text_sections.iter().map(|s| s.data.len()).sum::<usize>();
-        let text_vmsize = align_up(text_filesize as u64, Self::PAGE_SIZE);
+        // All text sections are mapped congruent to their virtual address:
+        // sec.offset = sec.addr - BASE_TEXT_ADDR.
+        let text_max_addr = text_sections
+            .iter()
+            .map(|s| s.addr + s.size)
+            .max()
+            .unwrap_or(Self::BASE_TEXT_ADDR + Self::PAGE_SIZE);
+        let text_vmsize = align_up(
+            text_max_addr.saturating_sub(Self::BASE_TEXT_ADDR),
+            Self::PAGE_SIZE,
+        );
+        let text_filesize = text_vmsize;
 
         // Calculate __DATA segment layout
         let (data_vmsize, data_filesize, data_fileoff, data_vmaddr) = if !data_sections.is_empty() {
-            let d_filesize = data_sections.iter().map(|s| s.data.len()).sum::<usize>();
-            let d_vmsize = align_up(
-                data_sections.iter().map(|s| s.size).sum::<u64>(),
-                Self::PAGE_SIZE,
-            );
-            let d_fileoff = text_vmsize;
             let d_vmaddr = Self::BASE_TEXT_ADDR + text_vmsize;
-            (d_vmsize, d_filesize as u64, d_fileoff, d_vmaddr)
+            let d_fileoff = text_filesize;
+            let data_max_addr = data_sections
+                .iter()
+                .map(|s| s.addr + s.size)
+                .max()
+                .unwrap_or(d_vmaddr + Self::PAGE_SIZE);
+            let d_vmsize = align_up(data_max_addr.saturating_sub(d_vmaddr), Self::PAGE_SIZE);
+            let d_filesize_raw = data_sections
+                .iter()
+                .filter(|s| !s.is_zerofill)
+                .map(|s| (s.addr + s.data.len() as u64).saturating_sub(d_vmaddr))
+                .max()
+                .unwrap_or(0);
+            let d_filesize = align_up(d_filesize_raw, Self::PAGE_SIZE);
+            (d_vmsize, d_filesize, d_fileoff, d_vmaddr)
         } else {
-            (0, 0, text_vmsize, Self::BASE_TEXT_ADDR + text_vmsize)
+            (0, 0, text_filesize, Self::BASE_TEXT_ADDR + text_vmsize)
         };
 
         // Calculate Symbol Table & String Table for __LINKEDIT
@@ -131,16 +148,8 @@ impl MachOExecutableWriter {
             nlist_bytes.extend_from_slice(&addr.to_le_bytes()); // n_value
         }
 
-        let linkedit_fileoff = if data_filesize > 0 {
-            data_fileoff + align_up(data_filesize, Self::PAGE_SIZE)
-        } else {
-            text_vmsize
-        };
-        let linkedit_vmaddr = if data_vmsize > 0 {
-            data_vmaddr + data_vmsize
-        } else {
-            Self::BASE_TEXT_ADDR + text_vmsize
-        };
+        let linkedit_fileoff = data_fileoff + data_filesize;
+        let linkedit_vmaddr = data_vmaddr + data_vmsize;
 
         let symtab_off = linkedit_fileoff;
         let strtab_off = symtab_off + nlist_bytes.len() as u64;
@@ -193,24 +202,23 @@ impl MachOExecutableWriter {
         );
 
         // Write __TEXT sections
-        let mut curr_sect_off = header_and_cmds_size as u64;
         for sec in text_sections {
             let flags = if sec.sectname == "__text" {
                 S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS
             } else {
                 0
             };
+            let sec_file_offset = sec.addr.saturating_sub(Self::BASE_TEXT_ADDR);
             write_section_header(
                 &mut out,
                 &sec.sectname,
                 "__TEXT",
                 sec.addr,
                 sec.size,
-                curr_sect_off,
+                sec_file_offset,
                 4,
                 flags,
             );
-            curr_sect_off += sec.data.len() as u64;
         }
 
         // 2.3 LC_SEGMENT_64: __DATA (if present)
@@ -228,10 +236,13 @@ impl MachOExecutableWriter {
                 data_sections.len() as u32,
                 0,
             );
-            let mut curr_d_off = data_fileoff;
             for sec in data_sections {
                 let flags = if sec.is_zerofill { S_ZEROFILL } else { 0 };
-                let off = if sec.is_zerofill { 0 } else { curr_d_off };
+                let off = if sec.is_zerofill {
+                    0
+                } else {
+                    data_fileoff + sec.addr.saturating_sub(data_vmaddr)
+                };
                 write_section_header(
                     &mut out,
                     &sec.sectname,
@@ -242,9 +253,6 @@ impl MachOExecutableWriter {
                     4,
                     flags,
                 );
-                if !sec.is_zerofill {
-                    curr_d_off += sec.data.len() as u64;
-                }
             }
         }
 
@@ -263,43 +271,63 @@ impl MachOExecutableWriter {
         );
 
         // 2.5 LC_LOAD_DYLINKER (/usr/lib/dyld)
+        let dylinker_start = out.len();
         out.extend_from_slice(&LC_LOAD_DYLINKER.to_le_bytes());
         out.extend_from_slice(&(cmd_dylinker_size as u32).to_le_bytes());
         out.extend_from_slice(&12u32.to_le_bytes()); // offset to string
-        out.extend_from_slice(b"/usr/lib/dyld\0\0\0\0"); // 16 bytes padded to 32 total
+        out.extend_from_slice(b"/usr/lib/dyld\0\0\0\0\0\0\0"); // 13 chars + 7 nulls = 20 bytes -> 12 + 20 = 32 bytes
+        debug_assert_eq!(out.len() - dylinker_start, cmd_dylinker_size);
 
         // 2.6 LC_MAIN
+        let main_start = out.len();
         out.extend_from_slice(&LC_MAIN.to_le_bytes());
         out.extend_from_slice(&(cmd_main_size as u32).to_le_bytes());
         out.extend_from_slice(&entry_offset_in_text.to_le_bytes()); // entryoff
         out.extend_from_slice(&0u64.to_le_bytes()); // stacksize
+        debug_assert_eq!(out.len() - main_start, cmd_main_size);
 
         // 2.7 LC_LOAD_DYLIB (/usr/lib/libSystem.B.dylib)
+        let dylib_start = out.len();
         out.extend_from_slice(&LC_LOAD_DYLIB.to_le_bytes());
         out.extend_from_slice(&(cmd_dylib_size as u32).to_le_bytes());
         out.extend_from_slice(&24u32.to_le_bytes()); // offset to name
         out.extend_from_slice(&0u32.to_le_bytes()); // timestamp
         out.extend_from_slice(&0x05000000u32.to_le_bytes()); // current version (5.0.0)
         out.extend_from_slice(&0x01000000u32.to_le_bytes()); // compatibility version (1.0.0)
-        out.extend_from_slice(b"/usr/lib/libSystem.B.dylib\0\0\0\0\0\0\0"); // 32 bytes
+        out.extend_from_slice(b"/usr/lib/libSystem.B.dylib\0\0\0\0\0\0"); // 26 chars + 6 nulls = 32 bytes -> 24 + 32 = 56 bytes
+        debug_assert_eq!(out.len() - dylib_start, cmd_dylib_size);
 
         // 2.8 LC_SYMTAB
+        let symtab_start = out.len();
         out.extend_from_slice(&LC_SYMTAB.to_le_bytes());
         out.extend_from_slice(&(cmd_symtab_size as u32).to_le_bytes());
         out.extend_from_slice(&(symtab_off as u32).to_le_bytes());
         out.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
         out.extend_from_slice(&(strtab_off as u32).to_le_bytes());
         out.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
+        debug_assert_eq!(out.len() - symtab_start, cmd_symtab_size);
+
+        assert_eq!(
+            out.len() - 32,
+            sizeofcmds,
+            "Mach-O load commands size mismatch: wrote {} bytes, expected {}",
+            out.len() - 32,
+            sizeofcmds
+        );
 
         // =====================================================================
         // 3. Section Data
         // =====================================================================
         for sec in text_sections {
+            let target_offset = sec.addr.saturating_sub(Self::BASE_TEXT_ADDR) as usize;
+            while out.len() < target_offset {
+                out.push(0);
+            }
             out.extend_from_slice(&sec.data);
         }
 
-        // Pad __TEXT to text_vmsize
-        while out.len() < text_vmsize as usize {
+        // Pad __TEXT to text_filesize
+        while out.len() < text_filesize as usize {
             out.push(0);
         }
 
@@ -307,10 +335,15 @@ impl MachOExecutableWriter {
         if !data_sections.is_empty() {
             for sec in data_sections {
                 if !sec.is_zerofill {
+                    let target_offset =
+                        (data_fileoff + sec.addr.saturating_sub(data_vmaddr)) as usize;
+                    while out.len() < target_offset {
+                        out.push(0);
+                    }
                     out.extend_from_slice(&sec.data);
                 }
             }
-            while out.len() < (data_fileoff + align_up(data_filesize, Self::PAGE_SIZE)) as usize {
+            while out.len() < (data_fileoff + data_filesize) as usize {
                 out.push(0);
             }
         }

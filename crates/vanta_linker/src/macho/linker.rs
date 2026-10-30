@@ -331,6 +331,16 @@ pub fn link_macho_executable(config: &LinkerConfig) -> LinkResult<MachOLinkOutpu
         let _ = fs::set_permissions(&config.output_path, perms);
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS Apple Silicon (ARM64), executables must be signed (at least ad-hoc) to execute.
+        let _ = std::process::Command::new("codesign")
+            .arg("-s")
+            .arg("-")
+            .arg(&config.output_path)
+            .output();
+    }
+
     // 15. Optional link map
     let mut map_content = None;
     if let Some(ref map_path) = config.map_file {
