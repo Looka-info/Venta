@@ -15,7 +15,7 @@ pub use cache::{
 pub use engine::{BuildStats, IncrementalBuildEngine, IncrementalOptions};
 pub use fingerprint::{
     BuildConfiguration, CompilerIdentity, ContentFingerprint, Domain, FingerprintBuilder,
-    TargetFeaturesConfig,
+    LinkConfiguration, LinkInputKind, ResolvedLibrary, ResolvedLinkInput, TargetFeaturesConfig,
 };
 pub use fragment::{
     FunctionDebugInfoRecord, FunctionFragment, LineEntryRecord, RelocationRecord,

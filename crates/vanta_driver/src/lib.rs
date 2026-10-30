@@ -7,8 +7,9 @@ pub use vanta_build::{
     ArtifactType, BuildConfiguration, BuildManifest, BuildNode, BuildStats, CacheCleanReport,
     CacheEntryMetadata, CacheManager, CacheStats, CacheVerificationReport, CompilerIdentity,
     ContentFingerprint, DependencyKind, Domain, FingerprintBuilder, FunctionFragment,
-    IncrementalBuildEngine, IncrementalOptions, ManifestFunction, ManifestModule,
-    ManifestSourceFile, ManifestType, NodeId, NodeKind, TargetFeaturesConfig,
+    IncrementalBuildEngine, IncrementalOptions, LinkConfiguration, LinkInputKind, ManifestFunction,
+    ManifestModule, ManifestSourceFile, ManifestType, NodeId, NodeKind, ResolvedLibrary,
+    ResolvedLinkInput, TargetFeaturesConfig,
 };
 use vanta_codegen_aarch64::AArch64Backend;
 pub use vanta_codegen_x86_64::TargetFeatures;
@@ -384,12 +385,11 @@ impl CompilerSession {
                         }
 
                         if options.emit_target == EmitTarget::Exe {
+                            let target_spec = options.target.spec();
+                            let link_plan = Self::resolve_link_plan(options, &target_spec)?;
                             let obj_fp = prev_manifest.object_fingerprint;
-                            let link_fp = engine.compute_link_fingerprint(
-                                &[obj_fp],
-                                &[options.link_archives.clone()].concat(),
-                                &options.additional_inputs,
-                            );
+                            let link_fp = engine
+                                .compute_link_configuration_fingerprint(&link_plan, &[obj_fp])?;
                             if engine.check_link_reusable(&link_fp, &options.output_file) {
                                 // Full no-op hit: zero compilation, zero relinking!
                                 self.last_build_stats = Some(engine.stats().clone());
@@ -398,8 +398,12 @@ impl CompilerSession {
                             }
 
                             // Relink using cached object artifact (Link-only rebuild)
-                            let target_spec = options.target.spec();
-                            Self::link_target_executable(options, &target_spec, &cached_obj_bytes)?;
+                            Self::link_target_executable_with_plan(
+                                options,
+                                &target_spec,
+                                &cached_obj_bytes,
+                                &link_plan,
+                            )?;
                             let _ = engine.record_linked_executable(
                                 &link_fp,
                                 &options.output_file,
@@ -685,11 +689,8 @@ impl CompilerSession {
                 });
             }
 
-            let link_fp = engine.compute_link_fingerprint(
-                &[obj_fp],
-                &options.link_archives,
-                &options.additional_inputs,
-            );
+            let link_plan = Self::resolve_link_plan(options, &target_spec)?;
+            let link_fp = engine.compute_link_configuration_fingerprint(&link_plan, &[obj_fp])?;
 
             let manifest = BuildManifest {
                 schema_version: CompilerIdentity::CURRENT_CACHE_SCHEMA_VERSION,
@@ -719,7 +720,7 @@ impl CompilerSession {
             // Linking to Native Executable
             engine.stats_mut().linking_performed = true;
             engine.stats_mut().linking_reason = Some("cold build or modified object".into());
-            Self::link_target_executable(options, &target_spec, &obj_bytes)?;
+            Self::link_target_executable_with_plan(options, &target_spec, &obj_bytes, &link_plan)?;
             let _ = engine.record_linked_executable(&link_fp, &options.output_file, &[obj_fp]);
             self.last_build_stats = Some(engine.stats().clone());
             self.rebuild_explanations = engine.explanations().to_vec();
@@ -733,14 +734,188 @@ impl CompilerSession {
         }
 
         // Linking to Native Executable
-        Self::link_target_executable(options, &target_spec, &obj_bytes)?;
+        let link_plan = Self::resolve_link_plan(options, &target_spec)?;
+        Self::link_target_executable_with_plan(options, &target_spec, &obj_bytes, &link_plan)?;
         Ok(Some(obj_bytes))
     }
 
-    fn link_target_executable(
+    /// Resolves all inputs, libraries, runtime archives, and linker options once into a canonical plan.
+    pub fn resolve_link_plan(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+    ) -> Result<LinkConfiguration, String> {
+        let mut plan = LinkConfiguration::new(
+            target_spec.triple.to_string(),
+            format!("{:?}", target_spec.object_format),
+            match options.linker {
+                LinkerKind::Internal => "internal",
+                LinkerKind::System => "system",
+            },
+            options.output_file.to_string_lossy(),
+        );
+
+        plan.debug_info = options.debug_info;
+        plan.map_file = options
+            .map_file
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+        plan.library_search_paths = options.lib_search_paths.clone();
+        plan.requested_libraries = options.libs.clone();
+
+        // 1. Linker Executable & Flags
+        match options.linker {
+            LinkerKind::Internal => {
+                plan.linker_version = Some(format!(
+                    "vanta-internal-linker-{}",
+                    env!("CARGO_PKG_VERSION")
+                ));
+            }
+            LinkerKind::System => match target_spec.os {
+                Os::Linux => {
+                    plan.linker_path = Some("gcc".into());
+                    if let Ok(out) = Command::new("gcc").arg("--version").output() {
+                        if out.status.success() {
+                            let first_line = String::from_utf8_lossy(&out.stdout)
+                                .lines()
+                                .next()
+                                .unwrap_or("")
+                                .trim()
+                                .to_string();
+                            plan.linker_version = Some(first_line);
+                        }
+                    }
+                    plan.linker_flags = vec!["-no-pie".into()];
+                }
+                Os::Windows => {
+                    let has_link_exe = Command::new("link.exe").arg("/?").output().is_ok();
+                    if has_link_exe {
+                        plan.linker_path = Some("link.exe".into());
+                        plan.linker_flags = vec![
+                            "/NOLOGO".into(),
+                            format!("/OUT:{}", options.output_file.display()),
+                            "/ENTRY:main".into(),
+                            "/SUBSYSTEM:CONSOLE".into(),
+                        ];
+                    } else {
+                        plan.linker_path = Some("lld-link".into());
+                        plan.linker_flags = vec![
+                            format!("/OUT:{}", options.output_file.display()),
+                            "/ENTRY:main".into(),
+                            "/SUBSYSTEM:CONSOLE".into(),
+                        ];
+                    }
+                }
+                Os::MacOS => {
+                    plan.linker_path = Some("clang".into());
+                    plan.linker_flags = vec![
+                        "-arch".into(),
+                        "arm64".into(),
+                        "-o".into(),
+                        options.output_file.to_string_lossy().to_string(),
+                    ];
+                }
+            },
+        }
+
+        // 2. Runtime archive
+        match options.linker {
+            LinkerKind::System => {
+                if target_spec.os == Os::Linux {
+                    let rt_archive_path = Self::find_runtime_archive(options)?;
+                    let rt_input = ResolvedLinkInput::from_path(
+                        LinkInputKind::RuntimeArchive,
+                        &rt_archive_path,
+                    )?;
+                    plan.runtime_archive = Some(rt_input);
+                }
+            }
+            LinkerKind::Internal => {
+                if let Some(ref rt_path) = options.runtime_path {
+                    let rt_input =
+                        ResolvedLinkInput::from_path(LinkInputKind::RuntimeArchive, rt_path)?;
+                    plan.runtime_archive = Some(rt_input);
+                }
+            }
+        }
+
+        // 3. Requested libraries resolution against search paths (order preserved!)
+        for lib_name in &options.libs {
+            let mut resolved = None;
+            for search_dir in &options.lib_search_paths {
+                let candidates = match target_spec.os {
+                    Os::Windows => vec![
+                        format!("{}.lib", lib_name),
+                        format!("lib{}.a", lib_name),
+                        format!("{}.dll", lib_name),
+                    ],
+                    _ => vec![
+                        format!("lib{}.a", lib_name),
+                        format!("lib{}.so", lib_name),
+                        format!("lib{}.dylib", lib_name),
+                    ],
+                };
+
+                for cand in candidates {
+                    let cand_path = search_dir.join(&cand);
+                    if cand_path.is_file() {
+                        let input = ResolvedLinkInput::from_path(
+                            LinkInputKind::ResolvedLibrary,
+                            &cand_path,
+                        )?;
+                        resolved = Some((cand_path, input));
+                        break;
+                    }
+                }
+                if resolved.is_some() {
+                    break;
+                }
+            }
+
+            if let Some((p, input)) = resolved {
+                plan.resolved_libraries.push(ResolvedLibrary {
+                    name: lib_name.clone(),
+                    resolved_path: Some(p),
+                    input: Some(input),
+                });
+            } else {
+                plan.resolved_libraries.push(ResolvedLibrary {
+                    name: lib_name.clone(),
+                    resolved_path: None,
+                    input: None,
+                });
+            }
+        }
+
+        // 4. Static archives (order preserved!)
+        for arch in &options.link_archives {
+            let input = ResolvedLinkInput::from_path(LinkInputKind::StaticArchive, arch)?;
+            plan.static_archives.push(input);
+        }
+
+        // 5. Additional inputs (classified by extension, order preserved!)
+        for extra in &options.additional_inputs {
+            let ext = extra.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if ext == "o" || ext == "obj" {
+                let input = ResolvedLinkInput::from_path(LinkInputKind::AdditionalObject, extra)?;
+                plan.additional_objects.push(input);
+            } else if ext == "a" || ext == "lib" {
+                let input = ResolvedLinkInput::from_path(LinkInputKind::StaticArchive, extra)?;
+                plan.static_archives.push(input);
+            } else {
+                let input = ResolvedLinkInput::from_path(LinkInputKind::Other, extra)?;
+                plan.additional_inputs.push(input);
+            }
+        }
+
+        Ok(plan)
+    }
+
+    /// Link executable using a resolved LinkConfiguration plan.
+    pub fn link_target_executable_with_plan(
         options: &CompilerOptions,
         target_spec: &TargetSpec,
         obj_bytes: &[u8],
+        plan: &LinkConfiguration,
     ) -> Result<(), String> {
         if options.linker == LinkerKind::Internal {
             let mut link_config =
@@ -748,18 +923,35 @@ impl CompilerSession {
             link_config
                 .input_buffers
                 .push(("main.o".into(), obj_bytes.to_vec()));
-            link_config.debug_info = options.debug_info;
-            link_config.archives = options.link_archives.clone();
+            link_config.debug_info = plan.debug_info;
             link_config.map_file = options.map_file.clone();
-            link_config.library_search_paths = options.lib_search_paths.clone();
+            link_config.library_search_paths = plan.library_search_paths.clone();
             link_config.libraries = options.libs.clone();
 
-            for extra in &options.additional_inputs {
-                let ext = extra.extension().and_then(|s| s.to_str()).unwrap_or("");
-                if ext == "o" || ext == "obj" {
-                    link_config.input_objects.push(extra.clone());
-                } else if ext == "a" || ext == "lib" {
-                    link_config.archives.push(extra.clone());
+            // Include all resolved static archives from plan (preserving exact order!)
+            for arch in &plan.static_archives {
+                link_config.archives.push(arch.path.clone());
+            }
+
+            // Include any resolved libraries that are archives
+            for lib in &plan.resolved_libraries {
+                if let Some(ref p) = lib.resolved_path {
+                    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+                    if (ext == "a" || ext == "lib") && !link_config.archives.contains(p) {
+                        link_config.archives.push(p.clone());
+                    }
+                }
+            }
+
+            // Include additional object files from plan
+            for obj in &plan.additional_objects {
+                link_config.input_objects.push(obj.path.clone());
+            }
+
+            // Include runtime archive if present
+            if let Some(ref rt) = plan.runtime_archive {
+                if !link_config.archives.contains(&rt.path) {
+                    link_config.archives.push(rt.path.clone());
                 }
             }
 
@@ -770,7 +962,10 @@ impl CompilerSession {
 
         match target_spec.os {
             Os::Linux => {
-                let rt_archive = Self::find_runtime_archive(options)?;
+                let rt_archive = match plan.runtime_archive {
+                    Some(ref rt) => rt.path.clone(),
+                    None => Self::find_runtime_archive(options)?,
+                };
                 let temp_obj_path = options
                     .output_file
                     .with_extension(target_spec.obj_extension);
@@ -859,6 +1054,15 @@ impl CompilerSession {
                 ))
             }
         }
+    }
+
+    pub fn link_target_executable(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+        obj_bytes: &[u8],
+    ) -> Result<(), String> {
+        let plan = Self::resolve_link_plan(options, target_spec)?;
+        Self::link_target_executable_with_plan(options, target_spec, obj_bytes, &plan)
     }
 
     /// Locate the precompiled `libvanta_rt.a` archive using the standard toolchain search hierarchy.

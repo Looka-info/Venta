@@ -79,6 +79,9 @@ pub enum Domain {
     CompilerIdentity,
     CompilerConfig,
     Manifest,
+    LinkConfig,
+    LinkInput,
+    RuntimeArchive,
 }
 
 impl Domain {
@@ -97,6 +100,9 @@ impl Domain {
             Domain::CompilerIdentity => "VENTA:COMPILER_ID:v1",
             Domain::CompilerConfig => "VENTA:COMPILER_CONFIG:v1",
             Domain::Manifest => "VENTA:MANIFEST:v1",
+            Domain::LinkConfig => "VENTA:LINK_CONFIG:v1",
+            Domain::LinkInput => "VENTA:LINK_INPUT:v1",
+            Domain::RuntimeArchive => "VENTA:RT_ARCHIVE:v1",
         }
     }
 }
@@ -357,6 +363,255 @@ impl BuildConfiguration {
             builder.update_bool(false);
         }
         builder.finish()
+    }
+}
+
+/// Classification of link input files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkInputKind {
+    MainObject,
+    AdditionalObject,
+    StaticArchive,
+    RuntimeArchive,
+    ResolvedLibrary,
+    StartupObject,
+    Other,
+}
+
+impl LinkInputKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LinkInputKind::MainObject => "main_obj",
+            LinkInputKind::AdditionalObject => "add_obj",
+            LinkInputKind::StaticArchive => "archive",
+            LinkInputKind::RuntimeArchive => "runtime_archive",
+            LinkInputKind::ResolvedLibrary => "resolved_lib",
+            LinkInputKind::StartupObject => "startup_obj",
+            LinkInputKind::Other => "other",
+        }
+    }
+
+    pub fn domain(&self) -> Domain {
+        match self {
+            LinkInputKind::MainObject | LinkInputKind::AdditionalObject => Domain::Object,
+            LinkInputKind::StaticArchive => Domain::Archive,
+            LinkInputKind::RuntimeArchive => Domain::RuntimeArchive,
+            LinkInputKind::ResolvedLibrary => Domain::Archive,
+            LinkInputKind::StartupObject => Domain::Object,
+            LinkInputKind::Other => Domain::Link,
+        }
+    }
+}
+
+/// A resolved file input to the linker, fingerprinted by kind, path, length, and content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedLinkInput {
+    pub kind: LinkInputKind,
+    pub path: std::path::PathBuf,
+    pub content_length: u64,
+    pub content_fingerprint: ContentFingerprint,
+}
+
+impl ResolvedLinkInput {
+    pub fn from_path<P: AsRef<std::path::Path>>(
+        kind: LinkInputKind,
+        path: P,
+    ) -> Result<Self, String> {
+        let p = path.as_ref();
+        let bytes = std::fs::read(p).map_err(|e| {
+            format!(
+                "Failed to read link input {:?} ('{}'): {}",
+                kind,
+                p.display(),
+                e
+            )
+        })?;
+        let content_length = bytes.len() as u64;
+        let content_fingerprint = ContentFingerprint::for_bytes(kind.domain(), &bytes);
+        Ok(Self {
+            kind,
+            path: p.to_path_buf(),
+            content_length,
+            content_fingerprint,
+        })
+    }
+
+    pub fn from_bytes(kind: LinkInputKind, path: &std::path::Path, bytes: &[u8]) -> Self {
+        let content_length = bytes.len() as u64;
+        let content_fingerprint = ContentFingerprint::for_bytes(kind.domain(), bytes);
+        Self {
+            kind,
+            path: path.to_path_buf(),
+            content_length,
+            content_fingerprint,
+        }
+    }
+
+    pub fn update_builder(&self, builder: &mut FingerprintBuilder) {
+        builder.update_str(self.kind.as_str());
+        let normalized = self.path.to_string_lossy().replace('\\', "/");
+        builder.update_str(&normalized);
+        builder.update_u64(self.content_length);
+        builder.update_fingerprint(&self.content_fingerprint);
+    }
+}
+
+/// A requested library specification and its resolved file input (if found).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedLibrary {
+    pub name: String,
+    pub resolved_path: Option<std::path::PathBuf>,
+    pub input: Option<ResolvedLinkInput>,
+}
+
+/// Canonical representation of the complete effective linking configuration and resolved inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkConfiguration {
+    pub target_triple: String,
+    pub object_format: String,
+    pub linker_kind: String,
+    pub linker_path: Option<String>,
+    pub linker_version: Option<String>,
+    pub linker_flags: Vec<String>,
+    pub output_path: String,
+    pub debug_info: bool,
+    pub map_file: Option<String>,
+    pub library_search_paths: Vec<std::path::PathBuf>,
+    pub requested_libraries: Vec<String>,
+    pub resolved_libraries: Vec<ResolvedLibrary>,
+    pub static_archives: Vec<ResolvedLinkInput>,
+    pub additional_objects: Vec<ResolvedLinkInput>,
+    pub additional_inputs: Vec<ResolvedLinkInput>,
+    pub runtime_archive: Option<ResolvedLinkInput>,
+    pub startup_objects: Vec<ResolvedLinkInput>,
+}
+
+impl LinkConfiguration {
+    pub fn new(
+        target_triple: impl Into<String>,
+        object_format: impl Into<String>,
+        linker_kind: impl Into<String>,
+        output_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            target_triple: target_triple.into(),
+            object_format: object_format.into(),
+            linker_kind: linker_kind.into(),
+            linker_path: None,
+            linker_version: None,
+            linker_flags: Vec::new(),
+            output_path: output_path.into(),
+            debug_info: false,
+            map_file: None,
+            library_search_paths: Vec::new(),
+            requested_libraries: Vec::new(),
+            resolved_libraries: Vec::new(),
+            static_archives: Vec::new(),
+            additional_objects: Vec::new(),
+            additional_inputs: Vec::new(),
+            runtime_archive: None,
+            startup_objects: Vec::new(),
+        }
+    }
+
+    pub fn fingerprint(
+        &self,
+        compiler_id: &CompilerIdentity,
+        main_object_fps: &[ContentFingerprint],
+    ) -> Result<ContentFingerprint, String> {
+        let mut builder = FingerprintBuilder::new(Domain::LinkConfig);
+        builder.update_fingerprint(&compiler_id.fingerprint());
+        builder.update_str(&self.target_triple);
+        builder.update_str(&self.object_format);
+        builder.update_str(&self.linker_kind);
+        if let Some(ref p) = self.linker_path {
+            builder.update_str(&p.replace('\\', "/"));
+        } else {
+            builder.update_str("<none>");
+        }
+        if let Some(ref v) = self.linker_version {
+            builder.update_str(v);
+        } else {
+            builder.update_str("<none>");
+        }
+        builder.update_u32(self.linker_flags.len() as u32);
+        for flag in &self.linker_flags {
+            builder.update_str(flag);
+        }
+        builder.update_str(&self.output_path.replace('\\', "/"));
+        builder.update_bool(self.debug_info);
+        if let Some(ref m) = self.map_file {
+            builder.update_str(&m.replace('\\', "/"));
+        } else {
+            builder.update_str("<none>");
+        }
+
+        // Library search paths
+        builder.update_u32(self.library_search_paths.len() as u32);
+        for p in &self.library_search_paths {
+            builder.update_str(&p.to_string_lossy().replace('\\', "/"));
+        }
+
+        // Requested & Resolved libraries
+        builder.update_u32(self.requested_libraries.len() as u32);
+        for lib in &self.requested_libraries {
+            builder.update_str(lib);
+        }
+        builder.update_u32(self.resolved_libraries.len() as u32);
+        for lib in &self.resolved_libraries {
+            builder.update_str(&lib.name);
+            if let Some(ref p) = lib.resolved_path {
+                builder.update_str(&p.to_string_lossy().replace('\\', "/"));
+            } else {
+                builder.update_str("<unresolved>");
+            }
+            if let Some(ref input) = lib.input {
+                builder.update_bool(true);
+                input.update_builder(&mut builder);
+            } else {
+                builder.update_bool(false);
+            }
+        }
+
+        // Main objects
+        builder.update_u32(main_object_fps.len() as u32);
+        for fp in main_object_fps {
+            builder.update_fingerprint(fp);
+        }
+
+        // Static archives (preserve order!)
+        builder.update_u32(self.static_archives.len() as u32);
+        for arch in &self.static_archives {
+            arch.update_builder(&mut builder);
+        }
+
+        // Additional objects
+        builder.update_u32(self.additional_objects.len() as u32);
+        for obj in &self.additional_objects {
+            obj.update_builder(&mut builder);
+        }
+
+        // Additional inputs
+        builder.update_u32(self.additional_inputs.len() as u32);
+        for inp in &self.additional_inputs {
+            inp.update_builder(&mut builder);
+        }
+
+        // Runtime archive
+        if let Some(ref rt) = self.runtime_archive {
+            builder.update_bool(true);
+            rt.update_builder(&mut builder);
+        } else {
+            builder.update_bool(false);
+        }
+
+        // Startup objects
+        builder.update_u32(self.startup_objects.len() as u32);
+        for obj in &self.startup_objects {
+            obj.update_builder(&mut builder);
+        }
+
+        Ok(builder.finish())
     }
 }
 

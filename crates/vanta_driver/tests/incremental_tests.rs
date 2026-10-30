@@ -1018,13 +1018,17 @@ fn test_stage32_5_test_h_same_size_archive_change() {
     fs::write(&archive_path, b"INITIAL_ARCHIVE_DATA_SAME_LEN_32").unwrap();
     assert_eq!(fs::metadata(&archive_path).unwrap().len(), 32);
 
-    let link_fp1 = engine.compute_link_fingerprint(&[obj_fp], &[archive_path.clone()], &[]);
+    let link_fp1 = engine
+        .compute_link_fingerprint(&[obj_fp], &[archive_path.clone()], &[])
+        .unwrap();
 
     // Alter contents with exact same length of 32 bytes
     fs::write(&archive_path, b"ALTERED_ARCHIVE_DATA_SAME_LEN_32").unwrap();
     assert_eq!(fs::metadata(&archive_path).unwrap().len(), 32);
 
-    let link_fp2 = engine.compute_link_fingerprint(&[obj_fp], &[archive_path], &[]);
+    let link_fp2 = engine
+        .compute_link_fingerprint(&[obj_fp], &[archive_path], &[])
+        .unwrap();
 
     // Must detect content alteration and produce different fingerprint despite identical size!
     assert_ne!(
@@ -1109,5 +1113,77 @@ fn test_stage32_5_test_j_target_feature_change() {
     assert_eq!(
         stats2.objects_regenerated, 1,
         "Target feature change (AVX2) must invalidate cached object and regenerate"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_k_deleted_executable_relinks_without_recompiling_object() {
+    let dir = tempdir().unwrap();
+    let (main_va, exe_path, cache_dir) = setup_multi_module_project(dir.path());
+
+    let mut opts = CompilerOptions::new(main_va.clone(), exe_path.clone());
+    opts.incremental = true;
+    opts.cache_dir = Some(cache_dir.clone());
+    opts.linker = LinkerKind::Internal;
+    opts.build_stats = true;
+
+    // 1. Initial build
+    let mut session1 = CompilerSession::new();
+    assert!(session1.compile(&opts).is_ok());
+    assert!(exe_path.exists());
+    assert_eq!(run_executable(&exe_path).0, 166);
+
+    // 2. Delete executable
+    fs::remove_file(&exe_path).unwrap();
+    assert!(!exe_path.exists());
+
+    // 3. Rebuild: must reuse cached object (0 recompiled) and relink to re-create executable
+    let mut session2 = CompilerSession::new();
+    assert!(session2.compile(&opts).is_ok());
+    assert!(exe_path.exists());
+    assert_eq!(run_executable(&exe_path).0, 166);
+
+    let stats2 = session2.last_build_stats.expect("stats2");
+    assert_eq!(
+        stats2.objects_reused, 1,
+        "Object must be reused from cache when only executable was deleted"
+    );
+    assert_eq!(
+        stats2.objects_regenerated, 0,
+        "No objects should be regenerated"
+    );
+    assert!(
+        stats2.linking_performed,
+        "Relinking must be performed because executable was deleted"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_l_clean_vs_incremental_linking_executable_equivalence() {
+    let dir1 = tempdir().unwrap();
+    let (main1, exe1, cache1) = setup_multi_module_project(dir1.path());
+
+    // Clean build
+    let mut opts1 = CompilerOptions::new(main1, exe1.clone());
+    opts1.incremental = true;
+    opts1.cache_dir = Some(cache1);
+    opts1.linker = LinkerKind::Internal;
+
+    let mut session1 = CompilerSession::new();
+    assert!(session1.compile(&opts1).is_ok());
+    let (exit1, out1) = run_executable(&exe1);
+
+    // Incremental rebuild (warm cache)
+    let mut session2 = CompilerSession::new();
+    assert!(session2.compile(&opts1).is_ok());
+    let (exit2, out2) = run_executable(&exe1);
+
+    assert_eq!(
+        exit1, exit2,
+        "Exit codes must be identical between clean and incremental linking"
+    );
+    assert_eq!(
+        out1, out2,
+        "Executable output must be identical between clean and incremental linking"
     );
 }

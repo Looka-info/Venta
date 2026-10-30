@@ -403,6 +403,12 @@ impl CacheManager {
             return false;
         }
 
+        // Check 3: compiler identity must be valid
+        if self.compiler_identity.validate().is_err() {
+            self.miss_counter.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+
         match self.read_artifact(link_key, ArtifactType::LinkExecutable) {
             Ok(Some(bytes)) => {
                 let record: LinkRecord = match serde_json::from_slice(&bytes) {
@@ -413,20 +419,26 @@ impl CacheManager {
                     }
                 };
 
-                // Check path
+                // Check 1 & 7: computed link key matches requested key in record
+                if record.link_key != *link_key {
+                    self.miss_counter.fetch_add(1, Ordering::Relaxed);
+                    return false;
+                }
+
+                // Check 2: expected output path matches
                 if Path::new(&record.exe_path) != expected_exe_path {
                     self.miss_counter.fetch_add(1, Ordering::Relaxed);
                     return false;
                 }
 
-                // Check compiler ID
+                // Check compiler ID matches
                 let current_compiler_id = self.compiler_identity.fingerprint().to_hex();
                 if record.compiler_id != current_compiler_id {
                     self.miss_counter.fetch_add(1, Ordering::Relaxed);
                     return false;
                 }
 
-                // Check file size
+                // Check 4 & 5: executable exists and recorded size matches
                 let meta = match fs::metadata(expected_exe_path) {
                     Ok(m) => m,
                     Err(_) => {
@@ -439,7 +451,7 @@ impl CacheManager {
                     return false;
                 }
 
-                // Check cryptographic content checksum
+                // Check 6: cryptographic SHA-256 content checksum matches
                 let exe_bytes = match fs::read(expected_exe_path) {
                     Ok(b) => b,
                     Err(_) => {

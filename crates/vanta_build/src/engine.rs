@@ -149,13 +149,13 @@ impl IncrementalBuildEngine {
         builder.finish()
     }
 
-    /// Compute final link fingerprint for linking an executable.
+    /// Compute final link fingerprint for linking an executable, failing closed if any input cannot be read.
     pub fn compute_link_fingerprint(
         &self,
         object_fps: &[ContentFingerprint],
         archive_paths: &[PathBuf],
         extra_inputs: &[PathBuf],
-    ) -> ContentFingerprint {
+    ) -> Result<ContentFingerprint, String> {
         let mut builder = FingerprintBuilder::new(Domain::Link);
         builder.update_fingerprint(&self.cache.compiler_identity().fingerprint());
         builder.update_str(&self.options.target_triple);
@@ -165,24 +165,39 @@ impl IncrementalBuildEngine {
             builder.update_fingerprint(fp);
         }
         for arch in archive_paths {
-            builder.update_str(&arch.to_string_lossy());
-            if let Ok(bytes) = fs::read(arch) {
-                let arch_fp = ContentFingerprint::for_bytes(Domain::Archive, &bytes);
-                builder.update_fingerprint(&arch_fp);
-            } else if let Ok(meta) = fs::metadata(arch) {
-                builder.update_u64(meta.len());
-            }
+            builder.update_str(&arch.to_string_lossy().replace('\\', "/"));
+            let bytes = fs::read(arch).map_err(|e| {
+                format!(
+                    "Failed to read static archive '{}' for link fingerprinting: {}",
+                    arch.display(),
+                    e
+                )
+            })?;
+            let arch_fp = ContentFingerprint::for_bytes(Domain::Archive, &bytes);
+            builder.update_fingerprint(&arch_fp);
         }
         for extra in extra_inputs {
-            builder.update_str(&extra.to_string_lossy());
-            if let Ok(bytes) = fs::read(extra) {
-                let extra_fp = ContentFingerprint::for_bytes(Domain::Object, &bytes);
-                builder.update_fingerprint(&extra_fp);
-            } else if let Ok(meta) = fs::metadata(extra) {
-                builder.update_u64(meta.len());
-            }
+            builder.update_str(&extra.to_string_lossy().replace('\\', "/"));
+            let bytes = fs::read(extra).map_err(|e| {
+                format!(
+                    "Failed to read additional link input '{}' for link fingerprinting: {}",
+                    extra.display(),
+                    e
+                )
+            })?;
+            let extra_fp = ContentFingerprint::for_bytes(Domain::Object, &bytes);
+            builder.update_fingerprint(&extra_fp);
         }
-        builder.finish()
+        Ok(builder.finish())
+    }
+
+    /// Compute link fingerprint directly from a canonical LinkConfiguration.
+    pub fn compute_link_configuration_fingerprint(
+        &self,
+        config: &crate::fingerprint::LinkConfiguration,
+        object_fps: &[ContentFingerprint],
+    ) -> Result<ContentFingerprint, String> {
+        config.fingerprint(self.cache.compiler_identity(), object_fps)
     }
 
     /// Check if a cached object exists and is valid for a compilation unit.
@@ -417,12 +432,16 @@ mod tests {
 
         let engine = IncrementalBuildEngine::new(IncrementalOptions::default()).unwrap();
         let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"obj1");
-        let link_fp1 = engine.compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[]);
+        let link_fp1 = engine
+            .compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[])
+            .unwrap();
 
         // Write second version: 16 bytes of 'B' (exact same byte size!)
         fs::write(&arch_path, vec![b'B'; 16]).unwrap();
 
-        let link_fp2 = engine.compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[]);
+        let link_fp2 = engine
+            .compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[])
+            .unwrap();
 
         assert_ne!(
             link_fp1, link_fp2,
