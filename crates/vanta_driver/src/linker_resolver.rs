@@ -7,6 +7,37 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
+
+/// Environment variables known to affect compiler driver / linker backend selection.
+pub const LINKER_SELECTION_ENV_VARS: &[&str] = &[
+    "COMPILER_PATH",
+    "GCC_EXEC_PREFIX",
+    "LIBRARY_PATH",
+    "LD_LIBRARY_PATH",
+    "PATH",
+];
+
+/// Collects and deterministically sorts relevant environment variables affecting linker selection.
+pub fn collect_linker_environment_variables() -> Vec<(String, String)> {
+    let mut vars = Vec::new();
+    for &key in LINKER_SELECTION_ENV_VARS {
+        if let Ok(val) = std::env::var(key) {
+            vars.push((key.to_string(), val));
+        }
+    }
+    vars.sort_by(|a, b| a.0.cmp(&b.0));
+    vars
+}
+
+/// Recorded mock link execution for verifying exact driver arguments, environment, and backend constraints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MockExecution {
+    pub driver_path: PathBuf,
+    pub args: Vec<String>,
+    pub env_vars: Vec<(String, String)>,
+    pub expected_backend: Option<PathBuf>,
+}
 
 /// Normalizes canonical paths by stripping the Windows `\\?\` verbatim prefix if present.
 pub fn normalize_canonical_path(path: PathBuf) -> PathBuf {
@@ -18,7 +49,7 @@ pub fn normalize_canonical_path(path: PathBuf) -> PathBuf {
     }
 }
 
-/// Abstract interface for discovering, inspecting, and reading effective linker executables.
+/// Abstract interface for discovering, inspecting, validating, and executing linker invocations.
 pub trait LinkerResolver {
     /// Resolve an executable name or path to its canonical, normalized PathBuf.
     fn resolve_in_path(&self, name_or_path: &str) -> Result<PathBuf, String>;
@@ -35,7 +66,39 @@ pub trait LinkerResolver {
         driver_path: &Path,
         driver_name: &str,
         linker_flags: &[String],
+    ) -> Result<Option<PathBuf>, String> {
+        self.resolve_downstream_backend(driver_path, driver_name, linker_flags, &[])
+    }
+
+    /// Authoritatively resolve the downstream linker backend, accounting for all selection flags
+    /// (`-fuse-ld`, `-B`, `--sysroot`, `-target`) and environment variables.
+    fn resolve_downstream_backend(
+        &self,
+        driver_path: &Path,
+        driver_name: &str,
+        linker_flags: &[String],
+        env_vars: &[(String, String)],
     ) -> Result<Option<PathBuf>, String>;
+
+    /// Verify via dry-run probe that the driver will invoke the expected backend.
+    /// Fails closed if the driver selects a different backend or cannot authoritatively resolve one.
+    fn verify_driver_invocation(
+        &self,
+        driver_path: &Path,
+        driver_name: &str,
+        linker_flags: &[String],
+        expected_backend: &Path,
+        env_vars: &[(String, String)],
+    ) -> Result<(), String>;
+
+    /// Execute the linking step using the driver and arguments, ensuring execution matches the fingerprinted backend.
+    fn execute_link(
+        &self,
+        driver_path: &Path,
+        args: &[String],
+        env_vars: &[(String, String)],
+        expected_backend: Option<&Path>,
+    ) -> Result<(), String>;
 }
 
 /// Default system linker resolver using actual system PATH, filesystem reads, and subprocess execution.
@@ -126,11 +189,12 @@ impl LinkerResolver for DefaultLinkerResolver {
         })
     }
 
-    fn query_downstream_linker(
+    fn resolve_downstream_backend(
         &self,
         driver_path: &Path,
         driver_name: &str,
         linker_flags: &[String],
+        env_vars: &[(String, String)],
     ) -> Result<Option<PathBuf>, String> {
         let name_lower = driver_name.to_lowercase();
         if !name_lower.contains("gcc")
@@ -141,11 +205,37 @@ impl LinkerResolver for DefaultLinkerResolver {
         }
 
         let mut cmd = Command::new(driver_path);
+        let mut pass_next = false;
         for flag in linker_flags {
+            if pass_next {
+                cmd.arg(flag);
+                pass_next = false;
+                continue;
+            }
             if flag.starts_with("-fuse-ld") {
                 cmd.arg(flag);
+            } else if flag.starts_with("-B") {
+                cmd.arg(flag);
+                if flag == "-B" {
+                    pass_next = true;
+                }
+            } else if flag.starts_with("--sysroot") {
+                cmd.arg(flag);
+                if flag == "--sysroot" {
+                    pass_next = true;
+                }
+            } else if flag.starts_with("-target") || flag.starts_with("--target") {
+                cmd.arg(flag);
+                if flag == "-target" || flag == "--target" {
+                    pass_next = true;
+                }
             }
         }
+
+        for (k, v) in env_vars {
+            cmd.env(k, v);
+        }
+
         cmd.arg("-print-prog-name=ld");
 
         let output = cmd.output().map_err(|e| {
@@ -187,6 +277,72 @@ impl LinkerResolver for DefaultLinkerResolver {
             Ok(Some(canonical))
         }
     }
+
+    fn verify_driver_invocation(
+        &self,
+        driver_path: &Path,
+        driver_name: &str,
+        linker_flags: &[String],
+        expected_backend: &Path,
+        env_vars: &[(String, String)],
+    ) -> Result<(), String> {
+        let actual_backend =
+            self.resolve_downstream_backend(driver_path, driver_name, linker_flags, env_vars)?;
+        match actual_backend {
+            Some(actual) => {
+                let actual_norm = normalize_canonical_path(actual);
+                let expected_norm = normalize_canonical_path(expected_backend.to_path_buf());
+                if actual_norm != expected_norm {
+                    return Err(format!(
+                        "Driver verification failed: driver '{}' selected backend '{}', but plan expected '{}'",
+                        driver_path.display(),
+                        actual_norm.display(),
+                        expected_norm.display()
+                    ));
+                }
+                Ok(())
+            }
+            None => Err(format!(
+                "Driver verification failed: driver '{}' could not resolve an authoritative backend, but plan expected '{}'",
+                driver_path.display(),
+                expected_backend.display()
+            )),
+        }
+    }
+
+    fn execute_link(
+        &self,
+        driver_path: &Path,
+        args: &[String],
+        env_vars: &[(String, String)],
+        expected_backend: Option<&Path>,
+    ) -> Result<(), String> {
+        if let Some(expected) = expected_backend {
+            let driver_name = driver_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            self.verify_driver_invocation(driver_path, driver_name, args, expected, env_vars)?;
+        }
+
+        let mut cmd = Command::new(driver_path);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        for (k, v) in env_vars {
+            cmd.env(k, v);
+        }
+
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Could not invoke linker '{}': {}", driver_path.display(), e))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Linker exited with status {}", status))
+        }
+    }
 }
 
 /// Injected mock linker resolver for deterministic, host-independent unit and integration testing.
@@ -196,6 +352,12 @@ pub struct MockLinkerResolver {
     pub executables: HashMap<String, (PathBuf, Vec<u8>, Option<String>)>,
     /// Mapping from (driver_name, fuse_ld_flag) to downstream linker path or error
     pub downstream_map: HashMap<(String, Option<String>), Result<Option<PathBuf>, String>>,
+    /// Mapping for custom flag combinations: (driver_name, flag_prefix) -> Result<Option<PathBuf>, String>
+    pub custom_flags_map: HashMap<(String, String), Result<Option<PathBuf>, String>>,
+    /// Dedicated dry-run override: expected_backend string -> Result<(), String>
+    pub dry_run_override: Option<Result<(), String>>,
+    /// History of executed links: records (driver_path, args, env_vars, expected_backend)
+    pub executed_links: Arc<Mutex<Vec<MockExecution>>>,
 }
 
 impl MockLinkerResolver {
@@ -231,6 +393,28 @@ impl MockLinkerResolver {
             downstream,
         );
         self
+    }
+
+    pub fn with_flag_downstream(
+        mut self,
+        driver_name: &str,
+        flag_prefix: &str,
+        downstream: Result<Option<PathBuf>, String>,
+    ) -> Self {
+        self.custom_flags_map.insert(
+            (driver_name.to_string(), flag_prefix.to_string()),
+            downstream,
+        );
+        self
+    }
+
+    pub fn with_dry_run_override(mut self, result: Result<(), String>) -> Self {
+        self.dry_run_override = Some(result);
+        self
+    }
+
+    pub fn get_executed_links(&self) -> Vec<MockExecution> {
+        self.executed_links.lock().unwrap().clone()
     }
 }
 
@@ -283,12 +467,30 @@ impl LinkerResolver for MockLinkerResolver {
             .and_then(|(_, _, v)| v.clone())
     }
 
-    fn query_downstream_linker(
+    fn resolve_downstream_backend(
         &self,
         driver_path: &Path,
         driver_name: &str,
         linker_flags: &[String],
+        _env_vars: &[(String, String)],
     ) -> Result<Option<PathBuf>, String> {
+        let file_name = driver_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        // 1. Check custom_flags_map (e.g. -B flags, --sysroot, etc.)
+        for ((drv, flag_pat), res) in &self.custom_flags_map {
+            if drv == driver_name || drv == file_name {
+                for flag in linker_flags {
+                    if flag.starts_with(flag_pat) {
+                        return res.clone();
+                    }
+                }
+            }
+        }
+
+        // 2. Check downstream_map for -fuse-ld
         let fuse_ld = linker_flags
             .iter()
             .find(|f| f.starts_with("-fuse-ld"))
@@ -300,12 +502,73 @@ impl LinkerResolver for MockLinkerResolver {
         {
             return res.clone();
         }
-        if let Some(file_name) = driver_path.file_name().and_then(|s| s.to_str()) {
+        if !file_name.is_empty() {
             if let Some(res) = self.downstream_map.get(&(file_name.to_string(), fuse_ld)) {
                 return res.clone();
             }
         }
 
         Ok(None)
+    }
+
+    fn verify_driver_invocation(
+        &self,
+        driver_path: &Path,
+        driver_name: &str,
+        linker_flags: &[String],
+        expected_backend: &Path,
+        env_vars: &[(String, String)],
+    ) -> Result<(), String> {
+        if let Some(ref ov) = self.dry_run_override {
+            return ov.clone();
+        }
+
+        let actual =
+            self.resolve_downstream_backend(driver_path, driver_name, linker_flags, env_vars)?;
+        match actual {
+            Some(act) => {
+                let act_norm = normalize_canonical_path(act);
+                let exp_norm = normalize_canonical_path(expected_backend.to_path_buf());
+                if act_norm != exp_norm {
+                    return Err(format!(
+                        "Driver verification failed: driver '{}' selected backend '{}', but plan expected '{}'",
+                        driver_path.display(),
+                        act_norm.display(),
+                        exp_norm.display()
+                    ));
+                }
+                Ok(())
+            }
+            None => Err(format!(
+                "Driver verification failed: driver '{}' could not resolve an authoritative backend, but plan expected '{}'",
+                driver_path.display(),
+                expected_backend.display()
+            )),
+        }
+    }
+
+    fn execute_link(
+        &self,
+        driver_path: &Path,
+        args: &[String],
+        env_vars: &[(String, String)],
+        expected_backend: Option<&Path>,
+    ) -> Result<(), String> {
+        if let Some(expected) = expected_backend {
+            let driver_name = driver_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            self.verify_driver_invocation(driver_path, driver_name, args, expected, env_vars)?;
+        }
+
+        let mut rec = self.executed_links.lock().unwrap();
+        rec.push(MockExecution {
+            driver_path: driver_path.to_path_buf(),
+            args: args.to_vec(),
+            env_vars: env_vars.to_vec(),
+            expected_backend: expected_backend.map(|p| p.to_path_buf()),
+        });
+        Ok(())
     }
 }

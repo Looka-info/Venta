@@ -11,8 +11,8 @@ pub use vanta_build::{
     CacheEntryMetadata, CacheManager, CacheStats, CacheVerificationReport, CompilerIdentity,
     ContentFingerprint, DependencyKind, Domain, FingerprintBuilder, FunctionFragment,
     IncrementalBuildEngine, IncrementalOptions, LinkConfiguration, LinkInputKind, ManifestFunction,
-    ManifestModule, ManifestSourceFile, ManifestType, NodeId, NodeKind, ResolvedLibrary,
-    ResolvedLinkInput, TargetFeaturesConfig,
+    ManifestModule, ManifestSourceFile, ManifestType, NodeId, NodeKind, ResolvedInvocation,
+    ResolvedLibrary, ResolvedLinkInput, TargetFeaturesConfig,
 };
 use vanta_codegen_aarch64::AArch64Backend;
 pub use vanta_codegen_x86_64::TargetFeatures;
@@ -831,7 +831,7 @@ impl CompilerSession {
                     &driver_bytes,
                 );
                 plan.linker_path = Some(driver_path.to_string_lossy().to_string());
-                plan.linker_driver = Some(driver_input);
+                plan.linker_driver = Some(driver_input.clone());
                 plan.linker_version = resolver.query_version(&driver_path);
 
                 let mut combined_flags = default_flags;
@@ -840,20 +840,50 @@ impl CompilerSession {
                         combined_flags.push(flag.clone());
                     }
                 }
-                plan.linker_flags = combined_flags;
+                plan.linker_flags = combined_flags.clone();
 
-                if let Some(downstream_path) = resolver.query_downstream_linker(
+                let env_vars = collect_linker_environment_variables();
+
+                if let Some(downstream_path) = resolver.resolve_downstream_backend(
                     &driver_path,
                     driver_name,
                     &plan.linker_flags,
+                    &env_vars,
                 )? {
+                    // Authoritatively verify downstream backend via dry-run probe
+                    resolver.verify_driver_invocation(
+                        &driver_path,
+                        driver_name,
+                        &plan.linker_flags,
+                        &downstream_path,
+                        &env_vars,
+                    )?;
+
                     let downstream_bytes = resolver.read_executable_bytes(&downstream_path)?;
                     let downstream_input = ResolvedLinkInput::from_bytes(
                         LinkInputKind::LinkerBackend,
                         &downstream_path,
                         &downstream_bytes,
                     );
-                    plan.downstream_linker = Some(downstream_input);
+                    plan.downstream_linker = Some(downstream_input.clone());
+
+                    plan.resolved_invocation = Some(ResolvedInvocation::new(
+                        driver_path,
+                        driver_input.content_fingerprint,
+                        Some(downstream_path),
+                        Some(downstream_input.content_fingerprint),
+                        combined_flags,
+                        env_vars,
+                    ));
+                } else {
+                    plan.resolved_invocation = Some(ResolvedInvocation::new(
+                        driver_path,
+                        driver_input.content_fingerprint,
+                        None,
+                        None,
+                        combined_flags,
+                        env_vars,
+                    ));
                 }
             }
         }
@@ -951,12 +981,98 @@ impl CompilerSession {
         Ok(plan)
     }
 
+    /// Revalidates that the compiler driver and downstream linker backend on disk still match
+    /// the content fingerprints recorded in the plan before execution.
+    pub fn verify_plan_executables_integrity<R: LinkerResolver>(
+        plan: &LinkConfiguration,
+        resolver: &R,
+    ) -> Result<(), String> {
+        if let Some(ref driver) = plan.linker_driver {
+            let current_bytes = resolver.read_executable_bytes(&driver.path).map_err(|e| {
+                format!(
+                    "Pre-link executable integrity check failed for driver '{}': {}",
+                    driver.path.display(),
+                    e
+                )
+            })?;
+            if current_bytes.len() as u64 != driver.content_length {
+                return Err(format!(
+                    "Pre-link executable integrity check failed for driver '{}': length changed from {} to {}",
+                    driver.path.display(),
+                    driver.content_length,
+                    current_bytes.len()
+                ));
+            }
+            let current_fp =
+                ContentFingerprint::for_bytes(LinkInputKind::LinkerDriver.domain(), &current_bytes);
+            if current_fp != driver.content_fingerprint {
+                return Err(format!(
+                    "Pre-link executable integrity check failed: linker driver '{}' content modified between resolution and execution (expected {}, found {})",
+                    driver.path.display(),
+                    driver.content_fingerprint,
+                    current_fp
+                ));
+            }
+        }
+
+        if let Some(ref downstream) = plan.downstream_linker {
+            let current_bytes = resolver
+                .read_executable_bytes(&downstream.path)
+                .map_err(|e| {
+                    format!(
+                        "Pre-link executable integrity check failed for backend '{}': {}",
+                        downstream.path.display(),
+                        e
+                    )
+                })?;
+            if current_bytes.len() as u64 != downstream.content_length {
+                return Err(format!(
+                    "Pre-link executable integrity check failed for backend '{}': length changed from {} to {}",
+                    downstream.path.display(),
+                    downstream.content_length,
+                    current_bytes.len()
+                ));
+            }
+            let current_fp = ContentFingerprint::for_bytes(
+                LinkInputKind::LinkerBackend.domain(),
+                &current_bytes,
+            );
+            if current_fp != downstream.content_fingerprint {
+                return Err(format!(
+                    "Pre-link executable integrity check failed: downstream linker backend '{}' content modified between resolution and execution (expected {}, found {})",
+                    downstream.path.display(),
+                    downstream.content_fingerprint,
+                    current_fp
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Link executable using a resolved LinkConfiguration plan.
     pub fn link_target_executable_with_plan(
         options: &CompilerOptions,
         target_spec: &TargetSpec,
         obj_bytes: &[u8],
         plan: &LinkConfiguration,
+    ) -> Result<(), String> {
+        Self::link_target_executable_with_plan_and_resolver(
+            options,
+            target_spec,
+            obj_bytes,
+            plan,
+            &DefaultLinkerResolver,
+        )
+    }
+
+    /// Link executable using a resolved LinkConfiguration plan with an injected resolver.
+    pub fn link_target_executable_with_plan_and_resolver<R: LinkerResolver>(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+        obj_bytes: &[u8],
+        plan: &LinkConfiguration,
+        resolver: &R,
     ) -> Result<(), String> {
         if options.linker == LinkerKind::Internal {
             let mut link_config =
@@ -1001,6 +1117,9 @@ impl CompilerSession {
             return Ok(());
         }
 
+        // Before any external linking execution, verify executable content integrity on disk!
+        Self::verify_plan_executables_integrity(plan, resolver)?;
+
         match target_spec.os {
             Os::Linux => {
                 let rt_archive = match plan.runtime_archive {
@@ -1013,12 +1132,31 @@ impl CompilerSession {
                 fs::write(&temp_obj_path, obj_bytes)
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-                let link_res = Self::invoke_system_linker_with_plan(
-                    plan,
-                    &temp_obj_path,
-                    &options.output_file,
-                    &rt_archive,
-                );
+                let driver_path = if let Some(ref d) = plan.linker_driver {
+                    d.path.clone()
+                } else if let Some(ref p) = plan.linker_path {
+                    PathBuf::from(p)
+                } else {
+                    PathBuf::from("gcc")
+                };
+
+                let mut args = plan.linker_flags.clone();
+                args.push(temp_obj_path.to_string_lossy().to_string());
+                args.push(rt_archive.to_string_lossy().to_string());
+                args.push("-o".to_string());
+                args.push(options.output_file.to_string_lossy().to_string());
+
+                let env_vars = if let Some(ref inv) = plan.resolved_invocation {
+                    inv.process_environment.clone()
+                } else {
+                    collect_linker_environment_variables()
+                };
+
+                let expected_backend = plan.downstream_linker.as_ref().map(|d| d.path.as_path());
+
+                let link_res =
+                    resolver.execute_link(&driver_path, &args, &env_vars, expected_backend);
+
                 if link_res.is_ok() {
                     let _ = fs::remove_file(&temp_obj_path);
                 }
@@ -1035,32 +1173,39 @@ impl CompilerSession {
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
                 let driver_path = if let Some(ref d) = plan.linker_driver {
-                    d.path.as_os_str()
+                    d.path.clone()
                 } else if let Some(ref p) = plan.linker_path {
-                    std::ffi::OsStr::new(p)
+                    PathBuf::from(p)
                 } else {
-                    std::ffi::OsStr::new("link.exe")
+                    PathBuf::from("link.exe")
                 };
 
-                let mut cmd = Command::new(driver_path);
-                for flag in &plan.linker_flags {
-                    cmd.arg(flag);
-                }
-                cmd.arg(&temp_obj_path);
+                let mut args = plan.linker_flags.clone();
+                args.push(temp_obj_path.to_string_lossy().to_string());
 
-                if let Ok(status) = cmd.status() {
-                    if status.success() {
-                        let _ = fs::remove_file(&temp_obj_path);
-                        return Ok(());
-                    }
-                }
+                let env_vars = if let Some(ref inv) = plan.resolved_invocation {
+                    inv.process_environment.clone()
+                } else {
+                    collect_linker_environment_variables()
+                };
 
-                Err(format!(
-                    "Linker '{}' failed for target {}. Relocatable COFF object written to '{}'.",
-                    Path::new(driver_path).display(),
-                    target_spec.triple,
-                    temp_obj_path.display()
-                ))
+                let expected_backend = plan.downstream_linker.as_ref().map(|d| d.path.as_path());
+
+                let link_res =
+                    resolver.execute_link(&driver_path, &args, &env_vars, expected_backend);
+
+                if link_res.is_ok() {
+                    let _ = fs::remove_file(&temp_obj_path);
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Linker '{}' failed for target {}. Relocatable COFF object written to '{}': {}",
+                        driver_path.display(),
+                        target_spec.triple,
+                        temp_obj_path.display(),
+                        link_res.unwrap_err()
+                    ))
+                }
             }
             Os::MacOS => {
                 let temp_obj_path = options
@@ -1070,32 +1215,39 @@ impl CompilerSession {
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
                 let driver_path = if let Some(ref d) = plan.linker_driver {
-                    d.path.as_os_str()
+                    d.path.clone()
                 } else if let Some(ref p) = plan.linker_path {
-                    std::ffi::OsStr::new(p)
+                    PathBuf::from(p)
                 } else {
-                    std::ffi::OsStr::new("clang")
+                    PathBuf::from("clang")
                 };
 
-                let mut cmd = Command::new(driver_path);
-                for flag in &plan.linker_flags {
-                    cmd.arg(flag);
-                }
-                cmd.arg(&temp_obj_path);
+                let mut args = plan.linker_flags.clone();
+                args.push(temp_obj_path.to_string_lossy().to_string());
 
-                if let Ok(status) = cmd.status() {
-                    if status.success() {
-                        let _ = fs::remove_file(&temp_obj_path);
-                        return Ok(());
-                    }
-                }
+                let env_vars = if let Some(ref inv) = plan.resolved_invocation {
+                    inv.process_environment.clone()
+                } else {
+                    collect_linker_environment_variables()
+                };
 
-                Err(format!(
-                    "Linker '{}' failed for target {}. Relocatable Mach-O 64-bit object written to '{}'.",
-                    Path::new(driver_path).display(),
-                    target_spec.triple,
-                    temp_obj_path.display()
-                ))
+                let expected_backend = plan.downstream_linker.as_ref().map(|d| d.path.as_path());
+
+                let link_res =
+                    resolver.execute_link(&driver_path, &args, &env_vars, expected_backend);
+
+                if link_res.is_ok() {
+                    let _ = fs::remove_file(&temp_obj_path);
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Linker '{}' failed for target {}. Relocatable Mach-O 64-bit object written to '{}': {}",
+                        driver_path.display(),
+                        target_spec.triple,
+                        temp_obj_path.display(),
+                        link_res.unwrap_err()
+                    ))
+                }
             }
         }
     }
@@ -1243,35 +1395,27 @@ impl CompilerSession {
         rt_archive: &Path,
     ) -> Result<(), String> {
         let driver_path = if let Some(ref d) = plan.linker_driver {
-            d.path.as_os_str()
+            d.path.clone()
         } else if let Some(ref p) = plan.linker_path {
-            std::ffi::OsStr::new(p)
+            PathBuf::from(p)
         } else {
-            std::ffi::OsStr::new("gcc")
+            PathBuf::from("gcc")
         };
 
-        let mut cmd = Command::new(driver_path);
-        for flag in &plan.linker_flags {
-            cmd.arg(flag);
-        }
-        cmd.arg(obj_path);
-        cmd.arg(rt_archive);
-        cmd.arg("-o");
-        cmd.arg(out_path);
+        let mut args = plan.linker_flags.clone();
+        args.push(obj_path.to_string_lossy().to_string());
+        args.push(rt_archive.to_string_lossy().to_string());
+        args.push("-o".to_string());
+        args.push(out_path.to_string_lossy().to_string());
 
-        let status = cmd.status().map_err(|e| {
-            format!(
-                "Could not invoke linker '{}': {}",
-                Path::new(driver_path).display(),
-                e
-            )
-        })?;
-
-        if status.success() {
-            Ok(())
+        let env_vars = if let Some(ref inv) = plan.resolved_invocation {
+            inv.process_environment.clone()
         } else {
-            Err(format!("Linker exited with status {}", status))
-        }
+            collect_linker_environment_variables()
+        };
+
+        let expected_backend = plan.downstream_linker.as_ref().map(|d| d.path.as_path());
+        DefaultLinkerResolver.execute_link(&driver_path, &args, &env_vars, expected_backend)
     }
 
     #[allow(dead_code)]

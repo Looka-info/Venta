@@ -516,6 +516,75 @@ pub struct ResolvedLibrary {
     pub input: Option<ResolvedLinkInput>,
 }
 
+/// Detailed record of a resolved compiler driver / backend linker invocation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedInvocation {
+    /// Canonical path to the compiler driver (e.g. /usr/bin/gcc)
+    pub driver_path: std::path::PathBuf,
+    /// Content fingerprint of the compiler driver executable
+    pub driver_fingerprint: ContentFingerprint,
+    /// Canonical path to the effective downstream linker backend (e.g. /usr/bin/ld.bfd) if applicable
+    pub backend_path: Option<std::path::PathBuf>,
+    /// Content fingerprint of the effective downstream linker backend if applicable
+    pub backend_fingerprint: Option<ContentFingerprint>,
+    /// Effective arguments passed to the driver/backend that affect execution/selection
+    pub effective_args: Vec<String>,
+    /// Relevant environment variables (name, value) affecting linker selection (sorted)
+    pub process_environment: Vec<(String, String)>,
+}
+
+impl ResolvedInvocation {
+    pub fn new(
+        driver_path: std::path::PathBuf,
+        driver_fingerprint: ContentFingerprint,
+        backend_path: Option<std::path::PathBuf>,
+        backend_fingerprint: Option<ContentFingerprint>,
+        effective_args: Vec<String>,
+        process_environment: Vec<(String, String)>,
+    ) -> Self {
+        Self {
+            driver_path,
+            driver_fingerprint,
+            backend_path,
+            backend_fingerprint,
+            effective_args,
+            process_environment,
+        }
+    }
+
+    pub fn update_builder(&self, builder: &mut FingerprintBuilder) {
+        let norm_driver = self.driver_path.to_string_lossy().replace('\\', "/");
+        builder.update_str(&norm_driver);
+        builder.update_fingerprint(&self.driver_fingerprint);
+
+        if let Some(ref bp) = self.backend_path {
+            builder.update_bool(true);
+            let norm_backend = bp.to_string_lossy().replace('\\', "/");
+            builder.update_str(&norm_backend);
+        } else {
+            builder.update_bool(false);
+        }
+
+        if let Some(ref bfp) = self.backend_fingerprint {
+            builder.update_bool(true);
+            builder.update_fingerprint(bfp);
+        } else {
+            builder.update_bool(false);
+        }
+
+        builder.update_u32(self.effective_args.len() as u32);
+        for arg in &self.effective_args {
+            builder.update_str(arg);
+        }
+
+        builder.update_u32(self.process_environment.len() as u32);
+        for (k, v) in &self.process_environment {
+            builder.update_str(k);
+            builder.update_str(v);
+        }
+    }
+}
+
 /// Canonical representation of the complete effective linking configuration and resolved inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkConfiguration {
@@ -538,6 +607,7 @@ pub struct LinkConfiguration {
     pub startup_objects: Vec<ResolvedLinkInput>,
     pub linker_driver: Option<ResolvedLinkInput>,
     pub downstream_linker: Option<ResolvedLinkInput>,
+    pub resolved_invocation: Option<ResolvedInvocation>,
 }
 
 impl LinkConfiguration {
@@ -567,6 +637,7 @@ impl LinkConfiguration {
             startup_objects: Vec::new(),
             linker_driver: None,
             downstream_linker: None,
+            resolved_invocation: None,
         }
     }
 
@@ -619,6 +690,14 @@ impl LinkConfiguration {
         if let Some(ref downstream) = self.downstream_linker {
             builder.update_bool(true);
             downstream.update_builder(&mut builder);
+        } else {
+            builder.update_bool(false);
+        }
+
+        // Resolved Invocation
+        if let Some(ref inv) = self.resolved_invocation {
+            builder.update_bool(true);
+            inv.update_builder(&mut builder);
         } else {
             builder.update_bool(false);
         }
