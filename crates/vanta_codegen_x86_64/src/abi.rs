@@ -6,6 +6,7 @@
 use crate::register::{Reg, SimdReg};
 use std::collections::HashMap;
 use vanta_sema::{EnumDef, StructDef, Type};
+use vanta_target::TargetAbi;
 
 /// The ABI return and parameter classification of a Vanta type under System V AMD64.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +102,9 @@ pub enum ArgLocation {
 /// General-purpose integer registers used for argument passing in order (%rdi, %rsi, %rdx, %rcx, %r8, %r9).
 pub const INT_ARG_REGS: [Reg; 6] = [Reg::Rdi, Reg::Rsi, Reg::Rdx, Reg::Rcx, Reg::R8, Reg::R9];
 
+/// Microsoft x64 integer argument registers in order (%rcx, %rdx, %r8, %r9).
+pub const MS_INT_ARG_REGS: [Reg; 4] = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
+
 /// Physical YMM vector registers used for vector argument passing in order (%ymm0..%ymm7).
 pub const VECTOR_ARG_REGS: [SimdReg; 8] = [
     SimdReg(0),
@@ -112,6 +116,9 @@ pub const VECTOR_ARG_REGS: [SimdReg; 8] = [
     SimdReg(6),
     SimdReg(7),
 ];
+
+/// Microsoft x64 vector argument registers in order (%xmm0..%xmm3).
+pub const MS_VECTOR_ARG_REGS: [SimdReg; 4] = [SimdReg(0), SimdReg(1), SimdReg(2), SimdReg(3)];
 
 /// Physical layout of a function call boundary under System V AMD64.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,125 +146,253 @@ pub struct FnCallLayout {
 /// - If a multi-register argument cannot fit completely in remaining registers (e.g. Integer2
 ///   when only 1 GPR remains), it rolls back and is passed entirely on the stack.
 /// - Hidden sret return pointer occupies %rdi (int_reg_idx 0), shifting integer arguments.
+/// Computes the argument and return layout for a function signature under the default System V AMD64 ABI.
 pub fn compute_fn_call_layout(
     param_types: &[Type],
     ret_type: &Type,
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
 ) -> FnCallLayout {
+    compute_fn_call_layout_for_abi(
+        param_types,
+        ret_type,
+        structs,
+        enums,
+        TargetAbi::SystemVAmd64,
+    )
+}
+
+/// Computes the exact argument and return layout for a function signature under the specified ABI.
+///
+/// Supports:
+/// - `TargetAbi::SystemVAmd64` (Section 3.2.3 of System V AMD64 ABI)
+/// - `TargetAbi::MicrosoftX64` (Microsoft x64 calling convention with 4 positional register arguments and 32-byte caller shadow space)
+pub fn compute_fn_call_layout_for_abi(
+    param_types: &[Type],
+    ret_type: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    abi: TargetAbi,
+) -> FnCallLayout {
     let ret_class = classify_type(ret_type, structs, enums);
     let has_sret = ret_class.is_memory();
 
-    let mut int_reg_idx = if has_sret { 1 } else { 0 };
-    let mut sse_reg_idx = 0;
-    let mut current_stack_offset = 0usize;
+    match abi {
+        TargetAbi::MicrosoftX64 => {
+            // Under Microsoft x64 ABI:
+            // - The first 4 arguments are passed in registers: RCX/XMM0, RDX/XMM1, R8/XMM2, R9/XMM3.
+            // - If has_sret is true, RCX (slot 0) is reserved for the hidden return buffer pointer,
+            //   shifting parameter registers to start at position 1.
+            // - Caller always allocates 32 bytes of shadow space on stack immediately above rsp.
+            // - Arguments beyond 4 are placed on the stack starting at [rsp + 32].
+            let mut pos = if has_sret { 1 } else { 0 };
+            let mut current_stack_offset = 32usize;
+            let mut arg_locations = Vec::with_capacity(param_types.len());
 
-    let mut arg_locations = Vec::with_capacity(param_types.len());
+            for param_ty in param_types {
+                let class = classify_type(param_ty, structs, enums);
+                match class {
+                    AbiClass::Void => {
+                        arg_locations.push(ArgLocation::Stack {
+                            offset: 0,
+                            size: 0,
+                            align: 1,
+                        });
+                    }
+                    AbiClass::Vector256 => {
+                        if pos < 4 {
+                            arg_locations.push(ArgLocation::VectorReg(SimdReg(pos as u8)));
+                            pos += 1;
+                        } else {
+                            current_stack_offset = (current_stack_offset + 31) & !31;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 32;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size: 32,
+                                align: 32,
+                            });
+                        }
+                    }
+                    AbiClass::Vector512 => {
+                        if pos < 4 {
+                            arg_locations.push(ArgLocation::VectorReg(SimdReg(pos as u8)));
+                            pos += 1;
+                        } else {
+                            current_stack_offset = (current_stack_offset + 63) & !63;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 64;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size: 64,
+                                align: 64,
+                            });
+                        }
+                    }
+                    AbiClass::Integer1 { size } => {
+                        if pos < 4 {
+                            let reg = MS_INT_ARG_REGS[pos];
+                            pos += 1;
+                            arg_locations.push(ArgLocation::Reg(reg));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 7) & !7;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 8;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size,
+                                align: 8,
+                            });
+                        }
+                    }
+                    AbiClass::Integer2 { size } => {
+                        if pos + 1 < 4 {
+                            let r1 = MS_INT_ARG_REGS[pos];
+                            let r2 = MS_INT_ARG_REGS[pos + 1];
+                            pos += 2;
+                            arg_locations.push(ArgLocation::Reg2(r1, r2));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 7) & !7;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 16;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size,
+                                align: 8,
+                            });
+                        }
+                    }
+                    AbiClass::Memory { size, align } => {
+                        let align_req = align.max(8);
+                        current_stack_offset =
+                            (current_stack_offset + align_req - 1) & !(align_req - 1);
+                        let off = current_stack_offset as i32;
+                        current_stack_offset += (size + 7) & !7;
+                        arg_locations.push(ArgLocation::Stack {
+                            offset: off,
+                            size,
+                            align: align_req,
+                        });
+                    }
+                }
+            }
 
-    for param_ty in param_types {
-        let class = classify_type(param_ty, structs, enums);
-        match class {
-            AbiClass::Void => {
-                arg_locations.push(ArgLocation::Stack {
-                    offset: 0,
-                    size: 0,
-                    align: 1,
-                });
-            }
-            AbiClass::Vector256 => {
-                if sse_reg_idx < VECTOR_ARG_REGS.len() {
-                    let reg = VECTOR_ARG_REGS[sse_reg_idx];
-                    sse_reg_idx += 1;
-                    arg_locations.push(ArgLocation::VectorReg(reg));
-                } else {
-                    // Argument register exhaustion: passed on stack.
-                    // Under System V ABI, 256-bit vector stack arguments are 32-byte aligned.
-                    current_stack_offset = (current_stack_offset + 31) & !31;
-                    let off = current_stack_offset as i32;
-                    current_stack_offset += 32;
-                    arg_locations.push(ArgLocation::Stack {
-                        offset: off,
-                        size: 32,
-                        align: 32,
-                    });
-                }
-            }
-            AbiClass::Vector512 => {
-                if sse_reg_idx < VECTOR_ARG_REGS.len() {
-                    let reg = VECTOR_ARG_REGS[sse_reg_idx];
-                    sse_reg_idx += 1;
-                    arg_locations.push(ArgLocation::VectorReg(reg));
-                } else {
-                    // Argument register exhaustion: passed on stack.
-                    // Under System V ABI, 512-bit vector stack arguments are 64-byte aligned.
-                    current_stack_offset = (current_stack_offset + 63) & !63;
-                    let off = current_stack_offset as i32;
-                    current_stack_offset += 64;
-                    arg_locations.push(ArgLocation::Stack {
-                        offset: off,
-                        size: 64,
-                        align: 64,
-                    });
-                }
-            }
-            AbiClass::Integer1 { size } => {
-                if int_reg_idx < INT_ARG_REGS.len() {
-                    let reg = INT_ARG_REGS[int_reg_idx];
-                    int_reg_idx += 1;
-                    arg_locations.push(ArgLocation::Reg(reg));
-                } else {
-                    current_stack_offset = (current_stack_offset + 7) & !7;
-                    let off = current_stack_offset as i32;
-                    current_stack_offset += 8;
-                    arg_locations.push(ArgLocation::Stack {
-                        offset: off,
-                        size,
-                        align: 8,
-                    });
-                }
-            }
-            AbiClass::Integer2 { size } => {
-                if int_reg_idx + 1 < INT_ARG_REGS.len() {
-                    let r1 = INT_ARG_REGS[int_reg_idx];
-                    let r2 = INT_ARG_REGS[int_reg_idx + 1];
-                    int_reg_idx += 2;
-                    arg_locations.push(ArgLocation::Reg2(r1, r2));
-                } else {
-                    // System V AMD64 Rollback Rule:
-                    // If an argument requires multiple registers and insufficient registers remain,
-                    // it cannot be split across registers and stack: the ENTIRE argument is passed on the stack.
-                    current_stack_offset = (current_stack_offset + 7) & !7;
-                    let off = current_stack_offset as i32;
-                    current_stack_offset += 16;
-                    arg_locations.push(ArgLocation::Stack {
-                        offset: off,
-                        size,
-                        align: 8,
-                    });
-                }
-            }
-            AbiClass::Memory { size, align } => {
-                let align_req = align.max(8);
-                current_stack_offset = (current_stack_offset + align_req - 1) & !(align_req - 1);
-                let off = current_stack_offset as i32;
-                current_stack_offset += (size + 7) & !7;
-                arg_locations.push(ArgLocation::Stack {
-                    offset: off,
-                    size,
-                    align: align_req,
-                });
+            let stack_arg_bytes = (current_stack_offset + 15) & !15;
+
+            FnCallLayout {
+                arg_locations,
+                stack_arg_bytes,
+                has_sret,
+                ret_class,
             }
         }
-    }
+        _ => {
+            // System V AMD64 ABI (and fallback)
+            let mut int_reg_idx = if has_sret { 1 } else { 0 };
+            let mut sse_reg_idx = 0;
+            let mut current_stack_offset = 0usize;
 
-    // System V AMD64 requires the stack pointer to be 16-byte aligned before the call instruction
-    let stack_arg_bytes = (current_stack_offset + 15) & !15;
+            let mut arg_locations = Vec::with_capacity(param_types.len());
 
-    FnCallLayout {
-        arg_locations,
-        stack_arg_bytes,
-        has_sret,
-        ret_class,
+            for param_ty in param_types {
+                let class = classify_type(param_ty, structs, enums);
+                match class {
+                    AbiClass::Void => {
+                        arg_locations.push(ArgLocation::Stack {
+                            offset: 0,
+                            size: 0,
+                            align: 1,
+                        });
+                    }
+                    AbiClass::Vector256 => {
+                        if sse_reg_idx < VECTOR_ARG_REGS.len() {
+                            let reg = VECTOR_ARG_REGS[sse_reg_idx];
+                            sse_reg_idx += 1;
+                            arg_locations.push(ArgLocation::VectorReg(reg));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 31) & !31;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 32;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size: 32,
+                                align: 32,
+                            });
+                        }
+                    }
+                    AbiClass::Vector512 => {
+                        if sse_reg_idx < VECTOR_ARG_REGS.len() {
+                            let reg = VECTOR_ARG_REGS[sse_reg_idx];
+                            sse_reg_idx += 1;
+                            arg_locations.push(ArgLocation::VectorReg(reg));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 63) & !63;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 64;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size: 64,
+                                align: 64,
+                            });
+                        }
+                    }
+                    AbiClass::Integer1 { size } => {
+                        if int_reg_idx < INT_ARG_REGS.len() {
+                            let reg = INT_ARG_REGS[int_reg_idx];
+                            int_reg_idx += 1;
+                            arg_locations.push(ArgLocation::Reg(reg));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 7) & !7;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 8;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size,
+                                align: 8,
+                            });
+                        }
+                    }
+                    AbiClass::Integer2 { size } => {
+                        if int_reg_idx + 1 < INT_ARG_REGS.len() {
+                            let r1 = INT_ARG_REGS[int_reg_idx];
+                            let r2 = INT_ARG_REGS[int_reg_idx + 1];
+                            int_reg_idx += 2;
+                            arg_locations.push(ArgLocation::Reg2(r1, r2));
+                        } else {
+                            current_stack_offset = (current_stack_offset + 7) & !7;
+                            let off = current_stack_offset as i32;
+                            current_stack_offset += 16;
+                            arg_locations.push(ArgLocation::Stack {
+                                offset: off,
+                                size,
+                                align: 8,
+                            });
+                        }
+                    }
+                    AbiClass::Memory { size, align } => {
+                        let align_req = align.max(8);
+                        current_stack_offset =
+                            (current_stack_offset + align_req - 1) & !(align_req - 1);
+                        let off = current_stack_offset as i32;
+                        current_stack_offset += (size + 7) & !7;
+                        arg_locations.push(ArgLocation::Stack {
+                            offset: off,
+                            size,
+                            align: align_req,
+                        });
+                    }
+                }
+            }
+
+            let stack_arg_bytes = (current_stack_offset + 15) & !15;
+
+            FnCallLayout {
+                arg_locations,
+                stack_arg_bytes,
+                has_sret,
+                ret_class,
+            }
+        }
     }
 }
 
@@ -778,5 +913,96 @@ mod tests {
             }
         );
         assert_eq!(layout.stack_arg_bytes, 16);
+    }
+
+    #[test]
+    fn test_ms_x64_fn_call_layout() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        // 4 integer arguments in Microsoft x64: RCX, RDX, R8, R9
+        let params = vec![Type::I64, Type::I64, Type::I64, Type::I64, Type::I64];
+        let layout = compute_fn_call_layout_for_abi(
+            &params,
+            &Type::I64,
+            &structs,
+            &enums,
+            TargetAbi::MicrosoftX64,
+        );
+
+        assert_eq!(layout.arg_locations.len(), 5);
+        assert_eq!(layout.arg_locations[0], ArgLocation::Reg(Reg::Rcx));
+        assert_eq!(layout.arg_locations[1], ArgLocation::Reg(Reg::Rdx));
+        assert_eq!(layout.arg_locations[2], ArgLocation::Reg(Reg::R8));
+        assert_eq!(layout.arg_locations[3], ArgLocation::Reg(Reg::R9));
+        // 5th argument on stack at offset 32 (above 32-byte shadow space)
+        assert_eq!(
+            layout.arg_locations[4],
+            ArgLocation::Stack {
+                offset: 32,
+                size: 8,
+                align: 8,
+            }
+        );
+        // Total stack allocated (shadow 32 + 8 = 40, aligned to 16 = 48)
+        assert_eq!(layout.stack_arg_bytes, 48);
+    }
+
+    #[test]
+    fn test_ms_x64_mixed_vector_and_integer() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        // Arg 0: i64 (RCX), Arg 1: v256 (XMM1), Arg 2: i64 (R8)
+        let params = vec![Type::I64, Type::Struct("v256".into()), Type::I64];
+        let layout = compute_fn_call_layout_for_abi(
+            &params,
+            &Type::Unit,
+            &structs,
+            &enums,
+            TargetAbi::MicrosoftX64,
+        );
+
+        assert_eq!(layout.arg_locations.len(), 3);
+        assert_eq!(layout.arg_locations[0], ArgLocation::Reg(Reg::Rcx));
+        assert_eq!(layout.arg_locations[1], ArgLocation::VectorReg(SimdReg(1)));
+        assert_eq!(layout.arg_locations[2], ArgLocation::Reg(Reg::R8));
+        // Shadow space minimum is 32 bytes
+        assert_eq!(layout.stack_arg_bytes, 32);
+    }
+
+    #[test]
+    fn test_ms_x64_sret_shifts_arguments() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+
+        // Memory return (e.g. String 24 bytes) occupies RCX!
+        let params = vec![Type::I64, Type::I64, Type::I64, Type::I64];
+        let layout = compute_fn_call_layout_for_abi(
+            &params,
+            &Type::Struct("String".into()),
+            &structs,
+            &enums,
+            TargetAbi::MicrosoftX64,
+        );
+
+        assert!(layout.has_sret);
+        assert_eq!(layout.arg_locations.len(), 4);
+        // Arg 0 shifted to RDX (pos 1)
+        assert_eq!(layout.arg_locations[0], ArgLocation::Reg(Reg::Rdx));
+        // Arg 1 shifted to R8 (pos 2)
+        assert_eq!(layout.arg_locations[1], ArgLocation::Reg(Reg::R8));
+        // Arg 2 shifted to R9 (pos 3)
+        assert_eq!(layout.arg_locations[2], ArgLocation::Reg(Reg::R9));
+        // Arg 3 pushed to stack at [rsp + 32]
+        assert_eq!(
+            layout.arg_locations[3],
+            ArgLocation::Stack {
+                offset: 32,
+                size: 8,
+                align: 8,
+            }
+        );
+        assert_eq!(layout.stack_arg_bytes, 48);
     }
 }

@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -7,14 +6,36 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#include <process.h>
+#define write _write
+#define close _close
+#define read _read
+#define open _open
+#define ssize_t int64_t
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
+#else
+#include <unistd.h>
+#endif
+
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
 static int g_argc = 0;
 static char **g_argv = NULL;
 
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((constructor))
 void vanta_rt_ctor(int argc, char **argv) {
     g_argc = argc;
     g_argv = argv;
 }
+#endif
 
 void vanta_rt_init(int argc, char **argv) {
     g_argc = argc;
@@ -658,16 +679,30 @@ int64_t vanta_env_arg_get(int64_t idx, VantaString *dest) {
 /* ============================================================================
  * Vanta Networking & HTTP Server Primitives
  * ============================================================================ */
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+typedef int socklen_t;
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 
 int64_t vanta_net_listen(int64_t port) {
+#ifdef _WIN32
+    static int wsa_inited = 0;
+    if (!wsa_inited) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+        wsa_inited = 1;
+    }
+#endif
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) return -1;
 
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -676,12 +711,20 @@ int64_t vanta_net_listen(int64_t port) {
     addr.sin_port = htons((uint16_t)port);
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+#ifdef _WIN32
+        closesocket(server_fd);
+#else
         close(server_fd);
+#endif
         return -2;
     }
 
     if (listen(server_fd, 32) < 0) {
+#ifdef _WIN32
+        closesocket(server_fd);
+#else
         close(server_fd);
+#endif
         return -3;
     }
 
@@ -726,13 +769,42 @@ int64_t vanta_net_write(int64_t client_fd, const char *data, uint64_t len) {
 
 int64_t vanta_net_close(int64_t fd) {
     if (fd >= 0) {
+#ifdef _WIN32
+        closesocket((SOCKET)fd);
+#else
         close((int)fd);
+#endif
     }
     return 0;
 }
 
 #if defined(__x86_64__) || defined(_M_X64)
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+static inline int vanta_get_cpuid(unsigned int leaf, unsigned int *eax, unsigned int *ebx, unsigned int *ecx, unsigned int *edx) {
+    int cpuInfo[4];
+    __cpuid(cpuInfo, (int)leaf);
+    *eax = (unsigned int)cpuInfo[0];
+    *ebx = (unsigned int)cpuInfo[1];
+    *ecx = (unsigned int)cpuInfo[2];
+    *edx = (unsigned int)cpuInfo[3];
+    return 1;
+}
+static inline int vanta_get_cpuid_count(unsigned int leaf, unsigned int sub_leaf, unsigned int *eax, unsigned int *ebx, unsigned int *ecx, unsigned int *edx) {
+    int cpuInfo[4];
+    __cpuidex(cpuInfo, (int)leaf, (int)sub_leaf);
+    *eax = (unsigned int)cpuInfo[0];
+    *ebx = (unsigned int)cpuInfo[1];
+    *ecx = (unsigned int)cpuInfo[2];
+    *edx = (unsigned int)cpuInfo[3];
+    return 1;
+}
+#define __get_cpuid vanta_get_cpuid
+#define __get_cpuid_count vanta_get_cpuid_count
+#else
 #include <cpuid.h>
+#endif
 
 int64_t vanta_cpu_has_avx(void) {
     unsigned int eax, ebx, ecx, edx;
@@ -776,22 +848,33 @@ int64_t vanta_cpu_has_avx512f(void) {
     }
     // 3. Check XCR0 register via xgetbv:
     // Bits: 1 (SSE), 2 (AVX), 5 (opmask), 6 (ZMM_Hi256), 7 (Hi16_ZMM) -> Mask 0xE6
+#if defined(_MSC_VER)
+    unsigned __int64 xcr0 = _xgetbv(0);
+    if ((xcr0 & 0xE6) == 0xE6) {
+        return 1;
+    }
+#else
     uint32_t xcr0_low = 0, xcr0_high = 0;
     __asm__ __volatile__("xgetbv" : "=a"(xcr0_low), "=d"(xcr0_high) : "c"(0));
     if ((xcr0_low & 0xE6) == 0xE6) {
         return 1;
     }
+#endif
     return 0;
 }
 
 #include <immintrin.h>
 
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx2")))
+#endif
 __m256i vanta_c_vector_add(__m256i a, __m256i b) {
     return _mm256_add_epi64(a, b);
 }
 
+#if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx512f")))
+#endif
 __m512i vanta_c_vector_add512(__m512i a, __m512i b) {
     return _mm512_add_epi64(a, b);
 }

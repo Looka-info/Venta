@@ -7,7 +7,9 @@ members = [
     "crates/vanta_parser",
     "crates/vanta_sema",
     "crates/vanta_mir",
+    "crates/vanta_target",
     "crates/vanta_codegen_x86_64",
+    "crates/vanta_codegen_aarch64",
     "crates/vanta_driver",
     "crates/vanta_fmt",
     "crates/vanta_lsp",
@@ -27,6 +29,8 @@ vanta_lexer = { path = "crates/vanta_lexer" }
 vanta_parser = { path = "crates/vanta_parser" }
 vanta_sema = { path = "crates/vanta_sema" }
 vanta_mir = { path = "crates/vanta_mir" }
+vanta_target = { path = "crates/vanta_target" }
 vanta_codegen_x86_64 = { path = "crates/vanta_codegen_x86_64" }
+vanta_codegen_aarch64 = { path = "crates/vanta_codegen_aarch64" }
 vanta_fmt = { path = "crates/vanta_fmt" }
 vanta_lsp = { path = "crates/vanta_lsp" }

@@ -124,13 +124,18 @@ flowchart LR
 
 ### Version 1.4 — Cross-Platform Native Code Generation (Windows & macOS)
 **Target Focus**: Multi-platform systems programming.
-- **Windows x86-64 Backend**:
-  - Implement Microsoft x64 calling convention (`rcx`, `rdx`, `r8`, `r9`, 32-byte shadow space).
-  - Direct PE/COFF object file writer (`.obj`) and integration with `link.exe` / `lld-link`.
-- **macOS Apple Silicon Backend**:
-  - Implement ARM64 (AArch64) instruction encoder in pure Rust.
-  - Implement Mach-O 64-bit relocatable object emitter.
-  - AAPCS64 calling convention and macOS ABI compliance.
+- **Target Specification Model (Milestone 30 - Completed)**:
+  - Crate `vanta_target` defining target triples (`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`), aliases, ABIs, object formats, and endianness.
+  - Command-line flags `--target <triple>` and `-C target=<triple>` in `ventac` and `venta`.
+- **Windows x86-64 Backend & PE/COFF Generation (Milestone 30 - Completed)**:
+  - Microsoft x64 calling convention with 4 positional argument registers (`RCX, RDX, R8, R9` / `XMM0..XMM3`), 32-byte caller shadow space, hidden return buffer (`sret`) in `RCX`, and callee-saved preservation for `%rsi` and `%rdi`.
+  - Pure-Rust 64-bit PE/COFF relocatable object writer (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`), emitting `.text`, `.rdata`, `.pdata` runtime function entries, and `.xdata` unwind info structures.
+  - Linker orchestration invoking `link.exe` / `lld-link` when available or outputting truthful linking guidance.
+- **macOS Apple Silicon Backend & Mach-O Generation (Milestone 30 - Completed)**:
+  - Pure-Rust AArch64 machine instruction encoder (`Add`, `Sub`, `Mul`, `Div`, `Mov`, `Cmp`, `Ldr`, `Str`, `Stp`, `Ldp`, `B`, `BCond`, `Bl`, `Ret`, `Adrp`).
+  - AAPCS64 calling convention with arguments in `X0..X7`, return in `X0/X1`, and 16-byte aligned stack frame records (`stp x29, x30, [sp, -N]!`, `mov x29, sp`).
+  - Strict preservation of Apple Darwin platform convention: `X18` is completely excluded from register allocation and emission.
+  - Pure-Rust Mach-O 64-bit object writer (`MH_MAGIC_64 = 0xFEEDFACF`, `CPU_TYPE_ARM64 = 0x0100000C`), emitting `LC_SEGMENT_64` (`__text`, `__const`), `LC_SYMTAB`, relocations, and leading underscore symbol table (`_main`).
 
 ---
 

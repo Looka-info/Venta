@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::{self, Command};
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel, TargetFeatures,
+    OptLevel, TargetFeatures, TargetTriple,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -128,6 +128,7 @@ fn handle_run(args: &[String]) {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut target = TargetTriple::default();
     let mut debug_info = false;
 
     let mut i = 0;
@@ -256,6 +257,27 @@ fn handle_run(args: &[String]) {
                     process::exit(2);
                 }
             }
+        } else if let Some(t_str) = arg.strip_prefix("--target=") {
+            match t_str.parse::<TargetTriple>() {
+                Ok(t) => target = t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg == "--target" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target requires an argument");
+                process::exit(2);
+            }
+            match args[i].parse::<TargetTriple>() {
+                Ok(t) => target = t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
         } else if arg.starts_with("-C") {
             let c_arg = if arg == "-C" {
                 i += 1;
@@ -275,6 +297,14 @@ fn handle_run(args: &[String]) {
             } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
                 match TargetFeatures::from_target_cpu(cpu) {
                     Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            } else if let Some(t_str) = c_arg.strip_prefix("target=") {
+                match t_str.parse::<TargetTriple>() {
+                    Ok(t) => target = t,
                     Err(e) => {
                         eprintln!("Error: {}", e);
                         process::exit(2);
@@ -311,6 +341,7 @@ fn handle_run(args: &[String]) {
         input_file: input_path,
         output_file: temp_exe.clone(),
         emit_target: EmitTarget::Exe,
+        target,
         opt_level,
         verbose: false,
         diagnostic_format,
@@ -401,6 +432,7 @@ fn handle_compile(args: &[String]) {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut target = TargetTriple::default();
     let mut debug_info = false;
 
     let mut i = 0;
@@ -533,6 +565,27 @@ fn handle_compile(args: &[String]) {
                     process::exit(2);
                 }
             }
+        } else if let Some(t_str) = arg.strip_prefix("--target=") {
+            match t_str.parse::<TargetTriple>() {
+                Ok(t) => target = t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
+        } else if arg == "--target" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --target requires an argument");
+                process::exit(2);
+            }
+            match args[i].parse::<TargetTriple>() {
+                Ok(t) => target = t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(2);
+                }
+            }
         } else if arg.starts_with("-C") {
             let c_arg = if arg == "-C" {
                 i += 1;
@@ -552,6 +605,14 @@ fn handle_compile(args: &[String]) {
             } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
                 match TargetFeatures::from_target_cpu(cpu) {
                     Ok(feats) => target_features = feats,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            } else if let Some(t_str) = c_arg.strip_prefix("target=") {
+                match t_str.parse::<TargetTriple>() {
+                    Ok(t) => target = t,
                     Err(e) => {
                         eprintln!("Error: {}", e);
                         process::exit(2);
@@ -593,6 +654,7 @@ fn handle_compile(args: &[String]) {
         input_file: input_path,
         output_file: out_path,
         emit_target: EmitTarget::Exe,
+        target,
         opt_level,
         verbose: false,
         diagnostic_format,
@@ -717,6 +779,7 @@ fn handle_check(args: &[String]) {
         input_file: input_path,
         output_file: PathBuf::from("dummy.out"),
         emit_target: EmitTarget::Exe,
+        target: TargetTriple::default(),
         opt_level: OptLevel::None,
         verbose,
         diagnostic_format,

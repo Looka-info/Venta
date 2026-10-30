@@ -19,11 +19,14 @@ pub enum CodegenError {
     UnsupportedOperandCombination(&'static str),
     /// Register number exceeds architectural limits for instruction form.
     InvalidRegisterNumber(u8),
+    /// Invalid target architecture or object format for backend.
+    InvalidTarget(String),
 }
 
 impl fmt::Display for CodegenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CodegenError::InvalidTarget(msg) => write!(f, "Invalid target: {}", msg),
             CodegenError::MissingTargetFeature {
                 instruction,
                 feature,

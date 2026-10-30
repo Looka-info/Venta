@@ -1,6 +1,6 @@
 //! Instruction selection: Lowering Vanta MIR to x86-64 Machine Instructions.
 
-use crate::abi::classify_type;
+use crate::abi::{classify_type, MS_INT_ARG_REGS};
 use crate::frame::FrameLayout;
 use crate::machine_ir::{ConditionCode, MachineInst, Operand, SimdOperand};
 use crate::reg_alloc::{AllocationResult, Location};
@@ -9,6 +9,7 @@ use crate::simd_alloc::{SimdAllocResult, SimdLocation, SimdRegisterAllocator, Si
 use std::collections::HashMap;
 use vanta_mir::{BlockId, Instruction, MirBinaryOp, MirFunction, MirUnaryOp, Terminator, ValueId};
 use vanta_sema::{EnumDef, StructDef, Type};
+use vanta_target::TargetAbi;
 
 pub struct InstructionSelector<'a> {
     func: &'a MirFunction,
@@ -3241,24 +3242,72 @@ impl<'a> InstructionSelector<'a> {
         }
 
         let mut arg_dests = Vec::with_capacity(args.len());
-        let mut int_reg_idx = if ret_class.is_memory() { 1 } else { 0 };
-        let mut vec_reg_idx = 0;
-        let mut current_stack_offset = 0usize;
+        let stack_arg_bytes: usize;
 
-        for (i, _arg) in args.iter().enumerate() {
-            if arg_is_vector[i] {
-                if vec_reg_idx < 8 {
-                    let reg = SimdReg(vec_reg_idx as u8);
-                    vec_reg_idx += 1;
-                    arg_dests.push(CallArgDest::VecReg(reg));
+        if self.frame.abi == TargetAbi::MicrosoftX64 {
+            let mut pos = if ret_class.is_memory() { 1 } else { 0 };
+            let mut current_stack_offset = 32usize;
+
+            for (i, _arg) in args.iter().enumerate() {
+                if arg_is_vector[i] {
+                    if pos < 4 {
+                        let reg = SimdReg(pos as u8);
+                        pos += 1;
+                        arg_dests.push(CallArgDest::VecReg(reg));
+                    } else {
+                        current_stack_offset = (current_stack_offset + 31) & !31;
+                        let off = current_stack_offset as i32;
+                        current_stack_offset += 32;
+                        arg_dests.push(CallArgDest::VecStack(off));
+                    }
+                } else if pos < 4 {
+                    let reg = MS_INT_ARG_REGS[pos];
+                    pos += 1;
+                    arg_dests.push(CallArgDest::IntReg(reg));
                 } else {
-                    current_stack_offset = (current_stack_offset + 31) & !31;
+                    current_stack_offset = (current_stack_offset + 7) & !7;
                     let off = current_stack_offset as i32;
-                    current_stack_offset += 32;
-                    arg_dests.push(CallArgDest::VecStack(off));
+                    current_stack_offset += 8;
+                    arg_dests.push(CallArgDest::IntStack(off));
                 }
-            } else {
-                if int_reg_idx < Reg::ARG_REGS.len() {
+            }
+
+            stack_arg_bytes = ((current_stack_offset + 15) & !15).max(32);
+
+            if ret_class.is_memory() {
+                let d = dest.expect("Call with memory return must have dest ValueId");
+                let buf_offset = self
+                    .frame
+                    .call_return_buffers
+                    .get(&d)
+                    .copied()
+                    .unwrap_or_else(|| self.frame.value_offsets.get(&d).copied().unwrap_or(8));
+                out.push(MachineInst::Lea {
+                    dest: Reg::Rcx,
+                    src: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -buf_offset,
+                    },
+                });
+            }
+        } else {
+            let mut int_reg_idx = if ret_class.is_memory() { 1 } else { 0 };
+            let mut vec_reg_idx = 0;
+            let mut current_stack_offset = 0usize;
+
+            for (i, _arg) in args.iter().enumerate() {
+                if arg_is_vector[i] {
+                    if vec_reg_idx < 8 {
+                        let reg = SimdReg(vec_reg_idx as u8);
+                        vec_reg_idx += 1;
+                        arg_dests.push(CallArgDest::VecReg(reg));
+                    } else {
+                        current_stack_offset = (current_stack_offset + 31) & !31;
+                        let off = current_stack_offset as i32;
+                        current_stack_offset += 32;
+                        arg_dests.push(CallArgDest::VecStack(off));
+                    }
+                } else if int_reg_idx < Reg::ARG_REGS.len() {
                     let reg = Reg::ARG_REGS[int_reg_idx];
                     int_reg_idx += 1;
                     arg_dests.push(CallArgDest::IntReg(reg));
@@ -3269,29 +3318,29 @@ impl<'a> InstructionSelector<'a> {
                     arg_dests.push(CallArgDest::IntStack(off));
                 }
             }
-        }
 
-        let stack_arg_bytes = if current_stack_offset > 0 {
-            (current_stack_offset + 31) & !31
-        } else {
-            0
-        };
+            stack_arg_bytes = if current_stack_offset > 0 {
+                (current_stack_offset + 31) & !31
+            } else {
+                0
+            };
 
-        if ret_class.is_memory() {
-            let d = dest.expect("Call with memory return must have dest ValueId");
-            let buf_offset = self
-                .frame
-                .call_return_buffers
-                .get(&d)
-                .copied()
-                .unwrap_or_else(|| self.frame.value_offsets.get(&d).copied().unwrap_or(8));
-            out.push(MachineInst::Lea {
-                dest: Reg::Rdi,
-                src: Operand::Mem {
-                    base: Reg::Rbp,
-                    offset: -buf_offset,
-                },
-            });
+            if ret_class.is_memory() {
+                let d = dest.expect("Call with memory return must have dest ValueId");
+                let buf_offset = self
+                    .frame
+                    .call_return_buffers
+                    .get(&d)
+                    .copied()
+                    .unwrap_or_else(|| self.frame.value_offsets.get(&d).copied().unwrap_or(8));
+                out.push(MachineInst::Lea {
+                    dest: Reg::Rdi,
+                    src: Operand::Mem {
+                        base: Reg::Rbp,
+                        offset: -buf_offset,
+                    },
+                });
+            }
         }
 
         if stack_arg_bytes > 0 {

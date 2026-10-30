@@ -1,12 +1,13 @@
 //! Stack frame layout and System V AMD64 ABI alignment.
 
-use crate::abi::classify_type;
+use crate::abi::{classify_type, MS_INT_ARG_REGS};
 use crate::machine_ir::{MachineInst, Operand, SimdOperand};
 use crate::register::{Reg, VectorWidth};
 use crate::simd_alloc::SimdRegisterAllocator;
 use std::collections::HashMap;
 use vanta_mir::{MirFunction, SlotId, ValueId};
 use vanta_sema::{EnumDef, StructDef, Type};
+use vanta_target::TargetAbi;
 
 #[derive(Debug)]
 pub struct FrameLayout {
@@ -21,6 +22,7 @@ pub struct FrameLayout {
     pub requires_32byte_alignment: bool,
     pub requires_64byte_alignment: bool,
     pub total_frame_size: i32,
+    pub abi: TargetAbi,
 }
 
 impl FrameLayout {
@@ -39,6 +41,24 @@ impl FrameLayout {
         enums: &HashMap<String, EnumDef>,
         alloc_res: Option<&crate::reg_alloc::AllocationResult>,
         simd_alloc_res: Option<&crate::simd_alloc::SimdAllocResult>,
+    ) -> Self {
+        Self::compute_with_abi(
+            func,
+            structs,
+            enums,
+            alloc_res,
+            simd_alloc_res,
+            TargetAbi::SystemVAmd64,
+        )
+    }
+
+    pub fn compute_with_abi(
+        func: &MirFunction,
+        structs: &HashMap<String, StructDef>,
+        enums: &HashMap<String, EnumDef>,
+        alloc_res: Option<&crate::reg_alloc::AllocationResult>,
+        simd_alloc_res: Option<&crate::simd_alloc::SimdAllocResult>,
+        abi: TargetAbi,
     ) -> Self {
         let mut slot_offsets = HashMap::new();
         let mut value_offsets = HashMap::new();
@@ -231,6 +251,7 @@ impl FrameLayout {
             requires_32byte_alignment,
             requires_64byte_alignment,
             total_frame_size: frame_size,
+            abi,
         }
     }
 
@@ -311,104 +332,394 @@ impl FrameLayout {
         }
 
         if let Some(sret_off) = self.sret_offset {
-            // Callee received hidden return buffer pointer in %rdi!
-            // Spill it into stack slot
+            let sret_reg = match self.abi {
+                TargetAbi::MicrosoftX64 => Reg::Rcx,
+                _ => Reg::Rdi,
+            };
             insts.push(MachineInst::Mov {
                 dest: Operand::Mem {
                     base: Reg::Rbp,
                     offset: -sret_off,
                 },
-                src: Operand::Reg(Reg::Rdi),
+                src: Operand::Reg(sret_reg),
             });
         }
 
-        let mut arg_reg_idx = if self.sret_offset.is_some() { 1 } else { 0 };
-        let mut vec_reg_idx = 0;
-        let mut current_stack_offset = 0usize;
+        if self.abi == TargetAbi::MicrosoftX64 {
+            let mut pos = if self.sret_offset.is_some() { 1 } else { 0 };
+            let mut current_stack_offset = 0usize;
 
-        // Spill incoming arguments into their allocated stack slots
-        for (slot, ty) in &func.params {
-            let class = classify_type(ty, structs, enums);
-            if class.is_vector() {
-                let slot_op = self.get_slot_op(*slot);
-                let is_512 = class.is_vector512();
-                let width = if is_512 {
-                    VectorWidth::V512
-                } else {
-                    VectorWidth::V256
-                };
-                let scratch = SimdRegisterAllocator::scratch_a(is_512);
+            for (slot, ty) in &func.params {
+                let class = classify_type(ty, structs, enums);
+                if class.is_vector() {
+                    let slot_op = self.get_slot_op(*slot);
+                    let is_512 = class.is_vector512();
+                    let width = if is_512 {
+                        VectorWidth::V512
+                    } else {
+                        VectorWidth::V256
+                    };
+                    let scratch = SimdRegisterAllocator::scratch_a(is_512);
 
-                if vec_reg_idx < 8 {
-                    let vreg = crate::register::SimdReg(vec_reg_idx as u8);
-                    vec_reg_idx += 1;
-                    if let Operand::Mem { base, offset } = slot_op {
-                        insts.push(MachineInst::Vmovups {
-                            width,
-                            dest: SimdOperand::Mem { base, offset },
-                            src: SimdOperand::Reg(vreg),
+                    if pos < 4 {
+                        let vreg = crate::register::SimdReg(pos as u8);
+                        pos += 1;
+                        if let Operand::Mem { base, offset } = slot_op {
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Mem { base, offset },
+                                src: SimdOperand::Reg(vreg),
+                            });
+                        }
+                    } else {
+                        let align_mask = if is_512 { 63 } else { 31 };
+                        let slot_size = if is_512 { 64 } else { 32 };
+                        current_stack_offset = (current_stack_offset + align_mask) & !align_mask;
+                        let stack_off = current_stack_offset as i32;
+                        current_stack_offset += slot_size;
+                        if let Operand::Mem {
+                            base,
+                            offset: slot_off,
+                        } = slot_op
+                        {
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Reg(scratch),
+                                src: SimdOperand::Mem {
+                                    base: Reg::Rbp,
+                                    offset: 48 + stack_off,
+                                },
+                            });
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Mem {
+                                    base,
+                                    offset: slot_off,
+                                },
+                                src: SimdOperand::Reg(scratch),
+                            });
+                        }
+                    }
+                } else if ty.is_str_slice() || ty.is_slice() || ty.is_trait_object() {
+                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
+                    if pos + 1 < 4 {
+                        let r1 = MS_INT_ARG_REGS[pos];
+                        let r2 = MS_INT_ARG_REGS[pos + 1];
+                        pos += 2;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset,
+                            },
+                            src: Operand::Reg(r1),
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + 8,
+                            },
+                            src: Operand::Reg(r2),
+                        });
+                    } else {
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off1 = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 48 + stack_off1,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset,
+                            },
+                            src: Operand::Reg(Reg::R10),
+                        });
+
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off2 = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 48 + stack_off2,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + 8,
+                            },
+                            src: Operand::Reg(Reg::R10),
                         });
                     }
+                } else if matches!(ty, Type::Struct(_) | Type::Enum(_)) {
+                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(8);
+                    let slot_size = func
+                        .slots
+                        .iter()
+                        .find(|s| s.id == *slot)
+                        .map(|s| s.size)
+                        .unwrap_or(8);
+
+                    let arg_ptr_reg = if pos < 4 {
+                        let reg = MS_INT_ARG_REGS[pos];
+                        pos += 1;
+                        reg
+                    } else {
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R11),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 48 + stack_off,
+                            },
+                        });
+                        Reg::R11
+                    };
+
+                    for off in (0..slot_size).step_by(8) {
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: arg_ptr_reg,
+                                offset: off as i32,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + (off as i32),
+                            },
+                            src: Operand::Reg(Reg::R10),
+                        });
+                    }
+                } else if pos < 4 {
+                    let arg_reg = MS_INT_ARG_REGS[pos];
+                    pos += 1;
+                    let slot_op = self.get_slot_op(*slot);
+                    insts.push(MachineInst::Mov {
+                        dest: slot_op,
+                        src: Operand::Reg(arg_reg),
+                    });
                 } else {
-                    let align_mask = if is_512 { 63 } else { 31 };
-                    let slot_size = if is_512 { 64 } else { 32 };
-                    current_stack_offset = (current_stack_offset + align_mask) & !align_mask;
+                    current_stack_offset = (current_stack_offset + 7) & !7;
                     let stack_off = current_stack_offset as i32;
-                    current_stack_offset += slot_size;
-                    if let Operand::Mem {
-                        base,
-                        offset: slot_off,
-                    } = slot_op
-                    {
-                        insts.push(MachineInst::Vmovups {
-                            width,
-                            dest: SimdOperand::Reg(scratch),
-                            src: SimdOperand::Mem {
+                    current_stack_offset += 8;
+                    insts.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: Operand::Mem {
+                            base: Reg::Rbp,
+                            offset: 48 + stack_off,
+                        },
+                    });
+                    let slot_op = self.get_slot_op(*slot);
+                    insts.push(MachineInst::Mov {
+                        dest: slot_op,
+                        src: Operand::Reg(Reg::R10),
+                    });
+                }
+            }
+        } else {
+            let mut arg_reg_idx = if self.sret_offset.is_some() { 1 } else { 0 };
+            let mut vec_reg_idx = 0;
+            let mut current_stack_offset = 0usize;
+
+            // Spill incoming arguments into their allocated stack slots (System V AMD64)
+            for (slot, ty) in &func.params {
+                let class = classify_type(ty, structs, enums);
+                if class.is_vector() {
+                    let slot_op = self.get_slot_op(*slot);
+                    let is_512 = class.is_vector512();
+                    let width = if is_512 {
+                        VectorWidth::V512
+                    } else {
+                        VectorWidth::V256
+                    };
+                    let scratch = SimdRegisterAllocator::scratch_a(is_512);
+
+                    if vec_reg_idx < 8 {
+                        let vreg = crate::register::SimdReg(vec_reg_idx as u8);
+                        vec_reg_idx += 1;
+                        if let Operand::Mem { base, offset } = slot_op {
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Mem { base, offset },
+                                src: SimdOperand::Reg(vreg),
+                            });
+                        }
+                    } else {
+                        let align_mask = if is_512 { 63 } else { 31 };
+                        let slot_size = if is_512 { 64 } else { 32 };
+                        current_stack_offset = (current_stack_offset + align_mask) & !align_mask;
+                        let stack_off = current_stack_offset as i32;
+                        current_stack_offset += slot_size;
+                        if let Operand::Mem {
+                            base,
+                            offset: slot_off,
+                        } = slot_op
+                        {
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Reg(scratch),
+                                src: SimdOperand::Mem {
+                                    base: Reg::Rbp,
+                                    offset: 16 + stack_off,
+                                },
+                            });
+                            insts.push(MachineInst::Vmovups {
+                                width,
+                                dest: SimdOperand::Mem {
+                                    base,
+                                    offset: slot_off,
+                                },
+                                src: SimdOperand::Reg(scratch),
+                            });
+                        }
+                    }
+                } else if ty.is_str_slice() || ty.is_slice() || ty.is_trait_object() {
+                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
+                    if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
+                        let r1 = Reg::ARG_REGS[arg_reg_idx];
+                        let r2 = Reg::ARG_REGS[arg_reg_idx + 1];
+                        arg_reg_idx += 2;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset,
+                            },
+                            src: Operand::Reg(r1),
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + 8,
+                            },
+                            src: Operand::Reg(r2),
+                        });
+                    } else if arg_reg_idx < Reg::ARG_REGS.len() {
+                        let r1 = Reg::ARG_REGS[arg_reg_idx];
+                        arg_reg_idx += 1;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset,
+                            },
+                            src: Operand::Reg(r1),
+                        });
+
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
                                 base: Reg::Rbp,
                                 offset: 16 + stack_off,
                             },
                         });
-                        insts.push(MachineInst::Vmovups {
-                            width,
-                            dest: SimdOperand::Mem {
-                                base,
-                                offset: slot_off,
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + 8,
                             },
-                            src: SimdOperand::Reg(scratch),
+                            src: Operand::Reg(Reg::R10),
+                        });
+                    } else {
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off1 = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 16 + stack_off1,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset,
+                            },
+                            src: Operand::Reg(Reg::R10),
+                        });
+
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off2 = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 16 + stack_off2,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + 8,
+                            },
+                            src: Operand::Reg(Reg::R10),
                         });
                     }
-                }
-            } else if ty.is_str_slice() || ty.is_slice() || ty.is_trait_object() {
-                let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
-                if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
-                    let r1 = Reg::ARG_REGS[arg_reg_idx];
-                    let r2 = Reg::ARG_REGS[arg_reg_idx + 1];
-                    arg_reg_idx += 2;
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset,
-                        },
-                        src: Operand::Reg(r1),
-                    });
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset + 8,
-                        },
-                        src: Operand::Reg(r2),
-                    });
+                } else if matches!(ty, Type::Struct(_) | Type::Enum(_)) {
+                    let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(8);
+                    let slot_size = func
+                        .slots
+                        .iter()
+                        .find(|s| s.id == *slot)
+                        .map(|s| s.size)
+                        .unwrap_or(8);
+
+                    let arg_ptr_reg = if arg_reg_idx < Reg::ARG_REGS.len() {
+                        let reg = Reg::ARG_REGS[arg_reg_idx];
+                        arg_reg_idx += 1;
+                        reg
+                    } else {
+                        current_stack_offset = (current_stack_offset + 7) & !7;
+                        let stack_off = current_stack_offset as i32;
+                        current_stack_offset += 8;
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R11),
+                            src: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: 16 + stack_off,
+                            },
+                        });
+                        Reg::R11
+                    };
+
+                    for off in (0..slot_size).step_by(8) {
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Reg(Reg::R10),
+                            src: Operand::Mem {
+                                base: arg_ptr_reg,
+                                offset: off as i32,
+                            },
+                        });
+                        insts.push(MachineInst::Mov {
+                            dest: Operand::Mem {
+                                base: Reg::Rbp,
+                                offset: -slot_offset + (off as i32),
+                            },
+                            src: Operand::Reg(Reg::R10),
+                        });
+                    }
                 } else if arg_reg_idx < Reg::ARG_REGS.len() {
-                    let r1 = Reg::ARG_REGS[arg_reg_idx];
+                    let arg_reg = Reg::ARG_REGS[arg_reg_idx];
                     arg_reg_idx += 1;
+                    let slot_op = self.get_slot_op(*slot);
                     insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset,
-                        },
-                        src: Operand::Reg(r1),
+                        dest: slot_op,
+                        src: Operand::Reg(arg_reg),
                     });
-
+                } else {
                     current_stack_offset = (current_stack_offset + 7) & !7;
                     let stack_off = current_stack_offset as i32;
                     current_stack_offset += 8;
@@ -419,117 +730,12 @@ impl FrameLayout {
                             offset: 16 + stack_off,
                         },
                     });
+                    let slot_op = self.get_slot_op(*slot);
                     insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset + 8,
-                        },
-                        src: Operand::Reg(Reg::R10),
-                    });
-                } else {
-                    current_stack_offset = (current_stack_offset + 7) & !7;
-                    let stack_off1 = current_stack_offset as i32;
-                    current_stack_offset += 8;
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Reg(Reg::R10),
-                        src: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: 16 + stack_off1,
-                        },
-                    });
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset,
-                        },
-                        src: Operand::Reg(Reg::R10),
-                    });
-
-                    current_stack_offset = (current_stack_offset + 7) & !7;
-                    let stack_off2 = current_stack_offset as i32;
-                    current_stack_offset += 8;
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Reg(Reg::R10),
-                        src: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: 16 + stack_off2,
-                        },
-                    });
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset + 8,
-                        },
+                        dest: slot_op,
                         src: Operand::Reg(Reg::R10),
                     });
                 }
-            } else if matches!(ty, Type::Struct(_) | Type::Enum(_)) {
-                let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(8);
-                let slot_size = func
-                    .slots
-                    .iter()
-                    .find(|s| s.id == *slot)
-                    .map(|s| s.size)
-                    .unwrap_or(8);
-
-                let arg_ptr_reg = if arg_reg_idx < Reg::ARG_REGS.len() {
-                    let reg = Reg::ARG_REGS[arg_reg_idx];
-                    arg_reg_idx += 1;
-                    reg
-                } else {
-                    current_stack_offset = (current_stack_offset + 7) & !7;
-                    let stack_off = current_stack_offset as i32;
-                    current_stack_offset += 8;
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Reg(Reg::R11),
-                        src: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: 16 + stack_off,
-                        },
-                    });
-                    Reg::R11
-                };
-
-                for off in (0..slot_size).step_by(8) {
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Reg(Reg::R10),
-                        src: Operand::Mem {
-                            base: arg_ptr_reg,
-                            offset: off as i32,
-                        },
-                    });
-                    insts.push(MachineInst::Mov {
-                        dest: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -slot_offset + (off as i32),
-                        },
-                        src: Operand::Reg(Reg::R10),
-                    });
-                }
-            } else if arg_reg_idx < Reg::ARG_REGS.len() {
-                let arg_reg = Reg::ARG_REGS[arg_reg_idx];
-                arg_reg_idx += 1;
-                let slot_op = self.get_slot_op(*slot);
-                insts.push(MachineInst::Mov {
-                    dest: slot_op,
-                    src: Operand::Reg(arg_reg),
-                });
-            } else {
-                current_stack_offset = (current_stack_offset + 7) & !7;
-                let stack_off = current_stack_offset as i32;
-                current_stack_offset += 8;
-                insts.push(MachineInst::Mov {
-                    dest: Operand::Reg(Reg::R10),
-                    src: Operand::Mem {
-                        base: Reg::Rbp,
-                        offset: 16 + stack_off,
-                    },
-                });
-                let slot_op = self.get_slot_op(*slot);
-                insts.push(MachineInst::Mov {
-                    dest: slot_op,
-                    src: Operand::Reg(Reg::R10),
-                });
             }
         }
     }

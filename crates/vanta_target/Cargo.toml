@@ -1,0 +1,11 @@
+[package]
+name = "vanta_target"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Target triple and platform specification model for the Vanta compiler."
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }

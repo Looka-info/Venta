@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use vanta_codegen_aarch64::AArch64Backend;
 pub use vanta_codegen_x86_64::TargetFeatures;
 use vanta_codegen_x86_64::X86_64Backend;
 use vanta_diagnostics::DiagnosticBag;
@@ -11,6 +12,7 @@ pub use vanta_mir::opt::OptLevel;
 use vanta_mir::{MirLowerer, MirVerifier, OptimizationPipeline};
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
+pub use vanta_target::{Arch, ObjectFormat, Os, TargetAbi, TargetSpec, TargetTriple};
 
 const RUNTIME_C: &str = include_str!("../../../runtime/vanta_rt.c");
 
@@ -35,6 +37,7 @@ pub struct CompilerOptions {
     pub input_file: PathBuf,
     pub output_file: PathBuf,
     pub emit_target: EmitTarget,
+    pub target: TargetTriple,
     pub opt_level: OptLevel,
     pub verbose: bool,
     pub diagnostic_format: DiagnosticFormat,
@@ -67,6 +70,7 @@ impl CompilerOptions {
             input_file,
             output_file,
             emit_target: EmitTarget::Exe,
+            target: TargetTriple::default(),
             opt_level: OptLevel::O1,
             verbose: false,
             diagnostic_format: DiagnosticFormat::Human,
@@ -280,49 +284,139 @@ impl CompilerSession {
             return Ok(Some(output.into_bytes()));
         }
 
-        // Native Code Generation & ELF64 Emission
-        let elf_bytes = match X86_64Backend::compile_to_elf_full_with_debug(
-            &mir,
-            options.enable_reg_alloc,
-            options.enable_tail_calls,
-            options.enable_block_layout,
-            options.enable_code_align,
-            options.target_features,
-            options.debug_info,
-            if options.debug_info {
-                Some(&self.source_map)
-            } else {
-                None
+        // Native Code Generation & Relocatable Object Emission
+        let target_spec = options.target.spec();
+        let obj_bytes = match target_spec.arch {
+            Arch::X86_64 => match X86_64Backend::compile_to_object_full_with_debug(
+                &mir,
+                &target_spec,
+                options.enable_reg_alloc,
+                options.enable_tail_calls,
+                options.enable_block_layout,
+                options.enable_code_align,
+                options.target_features,
+                options.debug_info,
+                if options.debug_info {
+                    Some(&self.source_map)
+                } else {
+                    None
+                },
+            ) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(format!("Backend code generation failed: {}", e)),
             },
-        ) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                return Err(format!("Backend code generation failed: {}", e));
-            }
+            Arch::AArch64 => match AArch64Backend::compile_to_macho(&mir) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(format!("AArch64 backend code generation failed: {}", e)),
+            },
         };
 
         if options.emit_target == EmitTarget::Obj {
-            fs::write(&options.output_file, &elf_bytes)
+            fs::write(&options.output_file, &obj_bytes)
                 .map_err(|e| format!("Failed to write object file: {}", e))?;
-            return Ok(Some(elf_bytes));
+            return Ok(Some(obj_bytes));
         }
 
-        // Linking to Native Executable (System V AMD64 ABI on Linux)
-        let rt_archive = Self::find_runtime_archive(options)?;
+        // Linking to Native Executable
+        Self::link_target_executable(options, &target_spec, &obj_bytes)?;
+        Ok(Some(obj_bytes))
+    }
 
-        let temp_obj_path = options.output_file.with_extension("o");
-        fs::write(&temp_obj_path, &elf_bytes)
-            .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
+    fn link_target_executable(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+        obj_bytes: &[u8],
+    ) -> Result<(), String> {
+        match target_spec.os {
+            Os::Linux => {
+                let rt_archive = Self::find_runtime_archive(options)?;
+                let temp_obj_path = options
+                    .output_file
+                    .with_extension(target_spec.obj_extension);
+                fs::write(&temp_obj_path, obj_bytes)
+                    .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-        let link_res =
-            Self::invoke_system_linker(&temp_obj_path, &options.output_file, &rt_archive);
-        if link_res.is_ok() {
-            let _ = fs::remove_file(&temp_obj_path);
-        }
+                let link_res =
+                    Self::invoke_system_linker(&temp_obj_path, &options.output_file, &rt_archive);
+                if link_res.is_ok() {
+                    let _ = fs::remove_file(&temp_obj_path);
+                }
+                match link_res {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(format!("Linking failed: {}", e)),
+                }
+            }
+            Os::Windows => {
+                let temp_obj_path = options
+                    .output_file
+                    .with_extension(target_spec.obj_extension);
+                fs::write(&temp_obj_path, obj_bytes)
+                    .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-        match link_res {
-            Ok(_) => Ok(Some(elf_bytes)),
-            Err(e) => Err(format!("Linking failed: {}", e)),
+                if let Ok(status) = Command::new("link.exe")
+                    .arg("/NOLOGO")
+                    .arg(format!("/OUT:{}", options.output_file.display()))
+                    .arg(&temp_obj_path)
+                    .arg("/ENTRY:main")
+                    .arg("/SUBSYSTEM:CONSOLE")
+                    .status()
+                {
+                    if status.success() {
+                        let _ = fs::remove_file(&temp_obj_path);
+                        return Ok(());
+                    }
+                }
+
+                if let Ok(status) = Command::new("lld-link")
+                    .arg(format!("/OUT:{}", options.output_file.display()))
+                    .arg(&temp_obj_path)
+                    .arg("/ENTRY:main")
+                    .arg("/SUBSYSTEM:CONSOLE")
+                    .status()
+                {
+                    if status.success() {
+                        let _ = fs::remove_file(&temp_obj_path);
+                        return Ok(());
+                    }
+                }
+
+                Err(format!(
+                    "Linker 'link.exe' or 'lld-link' not found for target {}. Relocatable COFF object written to '{}'. To link manually on Windows:\n  link.exe {} /OUT:{} /ENTRY:main /SUBSYSTEM:CONSOLE",
+                    target_spec.triple,
+                    temp_obj_path.display(),
+                    temp_obj_path.display(),
+                    options.output_file.display()
+                ))
+            }
+            Os::MacOS => {
+                let temp_obj_path = options
+                    .output_file
+                    .with_extension(target_spec.obj_extension);
+                fs::write(&temp_obj_path, obj_bytes)
+                    .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
+
+                if let Ok(status) = Command::new("clang")
+                    .arg("-arch")
+                    .arg("arm64")
+                    .arg(&temp_obj_path)
+                    .arg("-o")
+                    .arg(&options.output_file)
+                    .status()
+                {
+                    if status.success() {
+                        let _ = fs::remove_file(&temp_obj_path);
+                        return Ok(());
+                    }
+                }
+
+                Err(format!(
+                    "Linker 'clang' for Apple Silicon not found for target {}. Relocatable Mach-O 64-bit object written to '{}'. To link manually on macOS:\n  clang -arch arm64 {} -o {}",
+                    target_spec.triple,
+                    temp_obj_path.display(),
+                    temp_obj_path.display(),
+                    options.output_file.display()
+                ))
+            }
         }
     }
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use vanta_driver::{
     run_fmt, CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, FmtOptions, FmtResult,
-    OptLevel, TargetFeatures,
+    OptLevel, TargetFeatures, TargetTriple,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,8 +70,12 @@ OPTIONS:
                             tokens   - Token stream
                             ast      - Abstract Syntax Tree
                             mir      - Vanta Mid-Level IR
-                            obj      - Relocatable ELF64 object file (.o)
+                            obj      - Relocatable object file (.o / .obj)
                             exe      - Linked native executable (default)
+    --target=<triple>     Target triple:
+                            x86_64-unknown-linux-gnu (linux, default)
+                            x86_64-pc-windows-msvc (windows, win64)
+                            aarch64-apple-darwin (macos, apple-silicon)
     --json                Emit diagnostics formatted as JSON
     --diagnostics=<fmt>   Diagnostics format: human (default) or json
     --format=<fmt>        Alias for --diagnostics
@@ -134,6 +138,7 @@ fn main() {
     let mut enable_block_layout = true;
     let mut enable_code_align = true;
     let mut target_features = TargetFeatures::baseline();
+    let mut target = TargetTriple::default();
     let mut debug_info = false;
 
     let mut idx = 1;
@@ -373,6 +378,30 @@ fn main() {
                     }
                 }
             }
+            s if s.starts_with("--target=") => {
+                let t_str = &s["--target=".len()..];
+                match t_str.parse::<TargetTriple>() {
+                    Ok(t) => target = t,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            }
+            "--target" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --target requires an argument");
+                    process::exit(2);
+                }
+                match args[idx].parse::<TargetTriple>() {
+                    Ok(t) => target = t,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        process::exit(2);
+                    }
+                }
+            }
             s if s.starts_with("-C") => {
                 let c_arg = if s == "-C" {
                     idx += 1;
@@ -392,6 +421,14 @@ fn main() {
                 } else if let Some(cpu) = c_arg.strip_prefix("target-cpu=") {
                     match TargetFeatures::from_target_cpu(cpu) {
                         Ok(feats) => target_features = feats,
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            process::exit(2);
+                        }
+                    }
+                } else if let Some(t_str) = c_arg.strip_prefix("target=") {
+                    match t_str.parse::<TargetTriple>() {
+                        Ok(t) => target = t,
                         Err(e) => {
                             eprintln!("Error: {}", e);
                             process::exit(2);
@@ -462,8 +499,14 @@ fn main() {
     };
 
     let out_path = output_file.unwrap_or_else(|| match emit_target {
-        EmitTarget::Obj => PathBuf::from("a.o"),
-        EmitTarget::Exe => PathBuf::from("a.out"),
+        EmitTarget::Obj => PathBuf::from(format!("a.{}", target.spec().obj_extension)),
+        EmitTarget::Exe => {
+            if target.spec().os == vanta_driver::Os::Windows {
+                PathBuf::from("a.exe")
+            } else {
+                PathBuf::from("a.out")
+            }
+        }
         _ => PathBuf::from("out.txt"),
     });
 
@@ -471,6 +514,7 @@ fn main() {
         input_file: input_path,
         output_file: out_path,
         emit_target,
+        target,
         opt_level,
         verbose,
         diagnostic_format,

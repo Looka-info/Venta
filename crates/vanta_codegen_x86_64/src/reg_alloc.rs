@@ -7,6 +7,7 @@
 use crate::register::Reg;
 use std::collections::{HashMap, HashSet};
 use vanta_mir::{BlockId, Instruction, MirFunction, Terminator, ValueId};
+use vanta_target::TargetAbi;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Location {
@@ -35,12 +36,20 @@ impl RegisterAllocator {
     /// Allocates physical registers for all scalar ValueIds in the given MIR function.
     pub fn allocate(func: &MirFunction) -> AllocationResult {
         let intervals = Self::compute_live_intervals(func);
-        Self::linear_scan(intervals)
+        Self::linear_scan(intervals, TargetAbi::SystemVAmd64)
     }
 
     /// Allocates physical registers for a pre-filtered list of live intervals.
     pub fn allocate_intervals(intervals: Vec<LiveInterval>) -> AllocationResult {
-        Self::linear_scan(intervals)
+        Self::allocate_intervals_with_abi(intervals, TargetAbi::SystemVAmd64)
+    }
+
+    /// Allocates physical registers for a pre-filtered list of live intervals under the specified ABI.
+    pub fn allocate_intervals_with_abi(
+        intervals: Vec<LiveInterval>,
+        abi: TargetAbi,
+    ) -> AllocationResult {
+        Self::linear_scan(intervals, abi)
     }
 
     /// Computes dataflow liveness over the CFG and constructs live intervals for all ValueIds.
@@ -220,16 +229,30 @@ impl RegisterAllocator {
     }
 
     /// Deterministic linear-scan allocator.
-    fn linear_scan(mut intervals: Vec<LiveInterval>) -> AllocationResult {
+    fn linear_scan(mut intervals: Vec<LiveInterval>, abi: TargetAbi) -> AllocationResult {
         // Sort intervals by start point ascending, then by ValueId for determinism
         intervals.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| a.val.0.cmp(&b.val.0)));
 
         // Allocatable pools:
-        // Callee-saved: preserved across calls by prologue/epilogue
-        let callee_saved_regs = [Reg::Rbx, Reg::R12, Reg::R13, Reg::R14, Reg::R15];
-        // Caller-saved: free for intervals that do not cross calls
-        // Exclude Rcx because cl is required for variable shifts (Shl/Shr)
-        let caller_saved_regs = [Reg::Rdi, Reg::Rsi, Reg::R8, Reg::R9];
+        // Under Microsoft x64, Rdi and Rsi are non-volatile (callee-saved).
+        let (callee_saved_regs, caller_saved_regs): (Vec<Reg>, Vec<Reg>) = match abi {
+            TargetAbi::MicrosoftX64 => (
+                vec![
+                    Reg::Rbx,
+                    Reg::R12,
+                    Reg::R13,
+                    Reg::R14,
+                    Reg::R15,
+                    Reg::Rdi,
+                    Reg::Rsi,
+                ],
+                vec![Reg::R8, Reg::R9],
+            ),
+            _ => (
+                vec![Reg::Rbx, Reg::R12, Reg::R13, Reg::R14, Reg::R15],
+                vec![Reg::Rdi, Reg::Rsi, Reg::R8, Reg::R9],
+            ),
+        };
 
         let mut free_callee_saved: Vec<Reg> = callee_saved_regs.to_vec();
         let mut free_caller_saved: Vec<Reg> = caller_saved_regs.to_vec();

@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0-alpha.1] - 2026-10-30 (Milestone 30 — Venta v1.4 Cross-Platform Native Code Generation: Windows x86-64 & macOS ARM64)
+
+**First Feature Milestone for v1.4 Cross-Platform Architecture**
+
+### Added
+- **Target Modeling Abstraction (`crates/vanta_target`)**:
+  - Implemented explicit compilation target model supporting `Arch` (`X86_64`, `AArch64`), `Os` (`Linux`, `Windows`, `MacOS`), `ObjectFormat` (`Elf64`, `Coff`, `MachO64`), and `TargetAbi` (`SystemVAmd64`, `MicrosoftX64`, `AppleAArch64`).
+  - Added target triple parsing and validation for `x86_64-unknown-linux-gnu` (default), `x86_64-pc-windows-msvc`, and `aarch64-apple-darwin`, with intuitive aliases (`linux`, `windows`, `win64`, `macos`, `darwin`, `apple-silicon`).
+- **Windows x86-64 Microsoft x64 ABI & Calling Convention (`crates/vanta_codegen_x86_64`)**:
+  - Implemented 4 positional argument registers (`RCX, RDX, R8, R9` for integers, `XMM0..XMM3` for floating-point/vector values).
+  - Implemented mandatory 32-byte caller shadow space allocated on the stack before any call instruction.
+  - Implemented hidden return pointer buffer passed in `RCX` (`sret`), automatically shifting normal argument register assignments by 1.
+  - Designated `%rdi` and `%rsi` as callee-saved (non-volatile) registers under `MicrosoftX64`, preserving caller registers across invocations.
+  - Stack frame prologue/epilogue configured for incoming parameter spills and 16-byte stack alignment.
+- **Pure-Rust 64-bit PE/COFF Relocatable Object Writer (`crates/vanta_codegen_x86_64/src/coff_writer.rs`)**:
+  - Pure-Rust emission of valid 64-bit COFF objects (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`).
+  - Emitted `.text` (code), `.rdata` (constants and vtables), `.pdata` (runtime exception function table), and `.xdata` (`UNWIND_INFO` unwind records).
+  - Implemented COFF relocations (`IMAGE_REL_AMD64_REL32`, `IMAGE_REL_AMD64_ADDR32NB`, `IMAGE_REL_AMD64_ADDR64`), 18-byte symbol table records, and length-prefixed string table.
+- **Pure-Rust Apple Silicon AArch64 Backend (`crates/vanta_codegen_aarch64`)**:
+  - Implemented 31 general-purpose 64-bit registers (`X0..X30`), stack pointer (`SP`), and zero register (`XZR`).
+  - Strict preservation of Apple Darwin platform convention: register `X18` is completely excluded from register allocator and code generation.
+  - Implemented pure-Rust 32-bit machine instruction encoder covering arithmetic (`AddImm`, `SubImm`, `AddReg`, `SubReg`, `Mul`, `Sdiv`, `Udiv`), bitwise logic (`AndReg`, `OrrReg`, `EorReg`), moves and immediates (`MovReg`, `Movz`, `Movk`), comparisons and conditional setting (`CmpImm`, `CmpReg`, `Cset`), memory loads/stores (`Ldr`, `Str`, `Ldr32`, `Str32`, `Ldrb`, `Strb`, `StpPreIndex`, `LdpPostIndex`, `StpOffset`, `LdpOffset`), branches (`B`, `BCond`, `Bl`, `Blr`, `Ret`), and page-relative addressing (`Adrp`).
+  - Implemented Apple AAPCS64 calling convention with argument passing in `X0..X7`, return values in `X0/X1`, and standard 16-byte aligned stack frames (`stp x29, x30, [sp, -N]!`, `mov x29, sp`).
+- **Pure-Rust Mach-O 64-bit Relocatable Object Writer (`crates/vanta_codegen_aarch64/src/macho_writer.rs`)**:
+  - Pure-Rust generation of 64-bit Mach-O objects (`MH_MAGIC_64 = 0xFEEDFACF`, `CPU_TYPE_ARM64 = 0x0100000C`, `MH_OBJECT = 1`).
+  - Emitted `LC_SEGMENT_64` containing `__text` and `__const` sections with section relocations (`ARM64_RELOC_BRANCH26`, `ARM64_RELOC_PAGE21`, `ARM64_RELOC_PAGEOFF12`, `ARM64_RELOC_UNSIGNED`).
+  - Emitted `LC_SYMTAB` with 16-byte `nlist_64` entries, symbol string table, and mandatory Apple leading underscore symbol naming convention (`_main`, `_function`).
+- **Cross-Platform Driver Orchestration & CLI (`crates/vanta_driver`)**:
+  - Added `--target=<triple>` and `--target <triple>` to `ventac` and `venta compile`, supporting target selection and aliases.
+  - Dynamic object format selection: emitting ELF64 `.o` on Linux, PE/COFF `.obj` on Windows, and Mach-O `.o` on macOS.
+  - Added cross-platform linker orchestration: invokes target linkers (`link.exe`, `lld-link`, `clang`, `gcc`) when available, and provides exact, informative command guidance when cross-linking toolchain is absent while preserving emitted relocatable objects.
+- **Portable Runtime Foundation (`runtime/vanta_rt.c`)**:
+  - Cross-platform C runtime compatibility across POSIX (Linux, macOS) and Win32/MSVC (Windows).
+  - Ported I/O (`_write`, `_open`, `_close`, `_read`), socket networking (`winsock2.h`), and x86-64 CPUID feature detection (`__cpuid`, `__cpuidex`, `_xgetbv` on MSVC; `<cpuid.h>` on GCC/Clang; stubs on ARM64).
+- **Integration Test Suite (`crates/vanta_driver/tests/cross_platform_tests.rs`)**:
+  - Automated test coverage verifying target triple parsing, target spec properties, Windows COFF structure/unwind generation, macOS Mach-O 64 arm64 structure, Microsoft x64 6-argument shadow-space passing, Apple ARM64 8-argument register passing, and Linux ELF64 backward compatibility.
+
+---
+
 ## [1.3.0-alpha.1] - 2026-10-30 (Milestone 29 — Venta v1.3 Generics, Trait Bounds, Monomorphization & Dynamic Dispatch)
 
 **First Feature Milestone for v1.3 Generics & Type System Evolution**

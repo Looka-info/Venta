@@ -1,0 +1,17 @@
+[package]
+name = "vanta_codegen_aarch64"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_diagnostics = { workspace = true }
+vanta_sema = { workspace = true }
+vanta_mir = { workspace = true }
+vanta_target = { workspace = true }
+
+[dev-dependencies]
+vanta_lexer = { workspace = true }
+vanta_parser = { workspace = true }
