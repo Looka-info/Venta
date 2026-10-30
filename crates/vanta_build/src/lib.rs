@@ -6,6 +6,7 @@ pub mod fingerprint;
 pub mod fragment;
 pub mod graph;
 pub mod manifest;
+pub mod source_digest;
 
 pub use cache::{
     ArtifactType, CacheCleanReport, CacheEntryMetadata, CacheManager, CacheStats,
@@ -24,3 +25,4 @@ pub use graph::{BuildGraph, BuildNode, DependencyKind, InvalidationReason, NodeI
 pub use manifest::{
     BuildManifest, ManifestFunction, ManifestModule, ManifestSourceFile, ManifestType,
 };
+pub use source_digest::{compute_source_tree_digest, scan_compiler_source_files, SourceTreeDigest};

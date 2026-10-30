@@ -152,13 +152,15 @@ impl FingerprintBuilder {
     }
 }
 
-/// Compiler identity tracking version, git revision, and schema versions.
+/// Compiler identity tracking version, source-tree digest, git revision, and schema versions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerIdentity {
     pub compiler_version: String,
     pub cache_schema_version: u32,
     pub git_revision: String,
     pub target_triple: String,
+    #[serde(default)]
+    pub source_digest: String,
 }
 
 impl CompilerIdentity {
@@ -169,18 +171,42 @@ impl CompilerIdentity {
             .or(option_env!("VENTA_BUILD_GIT_REV"))
             .unwrap_or("unknown-untrusted-rev")
             .to_string();
+        let source_digest = option_env!("VENTA_COMPILER_SOURCE_DIGEST")
+            .unwrap_or("")
+            .to_string();
         Self {
             compiler_version: env!("CARGO_PKG_VERSION").to_string(),
             cache_schema_version: Self::CURRENT_CACHE_SCHEMA_VERSION,
             git_revision: rev,
             target_triple: target_triple.to_string(),
+            source_digest,
         }
+    }
+
+    /// Compute compiler identity directly from a source tree on disk.
+    pub fn from_source_tree(
+        target_triple: &str,
+        root: &std::path::Path,
+    ) -> Result<Self, std::io::Error> {
+        let digest = crate::source_digest::compute_source_tree_digest(root)?;
+        let rev = option_env!("VENTA_GIT_REV")
+            .or(option_env!("VENTA_BUILD_GIT_REV"))
+            .unwrap_or("unknown-untrusted-rev")
+            .to_string();
+        Ok(Self {
+            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+            cache_schema_version: Self::CURRENT_CACHE_SCHEMA_VERSION,
+            git_revision: rev,
+            target_triple: target_triple.to_string(),
+            source_digest: digest.to_hex(),
+        })
     }
 
     pub fn fingerprint(&self) -> ContentFingerprint {
         let mut builder = FingerprintBuilder::new(Domain::CompilerIdentity);
         builder.update_str(&self.compiler_version);
         builder.update_u32(self.cache_schema_version);
+        builder.update_str(&self.source_digest);
         builder.update_str(&self.git_revision);
         builder.update_str(&self.target_triple);
         builder.finish()
@@ -486,14 +512,26 @@ mod tests {
             cache_schema_version: 1,
             git_revision: "commit_a".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "digest_1".into(),
         };
         let id2 = CompilerIdentity {
             compiler_version: "2.1.0".into(),
             cache_schema_version: 1,
-            git_revision: "commit_b".into(),
+            git_revision: "commit_a".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "digest_2".into(),
         };
         assert_ne!(id1.fingerprint(), id2.fingerprint());
+
+        // Also test git revision invalidation
+        let id3 = CompilerIdentity {
+            compiler_version: "2.1.0".into(),
+            cache_schema_version: 1,
+            git_revision: "commit_b".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "digest_1".into(),
+        };
+        assert_ne!(id1.fingerprint(), id3.fingerprint());
     }
 
     #[test]
@@ -503,6 +541,7 @@ mod tests {
             cache_schema_version: 1,
             git_revision: "commit_base".into(),
             target_triple: "x86_64-unknown-linux-gnu".into(),
+            source_digest: "digest_base".into(),
         };
         let base_cfg = BuildConfiguration {
             target_triple: "x86_64-unknown-linux-gnu".into(),
