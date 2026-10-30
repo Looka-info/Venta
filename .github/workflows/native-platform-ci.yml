@@ -117,14 +117,13 @@ jobs:
           target/debug/ventac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
 
           # Execute natively on Windows
-          & .\app_win.exe
-          $ec = $LASTEXITCODE
-          Write-Output "Windows native exit code: $ec"
-          if ($ec -ne 42) {
-              Write-Error "Expected exit code 42, got $ec"
-              exit 1
-          }
-        shell: powershell
+          set +e
+          ./app_win.exe
+          EXIT_CODE=$?
+          set -e
+          echo "Windows native exit code: ${EXIT_CODE}"
+          test "${EXIT_CODE}" -eq 42
+        shell: bash
 
   # =========================================================================
   # 3. macOS Apple Silicon Native Validation (ARM64)
