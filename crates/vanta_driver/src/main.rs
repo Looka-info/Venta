@@ -154,6 +154,7 @@ fn main() {
     let mut target = TargetTriple::default();
     let mut debug_info = false;
     let mut linker = LinkerKind::Internal;
+    let mut linker_flags: Vec<String> = Vec::new();
     let mut link_archives: Vec<PathBuf> = Vec::new();
     let mut additional_inputs: Vec<PathBuf> = Vec::new();
     let mut map_file: Option<PathBuf> = None;
@@ -665,10 +666,26 @@ fn main() {
                             process::exit(2);
                         }
                     }
+                } else if let Some(flag) = c_arg.strip_prefix("link-arg=") {
+                    linker_flags.push(flag.to_string());
+                } else if let Some(flag) = c_arg.strip_prefix("link-args=") {
+                    linker_flags.push(flag.to_string());
                 } else {
                     eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
                     process::exit(2);
                 }
+            }
+            s if s.starts_with("--linker-flag=") => {
+                let f = s.split_once('=').unwrap().1;
+                linker_flags.push(f.to_string());
+            }
+            "--linker-flag" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --linker-flag requires an argument");
+                    process::exit(2);
+                }
+                linker_flags.push(args[idx].clone());
             }
             s if s.starts_with("--linker=") => {
                 let l_str = &s["--linker=".len()..];
@@ -841,6 +858,7 @@ fn main() {
         target_features,
         debug_info,
         linker,
+        linker_flags,
         link_archives,
         additional_inputs,
         map_file,

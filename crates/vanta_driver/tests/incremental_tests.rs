@@ -7,7 +7,7 @@ use std::process::Command;
 use tempfile::tempdir;
 use vanta_driver::{
     ArtifactType, CacheManager, CompilerIdentity, CompilerOptions, CompilerSession,
-    IncrementalBuildEngine, IncrementalOptions, LinkerKind, TargetTriple,
+    IncrementalBuildEngine, IncrementalOptions, LinkerKind, MockLinkerResolver, TargetTriple,
 };
 
 fn run_executable(exe_path: &Path) -> (i32, String) {
@@ -1185,5 +1185,310 @@ fn test_stage32_5_test_l_clean_vs_incremental_linking_executable_equivalence() {
     assert_eq!(
         out1, out2,
         "Executable output must be identical between clean and incremental linking"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_m_driver_replaced_executable_invalidates_fingerprint() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let mut opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts.linker = LinkerKind::System;
+
+    let resolver1 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_ORIGINAL_BINARY",
+            Some("gcc 12.3"),
+        )
+        .with_downstream("gcc", None, Ok(Some(PathBuf::from("/usr/bin/ld"))))
+        .with_executable(
+            "ld",
+            "/usr/bin/ld",
+            b"LD_ORIGINAL_BINARY",
+            Some("GNU ld 2.40"),
+        );
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver1).unwrap();
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+
+    // Replace gcc binary with different contents
+    let resolver2 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_MODIFIED_BINARY",
+            Some("gcc 12.3"),
+        )
+        .with_downstream("gcc", None, Ok(Some(PathBuf::from("/usr/bin/ld"))))
+        .with_executable(
+            "ld",
+            "/usr/bin/ld",
+            b"LD_ORIGINAL_BINARY",
+            Some("GNU ld 2.40"),
+        );
+
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver2).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Replacing linker driver executable binary must invalidate link fingerprint"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_n_driver_preserved_size_and_banner_invalidates_fingerprint() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let mut opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts.linker = LinkerKind::System;
+
+    let resolver1 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_SAME_SIZE_32_BYTES_V1_AAAAA",
+            Some("gcc 12.3.0"),
+        )
+        .with_downstream("gcc", None, Ok(None));
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver1).unwrap();
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+
+    // Same size (32 bytes), same version banner, different binary bytes
+    let resolver2 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_SAME_SIZE_32_BYTES_V2_BBBBB",
+            Some("gcc 12.3.0"),
+        )
+        .with_downstream("gcc", None, Ok(None));
+
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver2).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Preserving size and version banner while modifying binary must invalidate fingerprint"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_o_driver_delegated_linker_change_invalidates_fingerprint() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let mut opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts.linker = LinkerKind::System;
+
+    let resolver1 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_COMMON_DRIVER",
+            Some("gcc 12.3"),
+        )
+        .with_downstream("gcc", None, Ok(Some(PathBuf::from("/usr/bin/ld"))))
+        .with_executable(
+            "ld",
+            "/usr/bin/ld",
+            b"DOWNSTREAM_LD_V1",
+            Some("GNU ld 2.40"),
+        );
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver1).unwrap();
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+
+    // Change downstream linker binary while keeping driver unchanged
+    let resolver2 = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_COMMON_DRIVER",
+            Some("gcc 12.3"),
+        )
+        .with_downstream("gcc", None, Ok(Some(PathBuf::from("/usr/bin/ld"))))
+        .with_executable(
+            "ld",
+            "/usr/bin/ld",
+            b"DOWNSTREAM_LD_V2",
+            Some("GNU ld 2.40"),
+        );
+
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver2).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Changing delegated downstream linker binary must invalidate link fingerprint"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_p_driver_linker_selection_option_changes_plan_and_fingerprint() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let resolver = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"GCC_DRIVER_BINARY",
+            Some("gcc 12.3"),
+        )
+        .with_downstream(
+            "gcc",
+            Some("-fuse-ld=bfd"),
+            Ok(Some(PathBuf::from("/usr/bin/ld.bfd"))),
+        )
+        .with_downstream(
+            "gcc",
+            Some("-fuse-ld=gold"),
+            Ok(Some(PathBuf::from("/usr/bin/ld.gold"))),
+        )
+        .with_executable("ld.bfd", "/usr/bin/ld.bfd", b"LD_BFD_BINARY", None)
+        .with_executable("ld.gold", "/usr/bin/ld.gold", b"LD_GOLD_BINARY", None);
+
+    let mut opts1 = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts1.linker = LinkerKind::System;
+    opts1.linker_flags = vec!["-fuse-ld=bfd".into()];
+
+    let mut opts2 = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts2.linker = LinkerKind::System;
+    opts2.linker_flags = vec!["-fuse-ld=gold".into()];
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts1, &target_spec, &resolver).unwrap();
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts2, &target_spec, &resolver).unwrap();
+
+    assert_ne!(
+        plan1.downstream_linker, plan2.downstream_linker,
+        "Selected linker option must resolve different downstream linker binaries"
+    );
+
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Changing linker selection flag (-fuse-ld=bfd vs gold) must invalidate fingerprint"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_q_driver_missing_linker_executable_fails_closed() {
+    let dir = tempdir().unwrap();
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let mut opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts.linker = LinkerKind::System;
+
+    // Empty resolver: gcc does not exist
+    let resolver_empty = MockLinkerResolver::new();
+    let res =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver_empty);
+    assert!(res.is_err(), "Missing compiler driver must return Err");
+    assert!(res.unwrap_err().contains("not found"));
+
+    // Driver exists, but requested downstream linker is missing
+    let resolver_missing_downstream = MockLinkerResolver::new()
+        .with_executable("gcc", "/usr/bin/gcc", b"GCC_DRIVER", None)
+        .with_downstream(
+            "gcc",
+            Some("-fuse-ld=missing"),
+            Err("Downstream linker ld.missing not found".into()),
+        );
+
+    let mut opts_missing = opts.clone();
+    opts_missing.linker_flags = vec!["-fuse-ld=missing".into()];
+    let res2 = CompilerSession::resolve_link_plan_with_resolver(
+        &opts_missing,
+        &target_spec,
+        &resolver_missing_downstream,
+    );
+    assert!(res2.is_err(), "Missing downstream linker must return Err");
+}
+
+#[test]
+fn test_stage32_5_test_r_driver_identical_plans_produce_deterministic_fingerprints() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let resolver = MockLinkerResolver::new()
+        .with_executable(
+            "gcc",
+            "/usr/bin/gcc",
+            b"DETERMINISTIC_GCC",
+            Some("gcc 12.3"),
+        )
+        .with_downstream("gcc", None, Ok(Some(PathBuf::from("/usr/bin/ld"))))
+        .with_executable(
+            "ld",
+            "/usr/bin/ld",
+            b"DETERMINISTIC_LD",
+            Some("GNU ld 2.40"),
+        );
+
+    let opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver).unwrap();
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &resolver).unwrap();
+
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_eq!(
+        fp1, fp2,
+        "Identical plans must produce deterministic identical link fingerprints"
+    );
+}
+
+#[test]
+fn test_stage32_5_test_s_driver_internal_linking_deterministic_without_external_linker() {
+    let dir = tempdir().unwrap();
+    let cid = CompilerIdentity::current("x86_64-unknown-linux-gnu");
+    let target_spec = TargetTriple::X86_64UnknownLinuxGnu.spec();
+
+    let mut opts = CompilerOptions::new(dir.path().join("main.va"), dir.path().join("main"));
+    opts.linker = LinkerKind::Internal;
+
+    // Completely empty resolver with zero executables configured
+    let empty_resolver = MockLinkerResolver::new();
+
+    let plan1 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &empty_resolver)
+            .unwrap();
+    let plan2 =
+        CompilerSession::resolve_link_plan_with_resolver(&opts, &target_spec, &empty_resolver)
+            .unwrap();
+
+    assert!(plan1.linker_driver.is_none());
+    assert!(plan1.downstream_linker.is_none());
+
+    let fp1 = plan1.fingerprint(&cid, &[]).unwrap();
+    let fp2 = plan2.fingerprint(&cid, &[]).unwrap();
+
+    assert_eq!(
+        fp1, fp2,
+        "Internal linking must succeed and be deterministic without external linker executables"
     );
 }

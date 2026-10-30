@@ -82,6 +82,7 @@ pub enum Domain {
     LinkConfig,
     LinkInput,
     RuntimeArchive,
+    LinkerExecutable,
 }
 
 impl Domain {
@@ -103,6 +104,7 @@ impl Domain {
             Domain::LinkConfig => "VENTA:LINK_CONFIG:v1",
             Domain::LinkInput => "VENTA:LINK_INPUT:v1",
             Domain::RuntimeArchive => "VENTA:RT_ARCHIVE:v1",
+            Domain::LinkerExecutable => "VENTA:LINKER_EXE:v1",
         }
     }
 }
@@ -375,6 +377,8 @@ pub enum LinkInputKind {
     RuntimeArchive,
     ResolvedLibrary,
     StartupObject,
+    LinkerDriver,
+    LinkerBackend,
     Other,
 }
 
@@ -387,6 +391,8 @@ impl LinkInputKind {
             LinkInputKind::RuntimeArchive => "runtime_archive",
             LinkInputKind::ResolvedLibrary => "resolved_lib",
             LinkInputKind::StartupObject => "startup_obj",
+            LinkInputKind::LinkerDriver => "linker_driver",
+            LinkInputKind::LinkerBackend => "linker_backend",
             LinkInputKind::Other => "other",
         }
     }
@@ -398,6 +404,7 @@ impl LinkInputKind {
             LinkInputKind::RuntimeArchive => Domain::RuntimeArchive,
             LinkInputKind::ResolvedLibrary => Domain::Archive,
             LinkInputKind::StartupObject => Domain::Object,
+            LinkInputKind::LinkerDriver | LinkInputKind::LinkerBackend => Domain::LinkerExecutable,
             LinkInputKind::Other => Domain::Link,
         }
     }
@@ -431,6 +438,51 @@ impl ResolvedLinkInput {
         Ok(Self {
             kind,
             path: p.to_path_buf(),
+            content_length,
+            content_fingerprint,
+        })
+    }
+
+    /// Resolve an executable binary, deliberately resolving symlinks and hashing full contents.
+    pub fn from_executable<P: AsRef<std::path::Path>>(
+        kind: LinkInputKind,
+        path: P,
+    ) -> Result<Self, String> {
+        let p = path.as_ref();
+        if !p.exists() {
+            return Err(format!(
+                "Linker executable does not exist: '{}'",
+                p.display()
+            ));
+        }
+        let canonical = std::fs::canonicalize(p).map_err(|e| {
+            format!(
+                "Failed to resolve linker executable symlink '{}': {}",
+                p.display(),
+                e
+            )
+        })?;
+        let normalized = {
+            let s = canonical.to_string_lossy();
+            if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                std::path::PathBuf::from(stripped)
+            } else {
+                canonical
+            }
+        };
+        let bytes = std::fs::read(&normalized).map_err(|e| {
+            format!(
+                "Failed to read linker executable {:?} ('{}'): {}",
+                kind,
+                normalized.display(),
+                e
+            )
+        })?;
+        let content_length = bytes.len() as u64;
+        let content_fingerprint = ContentFingerprint::for_bytes(kind.domain(), &bytes);
+        Ok(Self {
+            kind,
+            path: normalized,
             content_length,
             content_fingerprint,
         })
@@ -484,6 +536,8 @@ pub struct LinkConfiguration {
     pub additional_inputs: Vec<ResolvedLinkInput>,
     pub runtime_archive: Option<ResolvedLinkInput>,
     pub startup_objects: Vec<ResolvedLinkInput>,
+    pub linker_driver: Option<ResolvedLinkInput>,
+    pub downstream_linker: Option<ResolvedLinkInput>,
 }
 
 impl LinkConfiguration {
@@ -511,6 +565,8 @@ impl LinkConfiguration {
             additional_inputs: Vec::new(),
             runtime_archive: None,
             startup_objects: Vec::new(),
+            linker_driver: None,
+            downstream_linker: None,
         }
     }
 
@@ -544,6 +600,27 @@ impl LinkConfiguration {
             builder.update_str(&m.replace('\\', "/"));
         } else {
             builder.update_str("<none>");
+        }
+
+        // For non-internal linking, require effective linker driver executable
+        if self.linker_kind != "internal" && self.linker_driver.is_none() {
+            return Err("Missing effective linker driver executable for non-internal link".into());
+        }
+
+        // Linker Driver Executable
+        if let Some(ref driver) = self.linker_driver {
+            builder.update_bool(true);
+            driver.update_builder(&mut builder);
+        } else {
+            builder.update_bool(false);
+        }
+
+        // Downstream Linker Executable
+        if let Some(ref downstream) = self.downstream_linker {
+            builder.update_bool(true);
+            downstream.update_builder(&mut builder);
+        } else {
+            builder.update_bool(false);
         }
 
         // Library search paths

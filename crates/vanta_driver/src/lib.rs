@@ -1,5 +1,8 @@
 //! Vanta compiler pipeline driver and linker orchestrator.
 
+pub mod linker_resolver;
+pub use linker_resolver::*;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -78,6 +81,7 @@ pub struct CompilerOptions {
     pub target_features: TargetFeatures,
     pub debug_info: bool,
     pub linker: LinkerKind,
+    pub linker_flags: Vec<String>,
     pub link_archives: Vec<PathBuf>,
     pub additional_inputs: Vec<PathBuf>,
     pub map_file: Option<PathBuf>,
@@ -121,6 +125,7 @@ impl CompilerOptions {
             target_features: TargetFeatures::baseline(),
             debug_info: false,
             linker: LinkerKind::System,
+            linker_flags: Vec::new(),
             link_archives: Vec::new(),
             additional_inputs: Vec::new(),
             map_file: None,
@@ -744,6 +749,15 @@ impl CompilerSession {
         options: &CompilerOptions,
         target_spec: &TargetSpec,
     ) -> Result<LinkConfiguration, String> {
+        Self::resolve_link_plan_with_resolver(options, target_spec, &DefaultLinkerResolver)
+    }
+
+    /// Resolves all inputs, libraries, runtime archives, and linker options using an injected LinkerResolver.
+    pub fn resolve_link_plan_with_resolver<R: LinkerResolver>(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+        resolver: &R,
+    ) -> Result<LinkConfiguration, String> {
         let mut plan = LinkConfiguration::new(
             target_spec.triple.to_string(),
             format!("{:?}", target_spec.object_format),
@@ -762,59 +776,86 @@ impl CompilerSession {
         plan.library_search_paths = options.lib_search_paths.clone();
         plan.requested_libraries = options.libs.clone();
 
-        // 1. Linker Executable & Flags
+        // 1. Linker Executable, Delegated Downstream Linker & Flags
         match options.linker {
             LinkerKind::Internal => {
                 plan.linker_version = Some(format!(
                     "vanta-internal-linker-{}",
                     env!("CARGO_PKG_VERSION")
                 ));
+                plan.linker_driver = None;
+                plan.downstream_linker = None;
             }
-            LinkerKind::System => match target_spec.os {
-                Os::Linux => {
-                    plan.linker_path = Some("gcc".into());
-                    if let Ok(out) = Command::new("gcc").arg("--version").output() {
-                        if out.status.success() {
-                            let first_line = String::from_utf8_lossy(&out.stdout)
-                                .lines()
-                                .next()
-                                .unwrap_or("")
-                                .trim()
-                                .to_string();
-                            plan.linker_version = Some(first_line);
+            LinkerKind::System => {
+                let (driver_name, default_flags) = match target_spec.os {
+                    Os::Linux => ("gcc", vec!["-no-pie".to_string()]),
+                    Os::Windows => {
+                        let has_link = resolver.resolve_in_path("link.exe").is_ok();
+                        if has_link {
+                            (
+                                "link.exe",
+                                vec![
+                                    "/NOLOGO".to_string(),
+                                    format!("/OUT:{}", options.output_file.display()),
+                                    "/ENTRY:main".to_string(),
+                                    "/SUBSYSTEM:CONSOLE".to_string(),
+                                ],
+                            )
+                        } else {
+                            (
+                                "lld-link",
+                                vec![
+                                    format!("/OUT:{}", options.output_file.display()),
+                                    "/ENTRY:main".to_string(),
+                                    "/SUBSYSTEM:CONSOLE".to_string(),
+                                ],
+                            )
                         }
                     }
-                    plan.linker_flags = vec!["-no-pie".into()];
-                }
-                Os::Windows => {
-                    let has_link_exe = Command::new("link.exe").arg("/?").output().is_ok();
-                    if has_link_exe {
-                        plan.linker_path = Some("link.exe".into());
-                        plan.linker_flags = vec![
-                            "/NOLOGO".into(),
-                            format!("/OUT:{}", options.output_file.display()),
-                            "/ENTRY:main".into(),
-                            "/SUBSYSTEM:CONSOLE".into(),
-                        ];
-                    } else {
-                        plan.linker_path = Some("lld-link".into());
-                        plan.linker_flags = vec![
-                            format!("/OUT:{}", options.output_file.display()),
-                            "/ENTRY:main".into(),
-                            "/SUBSYSTEM:CONSOLE".into(),
-                        ];
+                    Os::MacOS => (
+                        "clang",
+                        vec![
+                            "-arch".to_string(),
+                            "arm64".to_string(),
+                            "-o".to_string(),
+                            options.output_file.to_string_lossy().to_string(),
+                        ],
+                    ),
+                };
+
+                let driver_path = resolver.resolve_in_path(driver_name)?;
+                let driver_bytes = resolver.read_executable_bytes(&driver_path)?;
+                let driver_input = ResolvedLinkInput::from_bytes(
+                    LinkInputKind::LinkerDriver,
+                    &driver_path,
+                    &driver_bytes,
+                );
+                plan.linker_path = Some(driver_path.to_string_lossy().to_string());
+                plan.linker_driver = Some(driver_input);
+                plan.linker_version = resolver.query_version(&driver_path);
+
+                let mut combined_flags = default_flags;
+                for flag in &options.linker_flags {
+                    if !combined_flags.contains(flag) {
+                        combined_flags.push(flag.clone());
                     }
                 }
-                Os::MacOS => {
-                    plan.linker_path = Some("clang".into());
-                    plan.linker_flags = vec![
-                        "-arch".into(),
-                        "arm64".into(),
-                        "-o".into(),
-                        options.output_file.to_string_lossy().to_string(),
-                    ];
+                plan.linker_flags = combined_flags;
+
+                if let Some(downstream_path) = resolver.query_downstream_linker(
+                    &driver_path,
+                    driver_name,
+                    &plan.linker_flags,
+                )? {
+                    let downstream_bytes = resolver.read_executable_bytes(&downstream_path)?;
+                    let downstream_input = ResolvedLinkInput::from_bytes(
+                        LinkInputKind::LinkerBackend,
+                        &downstream_path,
+                        &downstream_bytes,
+                    );
+                    plan.downstream_linker = Some(downstream_input);
                 }
-            },
+            }
         }
 
         // 2. Runtime archive
@@ -972,8 +1013,12 @@ impl CompilerSession {
                 fs::write(&temp_obj_path, obj_bytes)
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-                let link_res =
-                    Self::invoke_system_linker(&temp_obj_path, &options.output_file, &rt_archive);
+                let link_res = Self::invoke_system_linker_with_plan(
+                    plan,
+                    &temp_obj_path,
+                    &options.output_file,
+                    &rt_archive,
+                );
                 if link_res.is_ok() {
                     let _ = fs::remove_file(&temp_obj_path);
                 }
@@ -989,27 +1034,21 @@ impl CompilerSession {
                 fs::write(&temp_obj_path, obj_bytes)
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-                if let Ok(status) = Command::new("link.exe")
-                    .arg("/NOLOGO")
-                    .arg(format!("/OUT:{}", options.output_file.display()))
-                    .arg(&temp_obj_path)
-                    .arg("/ENTRY:main")
-                    .arg("/SUBSYSTEM:CONSOLE")
-                    .status()
-                {
-                    if status.success() {
-                        let _ = fs::remove_file(&temp_obj_path);
-                        return Ok(());
-                    }
-                }
+                let driver_path = if let Some(ref d) = plan.linker_driver {
+                    d.path.as_os_str()
+                } else if let Some(ref p) = plan.linker_path {
+                    std::ffi::OsStr::new(p)
+                } else {
+                    std::ffi::OsStr::new("link.exe")
+                };
 
-                if let Ok(status) = Command::new("lld-link")
-                    .arg(format!("/OUT:{}", options.output_file.display()))
-                    .arg(&temp_obj_path)
-                    .arg("/ENTRY:main")
-                    .arg("/SUBSYSTEM:CONSOLE")
-                    .status()
-                {
+                let mut cmd = Command::new(driver_path);
+                for flag in &plan.linker_flags {
+                    cmd.arg(flag);
+                }
+                cmd.arg(&temp_obj_path);
+
+                if let Ok(status) = cmd.status() {
                     if status.success() {
                         let _ = fs::remove_file(&temp_obj_path);
                         return Ok(());
@@ -1017,11 +1056,10 @@ impl CompilerSession {
                 }
 
                 Err(format!(
-                    "Linker 'link.exe' or 'lld-link' not found for target {}. Relocatable COFF object written to '{}'. To link manually on Windows:\n  link.exe {} /OUT:{} /ENTRY:main /SUBSYSTEM:CONSOLE",
+                    "Linker '{}' failed for target {}. Relocatable COFF object written to '{}'.",
+                    Path::new(driver_path).display(),
                     target_spec.triple,
-                    temp_obj_path.display(),
-                    temp_obj_path.display(),
-                    options.output_file.display()
+                    temp_obj_path.display()
                 ))
             }
             Os::MacOS => {
@@ -1031,14 +1069,21 @@ impl CompilerSession {
                 fs::write(&temp_obj_path, obj_bytes)
                     .map_err(|e| format!("Failed to write temporary object file: {}", e))?;
 
-                if let Ok(status) = Command::new("clang")
-                    .arg("-arch")
-                    .arg("arm64")
-                    .arg(&temp_obj_path)
-                    .arg("-o")
-                    .arg(&options.output_file)
-                    .status()
-                {
+                let driver_path = if let Some(ref d) = plan.linker_driver {
+                    d.path.as_os_str()
+                } else if let Some(ref p) = plan.linker_path {
+                    std::ffi::OsStr::new(p)
+                } else {
+                    std::ffi::OsStr::new("clang")
+                };
+
+                let mut cmd = Command::new(driver_path);
+                for flag in &plan.linker_flags {
+                    cmd.arg(flag);
+                }
+                cmd.arg(&temp_obj_path);
+
+                if let Ok(status) = cmd.status() {
                     if status.success() {
                         let _ = fs::remove_file(&temp_obj_path);
                         return Ok(());
@@ -1046,11 +1091,10 @@ impl CompilerSession {
                 }
 
                 Err(format!(
-                    "Linker 'clang' for Apple Silicon not found for target {}. Relocatable Mach-O 64-bit object written to '{}'. To link manually on macOS:\n  clang -arch arm64 {} -o {}",
+                    "Linker '{}' failed for target {}. Relocatable Mach-O 64-bit object written to '{}'.",
+                    Path::new(driver_path).display(),
                     target_spec.triple,
-                    temp_obj_path.display(),
-                    temp_obj_path.display(),
-                    options.output_file.display()
+                    temp_obj_path.display()
                 ))
             }
         }
@@ -1192,27 +1236,57 @@ impl CompilerSession {
         Ok(target_archive)
     }
 
-    fn invoke_system_linker(
+    fn invoke_system_linker_with_plan(
+        plan: &LinkConfiguration,
         obj_path: &Path,
         out_path: &Path,
         rt_archive: &Path,
     ) -> Result<(), String> {
-        // Use gcc as linker driver to link standard runtime startup, libc, and libvanta_rt.a
-        let status = Command::new("gcc")
-            .arg("-no-pie") // Produce standard executable layout
-            .arg(obj_path)
-            .arg(rt_archive)
-            .arg("-o")
-            .arg(out_path)
-            .status();
+        let driver_path = if let Some(ref d) = plan.linker_driver {
+            d.path.as_os_str()
+        } else if let Some(ref p) = plan.linker_path {
+            std::ffi::OsStr::new(p)
+        } else {
+            std::ffi::OsStr::new("gcc")
+        };
 
-        let status = status.map_err(|e| format!("Could not invoke gcc linker: {}", e))?;
+        let mut cmd = Command::new(driver_path);
+        for flag in &plan.linker_flags {
+            cmd.arg(flag);
+        }
+        cmd.arg(obj_path);
+        cmd.arg(rt_archive);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+
+        let status = cmd.status().map_err(|e| {
+            format!(
+                "Could not invoke linker '{}': {}",
+                Path::new(driver_path).display(),
+                e
+            )
+        })?;
 
         if status.success() {
             Ok(())
         } else {
             Err(format!("Linker exited with status {}", status))
         }
+    }
+
+    #[allow(dead_code)]
+    fn invoke_system_linker(
+        obj_path: &Path,
+        out_path: &Path,
+        rt_archive: &Path,
+    ) -> Result<(), String> {
+        let default_plan = LinkConfiguration::new(
+            "x86_64-unknown-linux-gnu",
+            "elf64",
+            "system",
+            out_path.to_string_lossy(),
+        );
+        Self::invoke_system_linker_with_plan(&default_plan, obj_path, out_path, rt_archive)
     }
 }
 

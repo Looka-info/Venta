@@ -26,6 +26,11 @@ fn test_1_changing_linker_kind_invalidates_fingerprint() {
     let cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "internal", "bin/app");
     let mut cfg2 = cfg1.clone();
     cfg2.linker_kind = "system".into();
+    cfg2.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc"),
+        b"DUMMY_GCC_EXE",
+    ));
 
     let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
     let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
@@ -42,6 +47,11 @@ fn test_2_changing_linker_option_invalidates_fingerprint() {
     let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
 
     let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc"),
+        b"DUMMY_GCC_EXE",
+    ));
     cfg1.linker_flags = vec!["-no-pie".into()];
 
     let mut cfg2 = cfg1.clone();
@@ -174,6 +184,11 @@ fn test_6_replacing_runtime_archive_with_different_same_length_contents_invalida
     fs::write(&rt_path, b"RUNTIME_CONTENT_V1_SAME_LEN_32_BYTES").unwrap();
 
     let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc"),
+        b"DUMMY_GCC_EXE",
+    ));
     cfg1.runtime_archive =
         Some(ResolvedLinkInput::from_path(LinkInputKind::RuntimeArchive, &rt_path).unwrap());
     let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
@@ -182,6 +197,11 @@ fn test_6_replacing_runtime_archive_with_different_same_length_contents_invalida
     fs::write(&rt_path, b"RUNTIME_CONTENT_V2_SAME_LEN_32_BYTES").unwrap();
 
     let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc"),
+        b"DUMMY_GCC_EXE",
+    ));
     cfg2.runtime_archive =
         Some(ResolvedLinkInput::from_path(LinkInputKind::RuntimeArchive, &rt_path).unwrap());
     let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
@@ -230,10 +250,20 @@ fn test_8_changing_effective_system_linker_identity_invalidates_fingerprint() {
 
     let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
     cfg1.linker_path = Some("/usr/bin/gcc-11".into());
+    cfg1.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc-11"),
+        b"GCC_11_BINARY_BYTES",
+    ));
     cfg1.linker_version = Some("gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0".into());
 
     let mut cfg2 = cfg1.clone();
     cfg2.linker_path = Some("/usr/bin/gcc-12".into());
+    cfg2.linker_driver = Some(ResolvedLinkInput::from_bytes(
+        LinkInputKind::LinkerDriver,
+        Path::new("/usr/bin/gcc-12"),
+        b"GCC_12_BINARY_BYTES",
+    ));
     cfg2.linker_version = Some("gcc (Ubuntu 12.3.0-1ubuntu1~22.04) 12.3.0".into());
 
     let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
@@ -241,7 +271,7 @@ fn test_8_changing_effective_system_linker_identity_invalidates_fingerprint() {
 
     assert_ne!(
         fp1, fp2,
-        "Changing system linker identity (path/version) must invalidate link fingerprint"
+        "Changing system linker identity (path/version/driver) must invalidate link fingerprint"
     );
 }
 
@@ -367,4 +397,219 @@ fn test_13_cached_link_record_verification() {
     // 4. Corrupted checksum -> miss
     fs::write(&exe_path, b"TAMPERED_EXECUTABLE_BINARY_").unwrap(); // same 27 bytes, different content
     assert!(!cache.get_cached_link(&link_key, &exe_path));
+}
+
+#[test]
+fn test_14_replacing_linker_executable_at_same_path_invalidates_fingerprint() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    let fake_gcc = dir.path().join("fake_gcc");
+    fs::write(&fake_gcc, b"GCC_ORIGINAL_BINARY_BYTES").unwrap();
+
+    let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_path = Some(fake_gcc.to_string_lossy().to_string());
+    cfg1.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    // Replace the executable with different content at the same path
+    fs::write(&fake_gcc, b"GCC_REPLACED_DIFFERENT_BINARY_BYTES").unwrap();
+
+    let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_path = Some(fake_gcc.to_string_lossy().to_string());
+    cfg2.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Replacing linker executable contents at the same path must invalidate link fingerprint"
+    );
+}
+
+#[test]
+fn test_15_replacing_executable_preserving_size_and_version_banner_invalidates_fingerprint() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    let fake_gcc = dir.path().join("fake_gcc_same_size");
+    fs::write(&fake_gcc, b"GCC_V1_SAME_SIZE_32_BYTES_AAAAAA").unwrap(); // 32 bytes
+
+    let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_path = Some(fake_gcc.to_string_lossy().to_string());
+    cfg1.linker_version = Some("gcc (Ubuntu 12.3.0) 12.3.0".into());
+    cfg1.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    // Overwrite with different binary content but EXACT same 32-byte size and same version banner
+    fs::write(&fake_gcc, b"GCC_V2_SAME_SIZE_32_BYTES_BBBBBB").unwrap(); // 32 bytes
+
+    let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_path = Some(fake_gcc.to_string_lossy().to_string());
+    cfg2.linker_version = Some("gcc (Ubuntu 12.3.0) 12.3.0".into()); // Identical version output!
+    cfg2.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Replacing executable while preserving file size and version banner must invalidate link fingerprint"
+    );
+}
+
+#[test]
+fn test_16_changing_delegated_downstream_linker_invalidates_fingerprint() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    let fake_driver = dir.path().join("gcc_driver");
+    let fake_ld1 = dir.path().join("ld_bfd");
+    let fake_ld2 = dir.path().join("ld_gold");
+
+    fs::write(&fake_driver, b"COMMON_GCC_DRIVER_BINARY").unwrap();
+    fs::write(&fake_ld1, b"DOWNSTREAM_LD_BFD_BINARY").unwrap();
+    fs::write(&fake_ld2, b"DOWNSTREAM_LD_GOLD_BINARY").unwrap();
+
+    let driver_input =
+        ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_driver).unwrap();
+    let ld1_input =
+        ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &fake_ld1).unwrap();
+    let ld2_input =
+        ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &fake_ld2).unwrap();
+
+    let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_driver = Some(driver_input.clone());
+    cfg1.downstream_linker = Some(ld1_input);
+
+    let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_driver = Some(driver_input);
+    cfg2.downstream_linker = Some(ld2_input);
+
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Changing downstream linker executable must invalidate fingerprint even with identical driver"
+    );
+}
+
+#[test]
+fn test_17_changing_selected_linker_via_option_changes_resolved_plan_and_fingerprint() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    let driver_path = dir.path().join("gcc");
+    let ld_bfd = dir.path().join("ld.bfd");
+    let ld_gold = dir.path().join("ld.gold");
+
+    fs::write(&driver_path, b"GCC_DRIVER").unwrap();
+    fs::write(&ld_bfd, b"LD_BFD_BINARY").unwrap();
+    fs::write(&ld_gold, b"LD_GOLD_BINARY").unwrap();
+
+    let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_driver = Some(
+        ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &driver_path).unwrap(),
+    );
+    cfg1.linker_flags = vec!["-fuse-ld=bfd".into()];
+    cfg1.downstream_linker =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &ld_bfd).unwrap());
+
+    let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_driver = Some(
+        ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &driver_path).unwrap(),
+    );
+    cfg2.linker_flags = vec!["-fuse-ld=gold".into()];
+    cfg2.downstream_linker =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &ld_gold).unwrap());
+
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_ne!(
+        fp1, fp2,
+        "Changing linker selection option (-fuse-ld=bfd vs gold) must change plan and fingerprint"
+    );
+}
+
+#[test]
+fn test_18_unreadable_or_missing_effective_linker_executable_returns_error() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    // 1. Missing executable file returns error when resolving
+    let nonexistent = dir.path().join("nonexistent_linker");
+    let res = ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &nonexistent);
+    assert!(res.is_err(), "Missing linker executable must return error");
+
+    // 2. System link configuration without effective linker driver fails closed
+    let cfg = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    let fp_res = cfg.fingerprint(&cid, &[obj_fp]);
+    assert!(
+        fp_res.is_err(),
+        "System link configuration missing linker_driver must return Err instead of valid fingerprint"
+    );
+    assert!(fp_res
+        .unwrap_err()
+        .contains("Missing effective linker driver executable"));
+}
+
+#[test]
+fn test_19_identical_effective_executable_plans_produce_deterministic_fingerprints() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+    let dir = tempdir().unwrap();
+
+    let fake_gcc = dir.path().join("gcc");
+    let fake_ld = dir.path().join("ld");
+    fs::write(&fake_gcc, b"DETERMINISTIC_GCC_BINARY").unwrap();
+    fs::write(&fake_ld, b"DETERMINISTIC_LD_BINARY").unwrap();
+
+    let mut cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg1.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    cfg1.downstream_linker =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &fake_ld).unwrap());
+
+    let mut cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "system", "bin/app");
+    cfg2.linker_driver =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerDriver, &fake_gcc).unwrap());
+    cfg2.downstream_linker =
+        Some(ResolvedLinkInput::from_executable(LinkInputKind::LinkerBackend, &fake_ld).unwrap());
+
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_eq!(
+        fp1, fp2,
+        "Identical effective executable plans must produce identical fingerprints"
+    );
+}
+
+#[test]
+fn test_20_internal_linking_remains_deterministic_without_external_linker_executable() {
+    let cid = dummy_compiler_id();
+    let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"main_object");
+
+    let cfg1 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "internal", "bin/app");
+    let cfg2 = LinkConfiguration::new("x86_64-unknown-linux-gnu", "elf64", "internal", "bin/app");
+
+    // Neither internal config has any external linker driver
+    assert!(cfg1.linker_driver.is_none());
+    assert!(cfg1.downstream_linker.is_none());
+
+    let fp1 = cfg1.fingerprint(&cid, &[obj_fp]).unwrap();
+    let fp2 = cfg2.fingerprint(&cid, &[obj_fp]).unwrap();
+
+    assert_eq!(
+        fp1, fp2,
+        "Internal linking must be deterministic and succeed without external linker binaries"
+    );
 }
