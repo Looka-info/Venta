@@ -1,0 +1,25 @@
+[package]
+name = "vanta_lsp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vanta-lsp"
+path = "src/main.rs"
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_diagnostics = { workspace = true }
+vanta_lexer = { workspace = true }
+vanta_parser = { workspace = true }
+vanta_sema = { workspace = true }
+vanta_fmt = { workspace = true }
+lsp-types = "0.97.0"
+lsp-server = "0.10.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3"

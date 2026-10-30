@@ -10,6 +10,7 @@ members = [
     "crates/vanta_codegen_x86_64",
     "crates/vanta_driver",
     "crates/vanta_fmt",
+    "crates/vanta_lsp",
 ]
 
 [workspace.package]
@@ -28,3 +29,4 @@ vanta_sema = { path = "crates/vanta_sema" }
 vanta_mir = { path = "crates/vanta_mir" }
 vanta_codegen_x86_64 = { path = "crates/vanta_codegen_x86_64" }
 vanta_fmt = { path = "crates/vanta_fmt" }
+vanta_lsp = { path = "crates/vanta_lsp" }

@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-10-30 (Milestone 27 — Native DWARF 5 Debug Information for GDB/LLDB)
+## [Unreleased] - 2026-10-30 (Milestone 28 — Venta Language Server Protocol (LSP) Daemon)
+
+**Second Feature Milestone for v1.2 Debugging & Tooling**
+
+### Added
+- **Language Server Protocol Daemon (`crates/vanta_lsp`, binary `vanta-lsp`)**:
+  - Implemented standalone `vanta-lsp` daemon using `lsp-server` and `lsp-types` communicating via JSON-RPC over stdio with full client lifecycle support (`initialize`, `initialized`, `shutdown`, `exit`).
+  - Added CLI options (`-h`, `--help`, `-v`, `--version`) and orderly exit code management.
+- **In-Memory Buffer & Unicode Line Index (`crates/vanta_lsp/src/document.rs`)**:
+  - Implemented `DocumentManager` managing open documents across `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`, and `textDocument/didSave`.
+  - Implemented `LineIndex` for bi-directional conversion between compiler UTF-8 byte spans and LSP UTF-16 code unit positions (`Position`, `Range`), handling ASCII, multi-byte UTF-8, and astral plane characters (surrogate pairs).
+  - Supported full and incremental document change synchronization (`TextDocumentSyncKind::INCREMENTAL`).
+- **Compiler Frontend In-Memory Analysis (`crates/vanta_lsp/src/analysis.rs`)**:
+  - Zero redundant parsers: directly invokes `vanta_lexer`, `vanta_parser`, and `vanta_sema` on in-memory text buffers without subprocess overhead or temporary files.
+  - Live diagnostics (`textDocument/publishDiagnostics`) emitting compiler error codes (`E0001`, `E0201`, etc.), severity, accurate UTF-16 ranges, and automatic diagnostic clearing on document close or error resolution.
+  - Type & signature hover (`textDocument/hover`) returning Markdown signatures for local variables (`let [mut] name: Type`), functions (`fn name(params) -> Ret`), structs, enums, and traits.
+  - Go-to-definition (`textDocument/definition`) resolving identifier coordinates to declaration spans.
+  - Contextual completion (`textDocument/completion`) suggesting language keywords, in-scope local variables, visible functions, and types.
+  - Hierarchical document symbols (`textDocument/documentSymbol`) building outline trees for functions, structs with fields, enums with variants, traits, and impl blocks.
+  - Document formatting (`textDocument/formatting`) invoking `vanta_fmt::format_source` and returning canonical text replacement edits.
+- **Protocol Handlers (`crates/vanta_lsp/src/handlers.rs`)**:
+  - Full request routing and response serialization for all negotiated capabilities.
+- **Comprehensive Verification Suite (`crates/vanta_lsp/tests/lsp_tests.rs`)**:
+  - 10 automated unit and integration tests covering UTF-16 code units, incremental edits, lifecycle negotiation, syntax and semantic diagnostics, hover, definition, completion, symbols, formatting, and end-to-end stdio subprocess execution.
+- **Documentation (`docs/language-server.md`)**:
+  - Comprehensive guide with architecture details, installation/build instructions, and ready-to-use editor configuration snippets for Neovim, Zed, Helix, and Visual Studio Code.
+
+---
+
+## [1.2.0-alpha.1] - 2026-10-30 (Milestone 27 — Native DWARF 5 Debug Information for GDB/LLDB)
 
 **First Feature Milestone for v1.2 Debugging & Tooling**
 

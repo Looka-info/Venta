@@ -85,9 +85,18 @@ flowchart LR
   - CLI integration: `-g` and `--debug` flags in `ventac`, `vanta build`, and `vanta run`.
   - Opt-in behavior with zero binary code difference and zero debug section overhead when disabled.
   - Verified live source breakpoint, stepping, variable inspection, and call stack backtrace unwinding in GDB 17.1 and LLDB 21.1.8.
-- **Vanta Language Server (`vanta-lsp`)**:
-  - Provide an official LSP daemon supporting VS Code, Neovim, and Zed.
-  - Features: real-time syntax checking, live borrow checker error markers, hover type inspection, go-to-definition, and canonical formatting (`vanta fmt`).
+- **Vanta Language Server (`vanta-lsp`) (Milestone 28 - Completed)**:
+  - Official Language Server Protocol daemon (`vanta-lsp`) built with `lsp-server` and `lsp-types` over stdio JSON-RPC.
+  - Zero redundant parsers: direct integration with compiler frontend crates `vanta_lexer`, `vanta_parser`, and `vanta_sema` without subprocess overhead.
+  - In-memory `AnalysisSnapshot` delivering sub-millisecond diagnostics, hovers, completions, and symbols without disk I/O.
+  - Exact UTF-16 code unit position mapping (`LineIndex`) supporting ASCII, multi-byte UTF-8, and astral Unicode surrogate pairs.
+  - Live diagnostics (`textDocument/publishDiagnostics`) with compiler error codes (`E0001`, `E0201`, etc.), severity, accurate spans, and automatic cleanup on document close or resolution.
+  - Type and signature hover (`textDocument/hover`) formatted as Markdown code blocks for variables, functions, structs, enums, and traits.
+  - Go to definition (`textDocument/definition`) jumping directly to declaration spans.
+  - Contextual completion (`textDocument/completion`) for keywords, in-scope local variables, visible functions, and types.
+  - Hierarchical outline symbols (`textDocument/documentSymbol`) for functions, structs (with fields), enums (with variants), traits, and impl blocks.
+  - Document-level canonical formatting (`textDocument/formatting`) powered by `vanta_fmt`.
+  - Comprehensive verification across 10 unit and integration tests including end-to-end stdio JSON-RPC subprocess test suite.
 
 ---
 
