@@ -182,7 +182,7 @@ jobs:
           otool -L app_mac
 
           # Native execution on Apple Silicon
-          codesign -s - app_mac
+          codesign -s - -f app_mac || true
           chmod +x app_mac
           set +e
           ./app_mac
