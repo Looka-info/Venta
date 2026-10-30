@@ -1,13 +1,13 @@
 // ============================================================================
 // ⚡ VentaNext Framework — HTTP Engine
-// Core HTTP Request/Response model, Status Codes, and Protocol Serialization
+// Next.js-Class Request/Response Lifecycle, Structured Headers, Params, & Cookies
 // ============================================================================
 
 import std::string::String;
 import std::option::Option;
 
 // ----------------------------------------------------------------------------
-// 1. Integer to String Conversion Helper
+// 1. Utility Helpers
 // ----------------------------------------------------------------------------
 
 pub fn i64_to_string(mut n: i64) -> String {
@@ -49,6 +49,30 @@ pub fn i64_to_string(mut n: i64) -> String {
     res
 }
 
+pub fn ascii_eq_ignore_case(a: &str, b: &str) -> bool {
+    let len_a = a.len();
+    let len_b = b.len();
+    if len_a != len_b {
+        return false;
+    }
+    let mut i = 0;
+    while i < len_a {
+        let mut ch_a: i64 = a[i];
+        let mut ch_b: i64 = b[i];
+        if ch_a >= 65 && ch_a <= 90 {
+            ch_a = ch_a + 32;
+        }
+        if ch_b >= 65 && ch_b <= 90 {
+            ch_b = ch_b + 32;
+        }
+        if ch_a != ch_b {
+            return false;
+        }
+        i = i + 1;
+    }
+    true
+}
+
 // ----------------------------------------------------------------------------
 // 2. HTTP Status Codes & Reason Phrases
 // ----------------------------------------------------------------------------
@@ -61,53 +85,400 @@ pub fn status_reason(status: i64) -> String {
     if status == 301 { return String::from_str("Moved Permanently"); }
     if status == 302 { return String::from_str("Found"); }
     if status == 304 { return String::from_str("Not Modified"); }
+    if status == 307 { return String::from_str("Temporary Redirect"); }
+    if status == 308 { return String::from_str("Permanent Redirect"); }
     if status == 400 { return String::from_str("Bad Request"); }
     if status == 401 { return String::from_str("Unauthorized"); }
     if status == 403 { return String::from_str("Forbidden"); }
     if status == 404 { return String::from_str("Not Found"); }
     if status == 405 { return String::from_str("Method Not Allowed"); }
+    if status == 409 { return String::from_str("Conflict"); }
+    if status == 422 { return String::from_str("Unprocessable Entity"); }
     if status == 500 { return String::from_str("Internal Server Error"); }
+    if status == 501 { return String::from_str("Not Implemented"); }
     if status == 502 { return String::from_str("Bad Gateway"); }
     if status == 503 { return String::from_str("Service Unavailable"); }
     String::from_str("Unknown")
 }
 
 // ----------------------------------------------------------------------------
-// 3. HTTP Request Representation
+// 3. Key-Value Storage (Headers, Query, Params, Cookies)
+// ----------------------------------------------------------------------------
+
+pub struct KeyValue {
+    pub key: String,
+    pub value: String,
+}
+
+pub fn make_key_value(key: &str, value: &str) -> KeyValue {
+    KeyValue {
+        key: String::from_str(key),
+        value: String::from_str(value),
+    }
+}
+
+pub fn clone_key_value(kv: &KeyValue) -> KeyValue {
+    KeyValue {
+        key: kv.key.clone(),
+        value: kv.value.clone(),
+    }
+}
+
+pub struct HeaderMap {
+    pub entries: Vec<KeyValue>,
+}
+
+pub fn make_header_map() -> HeaderMap {
+    let v: Vec<KeyValue> = Vec::new();
+    HeaderMap { entries: v }
+}
+
+pub fn clone_header_map(src: &HeaderMap) -> HeaderMap {
+    let mut v: Vec<KeyValue> = Vec::new();
+    let mut i = 0;
+    while i < src.entries.len() {
+        v.push(clone_key_value(&src.entries[i]));
+        i = i + 1;
+    }
+    HeaderMap { entries: v }
+}
+
+impl HeaderMap {
+    pub fn add(self: &mut Self, key: &str, value: &str) {
+        self.entries.push(KeyValue {
+            key: String::from_str(key),
+            value: String::from_str(value),
+        });
+    }
+
+    pub fn get(self: &Self, key: &str) -> Option<String> {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if ascii_eq_ignore_case(self.entries[i].key.as_str(), key) {
+                return Option::Some(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        Option::None
+    }
+
+    pub fn has(self: &Self, key: &str) -> bool {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if ascii_eq_ignore_case(self.entries[i].key.as_str(), key) {
+                return true;
+            }
+            i = i + 1;
+        }
+        false
+    }
+}
+
+pub struct QueryMap {
+    pub entries: Vec<KeyValue>,
+}
+
+pub fn make_query_map() -> QueryMap {
+    let v: Vec<KeyValue> = Vec::new();
+    QueryMap { entries: v }
+}
+
+pub fn clone_query_map(src: &QueryMap) -> QueryMap {
+    let mut v: Vec<KeyValue> = Vec::new();
+    let mut i = 0;
+    while i < src.entries.len() {
+        v.push(clone_key_value(&src.entries[i]));
+        i = i + 1;
+    }
+    QueryMap { entries: v }
+}
+
+impl QueryMap {
+    pub fn add(self: &mut Self, key: &str, value: &str) {
+        self.entries.push(KeyValue {
+            key: String::from_str(key),
+            value: String::from_str(value),
+        });
+    }
+
+    pub fn get(self: &Self, key: &str) -> Option<String> {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(key) {
+                return Option::Some(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        Option::None
+    }
+}
+
+pub struct ParamMap {
+    pub entries: Vec<KeyValue>,
+}
+
+pub fn make_param_map() -> ParamMap {
+    let v: Vec<KeyValue> = Vec::new();
+    ParamMap { entries: v }
+}
+
+pub fn clone_param_map(src: &ParamMap) -> ParamMap {
+    let mut v: Vec<KeyValue> = Vec::new();
+    let mut i = 0;
+    while i < src.entries.len() {
+        v.push(clone_key_value(&src.entries[i]));
+        i = i + 1;
+    }
+    ParamMap { entries: v }
+}
+
+impl ParamMap {
+    pub fn add(self: &mut Self, key: &str, value: &str) {
+        self.entries.push(KeyValue {
+            key: String::from_str(key),
+            value: String::from_str(value),
+        });
+    }
+
+    pub fn get(self: &Self, key: &str) -> Option<String> {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(key) {
+                return Option::Some(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        Option::None
+    }
+
+    pub fn has(self: &Self, key: &str) -> bool {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(key) {
+                return true;
+            }
+            i = i + 1;
+        }
+        false
+    }
+}
+
+pub struct CookieMap {
+    pub entries: Vec<KeyValue>,
+}
+
+pub fn make_cookie_map() -> CookieMap {
+    let v: Vec<KeyValue> = Vec::new();
+    CookieMap { entries: v }
+}
+
+pub fn clone_cookie_map(src: &CookieMap) -> CookieMap {
+    let mut v: Vec<KeyValue> = Vec::new();
+    let mut i = 0;
+    while i < src.entries.len() {
+        v.push(clone_key_value(&src.entries[i]));
+        i = i + 1;
+    }
+    CookieMap { entries: v }
+}
+
+impl CookieMap {
+    pub fn add(self: &mut Self, name: &str, value: &str) {
+        self.entries.push(KeyValue {
+            key: String::from_str(name),
+            value: String::from_str(value),
+        });
+    }
+
+    pub fn get(self: &Self, name: &str) -> Option<String> {
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(name) {
+                return Option::Some(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        Option::None
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 4. Query String and Cookie Parsing
+// ----------------------------------------------------------------------------
+
+pub fn parse_query_string(raw: &str) -> QueryMap {
+    let mut qm = make_query_map();
+    let len = raw.len();
+    if len == 0 {
+        return qm;
+    }
+
+    let mut start = 0;
+    let mut i = 0;
+    while i < len {
+        let ch: i64 = raw[i];
+        if ch == 38 { // '&'
+            if i > start {
+                parse_and_insert_query_kv(&mut qm, raw, start, i);
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if start < len {
+        parse_and_insert_query_kv(&mut qm, raw, start, len);
+    }
+    qm
+}
+
+fn parse_and_insert_query_kv(qm: &mut QueryMap, raw: &str, start: i64, end: i64) {
+    let mut eq_pos = -1;
+    let mut j = start;
+    while j < end {
+        if raw[j] == 61 { // '='
+            eq_pos = j;
+            j = end;
+        }
+        j = j + 1;
+    }
+
+    if eq_pos >= start {
+        let k_opt = raw.slice_bytes(start, eq_pos);
+        let v_opt = raw.slice_bytes(eq_pos + 1, end);
+        match k_opt {
+            Option::Some(k) => {
+                match v_opt {
+                    Option::Some(v) => {
+                        qm.add(k, v);
+                    }
+                    Option::None => {
+                        qm.add(k, "");
+                    }
+                }
+            }
+            Option::None => {}
+        }
+    } else {
+        let k_opt = raw.slice_bytes(start, end);
+        match k_opt {
+            Option::Some(k) => {
+                qm.add(k, "");
+            }
+            Option::None => {}
+        }
+    }
+}
+
+pub fn parse_cookie_header(header_val: &str) -> CookieMap {
+    let mut cm = make_cookie_map();
+    let len = header_val.len();
+    if len == 0 {
+        return cm;
+    }
+
+    let mut start = 0;
+    let mut i = 0;
+    while i < len {
+        let ch: i64 = header_val[i];
+        if ch == 59 { // ';'
+            if i > start {
+                parse_single_cookie(&mut cm, header_val, start, i);
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if start < len {
+        parse_single_cookie(&mut cm, header_val, start, len);
+    }
+    cm
+}
+
+fn parse_single_cookie(cm: &mut CookieMap, raw: &str, mut start: i64, end: i64) {
+    while start < end && (raw[start] == 32 || raw[start] == 9) {
+        start = start + 1;
+    }
+    if start >= end {
+        return;
+    }
+
+    let mut eq_pos = -1;
+    let mut j = start;
+    while j < end {
+        if raw[j] == 61 { // '='
+            eq_pos = j;
+            j = end;
+        }
+        j = j + 1;
+    }
+
+    if eq_pos >= start {
+        let n_opt = raw.slice_bytes(start, eq_pos);
+        let v_opt = raw.slice_bytes(eq_pos + 1, end);
+        match n_opt {
+            Option::Some(n) => {
+                match v_opt {
+                    Option::Some(v) => {
+                        cm.add(n, v);
+                    }
+                    Option::None => {
+                        cm.add(n, "");
+                    }
+                }
+            }
+            Option::None => {}
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 5. HTTP Request Model
 // ----------------------------------------------------------------------------
 
 pub struct Request {
     pub method: String,
     pub path: String,
-    pub query: String,
-    pub headers: String,
+    pub raw_query: String,
+    pub headers: HeaderMap,
+    pub query: QueryMap,
+    pub params: ParamMap,
+    pub cookies: CookieMap,
     pub body: String,
-    pub param_name: String,
-    pub param_value: String,
 }
 
 pub fn make_request(
     method: &str,
     path: &str,
-    query: &str,
-    headers: &str,
+    raw_query: &str,
+    headers: HeaderMap,
     body: &str,
 ) -> Request {
+    let qm = parse_query_string(raw_query);
+    let mut cm = make_cookie_map();
+    let cookie_hdr = headers.get("cookie");
+    match cookie_hdr {
+        Option::Some(c_str) => {
+            cm = parse_cookie_header(c_str.as_str());
+        }
+        Option::None => {}
+    }
+
     Request {
         method: String::from_str(method),
         path: String::from_str(path),
-        query: String::from_str(query),
-        headers: String::from_str(headers),
+        raw_query: String::from_str(raw_query),
+        headers: headers,
+        query: qm,
+        params: make_param_map(),
+        cookies: cm,
         body: String::from_str(body),
-        param_name: String::new(),
-        param_value: String::new(),
     }
 }
 
 pub fn parse_http_request(raw_str: &str) -> Request {
     let len = raw_str.len();
     if len == 0 {
-        return make_request("GET", "/", "", "", "");
+        return make_request("GET", "/", "", make_header_map(), "");
     }
 
     let mut space1 = 0;
@@ -127,13 +498,13 @@ pub fn parse_http_request(raw_str: &str) -> Request {
         }
         if ch == 10 { // '\n'
             line_end = i;
-            i = len; // break loop
+            i = len; // break
         }
         i = i + 1;
     }
 
     if space1 == 0 {
-        return make_request("GET", "/", "", "", "");
+        return make_request("GET", "/", "", make_header_map(), "");
     }
 
     let method_slice = raw_str.slice_bytes(0, space1);
@@ -169,7 +540,7 @@ pub fn parse_http_request(raw_str: &str) -> Request {
     }
 
     let mut path = uri.clone();
-    let mut query = String::new();
+    let mut raw_query = String::new();
     if q_idx > 0 {
         let p_opt = uri.slice_bytes(0, q_idx);
         match p_opt {
@@ -181,13 +552,13 @@ pub fn parse_http_request(raw_str: &str) -> Request {
         let q_opt = uri.slice_bytes(q_idx + 1, uri_len);
         match q_opt {
             Option::Some(q) => {
-                query = String::from_str(q);
+                raw_query = String::from_str(q);
             }
             Option::None => {}
         }
     }
 
-    // Extract headers and body (boundary \r\n\r\n or \n\n)
+    // Parse Headers and Body boundary (\r\n\r\n or \n\n)
     let mut body_start = 0;
     let mut k = line_end;
     while k + 3 < len {
@@ -201,46 +572,106 @@ pub fn parse_http_request(raw_str: &str) -> Request {
         k = k + 1;
     }
 
-    let mut headers = String::new();
+    let mut headers = make_header_map();
     let mut body = String::new();
-    if body_start > 0 {
-        let h_opt = raw_str.slice_bytes(line_end, body_start);
-        match h_opt {
-            Option::Some(h) => {
-                headers = String::from_str(h);
+
+    let header_end = if body_start > 0 { body_start } else { len };
+    let mut h_idx = line_end + 1;
+    while h_idx < header_end {
+        // find next line end
+        let mut next_nl = header_end;
+        let mut scan = h_idx;
+        while scan < header_end {
+            if raw_str[scan] == 10 {
+                next_nl = scan;
+                scan = header_end;
+            }
+            scan = scan + 1;
+        }
+
+        let mut actual_line_end = next_nl;
+        if actual_line_end > h_idx && raw_str[actual_line_end - 1] == 13 {
+            actual_line_end = actual_line_end - 1;
+        }
+
+        if actual_line_end > h_idx {
+            // Find colon separator ':' (ASCII 58)
+            let mut colon_pos = -1;
+            let mut c_scan = h_idx;
+            while c_scan < actual_line_end {
+                if raw_str[c_scan] == 58 {
+                    colon_pos = c_scan;
+                    c_scan = actual_line_end;
+                }
+                c_scan = c_scan + 1;
+            }
+
+            if colon_pos > h_idx {
+                let k_slice = raw_str.slice_bytes(h_idx, colon_pos);
+                let mut v_start = colon_pos + 1;
+                while v_start < actual_line_end && (raw_str[v_start] == 32 || raw_str[v_start] == 9) {
+                    v_start = v_start + 1;
+                }
+                let v_slice = raw_str.slice_bytes(v_start, actual_line_end);
+                match k_slice {
+                    Option::Some(k) => {
+                        match v_slice {
+                            Option::Some(v) => {
+                                headers.add(k, v);
+                            }
+                            Option::None => {
+                                headers.add(k, "");
+                            }
+                        }
+                    }
+                    Option::None => {}
+                }
+            }
+        }
+
+        h_idx = next_nl + 1;
+    }
+
+    if body_start > 0 && body_start < len {
+        let b_opt = raw_str.slice_bytes(body_start, len);
+        match b_opt {
+            Option::Some(b) => {
+                body = String::from_str(b);
             }
             Option::None => {}
         }
-        if body_start < len {
-            let b_opt = raw_str.slice_bytes(body_start, len);
-            match b_opt {
-                Option::Some(b) => {
-                    body = String::from_str(b);
-                }
-                Option::None => {}
-            }
+    }
+
+    let qm = parse_query_string(raw_query.as_str());
+    let mut cm = make_cookie_map();
+    let cookie_hdr = headers.get("cookie");
+    match cookie_hdr {
+        Option::Some(c_str) => {
+            cm = parse_cookie_header(c_str.as_str());
         }
+        Option::None => {}
     }
 
     Request {
         method: method,
         path: path,
-        query: query,
+        raw_query: raw_query,
         headers: headers,
+        query: qm,
+        params: make_param_map(),
+        cookies: cm,
         body: body,
-        param_name: String::new(),
-        param_value: String::new(),
     }
 }
 
 // ----------------------------------------------------------------------------
-// 4. HTTP Response Representation (NextResponse style)
+// 6. HTTP Response Model (NextResponse Style)
 // ----------------------------------------------------------------------------
 
 pub struct Response {
     pub status: i64,
     pub content_type: String,
-    pub headers: String,
+    pub headers: HeaderMap,
     pub body: String,
 }
 
@@ -248,7 +679,7 @@ pub fn make_response(status: i64, content_type: &str, body: &str) -> Response {
     Response {
         status: status,
         content_type: String::from_str(content_type),
-        headers: String::new(),
+        headers: make_header_map(),
         body: String::from_str(body),
     }
 }
@@ -265,8 +696,9 @@ pub fn response_text(text: &str) -> Response {
     make_response(200, "text/plain; charset=utf-8", text)
 }
 
-pub fn response_redirect(location: &str) -> Response {
-    let mut r = make_response(302, "text/html; charset=utf-8", "Redirecting...");
+pub fn response_redirect(location: &str, status: i64) -> Response {
+    let actual_status = if status >= 300 && status <= 308 { status } else { 307 };
+    let mut r = make_response(actual_status, "text/html; charset=utf-8", "Redirecting...");
     add_header(&mut r, "Location", location);
     r
 }
@@ -280,10 +712,45 @@ pub fn response_error(body: &str) -> Response {
 }
 
 pub fn add_header(resp: &mut Response, name: &str, value: &str) {
-    resp.headers.push_str(name);
-    resp.headers.push_str(": ");
-    resp.headers.push_str(value);
-    resp.headers.push_str("\r\n");
+    resp.headers.add(name, value);
+}
+
+pub fn set_cookie(
+    resp: &mut Response,
+    name: &str,
+    value: &str,
+    path: &str,
+    max_age_secs: i64,
+    is_secure: bool,
+    is_http_only: bool,
+    same_site: &str,
+) {
+    let mut cookie_str = String::from_str(name);
+    cookie_str.push_str("=");
+    cookie_str.push_str(value);
+    cookie_str.push_str("; Path=");
+    cookie_str.push_str(path);
+
+    if max_age_secs >= 0 {
+        cookie_str.push_str("; Max-Age=");
+        let age_str = i64_to_string(max_age_secs);
+        cookie_str.push_str(age_str.as_str());
+    }
+
+    if is_secure {
+        cookie_str.push_str("; Secure");
+    }
+
+    if is_http_only {
+        cookie_str.push_str("; HttpOnly");
+    }
+
+    if !same_site.equals("") {
+        cookie_str.push_str("; SameSite=");
+        cookie_str.push_str(same_site);
+    }
+
+    add_header(resp, "Set-Cookie", cookie_str.as_str());
 }
 
 pub fn to_wire_format(resp: &Response) -> String {
@@ -307,8 +774,14 @@ pub fn to_wire_format(resp: &Response) -> String {
     wire.push_str("Server: VentaNext/1.0 (Native)\r\n");
     wire.push_str("Connection: close\r\n");
 
-    if !resp.headers.is_empty() {
-        wire.push_str(resp.headers.as_str());
+    let mut i = 0;
+    while i < resp.headers.entries.len() {
+        let entry = &resp.headers.entries[i];
+        wire.push_str(entry.key.as_str());
+        wire.push_str(": ");
+        wire.push_str(entry.value.as_str());
+        wire.push_str("\r\n");
+        i = i + 1;
     }
 
     wire.push_str("\r\n");

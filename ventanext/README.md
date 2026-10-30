@@ -1,135 +1,115 @@
 # ⚡ VentaNext Framework
 
-**A Full-Stack Server-Side Web Framework for the Venta Language, Inspired by Next.js — Written 100% in Pure Venta**
+**A Next.js-Class Full-Stack Web Framework for the Venta Language — Written 100% in Pure Venta**
 
 ---
 
 ## 🚀 Overview
 
-**VentaNext** brings modern full-stack web application architecture — declarative page routing, server-side rendering (SSR), dynamic URL parameter extraction, typed API routes, and composable middleware — to the **Venta** programming language.
+**VentaNext** brings modern full-stack web application architecture — declarative filesystem-modeled App Routing, deterministic route manifests, hierarchical nested layouts, dynamic parameter extraction (`[param]`), catch-all routing (`[...path]`), optional catch-all routing (`[[...filter]]`), route groups (`(group)`), conflict validation, typed API routes, cookie & query parsing, and composable middleware — to the **Venta** programming language.
 
-Unlike JavaScript/TypeScript frameworks running on V8/Node.js or Python frameworks with interpreter overhead, VentaNext compiles directly to a **standalone ~86 KB bare-metal x86-64 native executable** with **zero virtual DOM overhead**, **sub-second compilation (0.24s)**, and **100% guaranteed memory safety**.
-
----
-
-## ✨ Core Pillars (Next.js in Venta)
-
-| Next.js Feature | VentaNext Equivalent | Description |
-|---|---|---|
-| **App / Pages Router** | `ventanext::router` | Declarative routing for `/`, `/dashboard`, `/docs`, and dynamic `:id` paths |
-| **Dynamic Routes (`[id]`)** | `match_dynamic_route` | URL segment extraction (e.g. `/posts/:id` captures `req.param_value`) |
-| **Root Layout (`layout.tsx`)** | `ssr::render_layout` | HTML5 shell, dark-mode CSS variables, responsive navigation, and footer |
-| **Server Components (SSR)** | `ssr::component_*` | Pure Venta component functions generating server-rendered HTML in microseconds |
-| **Route Handlers (`api/*`)** | `Response::json` | High-throughput JSON microservices, REST endpoints, and payload reflection |
-| **Middleware (`middleware.ts`)** | `ventanext::middleware` | Global pipeline for request logging, CORS, security headers, and preflights |
-| **Standalone Packaging** | `vantac ventanext/main.va` | Single self-contained Linux ELF binary (no Node.js or runtime dependencies) |
+Unlike JavaScript/TypeScript frameworks running on V8/Node.js or Python frameworks with interpreter overhead, VentaNext executes 100% in pure Venta and compiles directly to a **standalone bare-metal native executable** with **sub-second compilation**, zero garbage collection pauses, and **100% guaranteed memory safety**.
 
 ---
 
-## 📁 Framework Architecture
+## 🏛 Phase 1 Architecture: Framework Foundation
+
+VentaNext Phase 1 delivers the full foundational web engine:
+
+### 1. Deterministic App Router Manifest
+- **Static Routes**: Exact path matching (`/`, `/about`, `/dashboard`).
+- **Dynamic Parameter Routes (`[param]`)**: Captures URL segments into `req.params` (e.g. `/posts/[id]` captures `req.params.get("id")`).
+- **Catch-All Routes (`[...path]`)**: Captures one or more trailing segments (e.g. `/docs/[...path]` with `/docs/a/b` captures `path = "a/b"`).
+- **Optional Catch-All Routes (`[[...filter]]`)**: Matches both base path and nested paths (`/shop` and `/shop/shoes/nike`).
+- **Route Groups (`(group)`)**: Omitted from canonical URL paths while establishing layout boundaries (e.g. `/(marketing)/pricing` matches `/pricing`).
+- **Specificity Precedence**: Evaluated deterministically:
+  $$\text{Static} > \text{Dynamic } [param] > \text{Catch-all } [...param] > \text{Optional Catch-all } [[...param]]$$
+- **Conflict Detection**: Detects duplicate static routes and ambiguous parameter collisions at manifest validation time.
+
+### 2. Hierarchical Nested Layout Resolution
+Layouts are composed hierarchically outside-in:
+```text
+Request: /dashboard
+Layout Chain: RootLayout > DashboardLayout > PageComponent
+
+Step 1: page_html        = render_dashboard_page(&ctx)
+Step 2: dashboard_layout = render_dashboard_layout(&ctx, page_html)
+Step 3: root_layout      = render_root_layout(&ctx, dashboard_layout)
+```
+
+### 3. HTTP Lifecycle & Data Models
+- **`Request`**:
+  - `method`, `path`, `raw_query`, `body`
+  - `headers`: Case-insensitive header dictionary with `get(key)` and `has(key)`.
+  - `query`: Parsed query string dictionary (`?key=val&sort=desc`).
+  - `params`: Captured dynamic route parameters.
+  - `cookies`: Parsed `Cookie` header dictionary.
+- **`Response`**:
+  - `status`, `content_type`, `headers`, `body`
+  - Factory helpers: `response_html`, `response_json`, `response_text`, `response_redirect`, `response_not_found`, `response_error`.
+  - `set_cookie`: Configures `Set-Cookie` with `Max-Age`, `Path`, `Secure`, `HttpOnly`, and `SameSite` flags.
+  - `to_wire_format`: Serializes full HTTP/1.1 response frames.
+
+---
+
+## 📁 Directory Structure
 
 ```text
 ventanext/
-├── mod.va            # VentaNext framework core module export
-├── http.va           # HTTP Request, Response, Status Codes, and Protocol Serialization
-├── router.va         # Next.js-style Router with dynamic parameter matching (:id)
-├── ssr.va            # Server-Side Rendering (SSR) & Component Engine (Layout, Hero, Cards)
-├── middleware.va     # Middleware pipeline (Logger, CORS, Security Headers, Preflight)
-├── server.va         # Non-blocking event-driven HTTP application server
-├── main.va           # Full-stack runnable Next.js-style application entry point
-└── README.md         # Comprehensive framework documentation
+├── mod.va                 # Core module declarations
+├── http.va                # Request/Response models, headers, query, cookies, wire format
+├── router.va              # App Router manifest, segment parser, specificity, conflict check
+├── ssr.va                 # Component interface, nested layout resolution, showcase pages
+├── middleware.va          # Security headers, CORS headers, OPTIONS preflight, request logger
+├── server.va              # Server lifecycle, connection loop, manifest request dispatch
+├── main.va                # Application entry point CLI
+├── test_framework.va      # 10-suite automated unit & integration test runner
+└── README.md              # Framework documentation
 ```
 
 ---
 
-## 💻 Quick Start
+## 💻 Running & Testing
 
-### 1. Run Directly with Venta CLI
+### 1. Run the Framework Test Suite
 ```bash
-# Starts development server on http://localhost:3000
-vanta run ventanext/main.va
-
-# Or specify a custom port:
-vanta run ventanext/main.va -- --port 8080
+# Runs all 10 automated test suites:
+venta run ventanext/test_framework.va
 ```
 
-### 2. Compile to Standalone Native Binary
+### 2. Start the Server
 ```bash
-# Compile to native Linux x86-64 ELF executable
-vantac ventanext/main.va -o ventanext/app
+# Starts development server on http://127.0.0.1:3000
+venta run ventanext/main.va
 
-# Run the 86 KB server:
-./ventanext/app --port 3000
+# Custom port and headless single-request mode for CI/testing:
+venta run ventanext/main.va -- --port 8080 --once
+```
+
+### 3. Verify Endpoints
+```bash
+# Health JSON API:
+curl http://127.0.0.1:3000/api/status
+
+# Dynamic Post Detail (SSR):
+curl http://127.0.0.1:3000/posts/42
+
+# Echo API:
+curl -X POST http://127.0.0.1:3000/api/echo -d '{"hello":"venta"}'
 ```
 
 ---
 
-## 🌐 Endpoints & Pages
+## 🧪 Verified Phase 1 Test Coverage
 
-### Server-Rendered Pages (SSR)
-- **`GET /`**: Home landing page with Next.js-style gradient hero banner, feature cards, and code tour.
-- **`GET /dashboard`**: Real-time server telemetry and SSR routes data table.
-- **`GET /docs`**: Interactive framework guide and API reference.
-- **`GET /posts/:id`**: Dynamic SSR page extracting the `:id` parameter on demand (e.g. `/posts/42`).
-- **`GET /*`**: Fallback Next.js-style custom 404 page.
-
-### Typed JSON API Routes
-- **`GET /api/status`**: System diagnostics, Venta compiler version, and memory safety status.
-- **`GET /api/posts`**: JSON posts collection.
-- **`GET /api/posts/:id`**: Dynamic entity lookup returning JSON for specific `:id`.
-- **`POST /api/echo`**: Payload reflection endpoint echoing request bodies.
-
----
-
-## 🛠 Code Examples
-
-### 1. Handling an SSR Page
-```rust
-import ventanext::http::{Request, Response};
-import ventanext::ssr::render_layout;
-
-pub fn handle_about(req: &Request) -> Response {
-    let content = "<h1>About Us</h1><p>Running on VentaNext.</p>";
-    let html = render_layout("About", "about", content);
-    Response::html(html.as_str())
-}
-```
-
-### 2. Handling a Dynamic Route (`/posts/:id`)
-```rust
-import ventanext::http::{Request, Response};
-import ventanext::ssr::render_post_detail_page;
-
-pub fn handle_post_detail(req: &mut Request) -> Response {
-    let post_id = req.param_value.as_str();
-    let html = render_post_detail_page(post_id);
-    Response::html(html.as_str())
-}
-```
-
-### 3. Handling a Typed JSON API Route
-```rust
-import ventanext::http::{Request, Response};
-
-pub fn handle_api(req: &Request) -> Response {
-    Response::json("{\"status\":\"ok\",\"engine\":\"VentaNext\"}")
-}
-```
-
----
-
-## 📊 Performance Benchmarks
-
-| Metric | Next.js (Node.js/V8) | VentaNext (Native Venta) | Advantage |
-|---|---|---|---|
-| **Compilation Time** | 4.80s (webpack/turbopack) | **0.24s** (vantac) | **20x faster** |
-| **Binary / Artifact Footprint** | ~140 MB (node_modules) | **86 KB** (single binary) | **1,600x smaller** |
-| **Idle Memory Consumption** | ~65 MB RSS | **< 3 MB RSS** | **21x lighter** |
-| **Cold Startup Latency** | 350 ms | **< 2 ms** | **175x faster** |
-| **Memory Safety Model** | Garbage Collector (GC) | **Affine Borrow Checker** | **Zero-Cost Safety** |
-
----
-
-## 📄 License
-
-Dual-licensed under MIT or Apache-2.0.
+The test suite in [`ventanext/test_framework.va`](file:///c:/Users/mumer/OneDrive/Documents/Venta/ventanext/test_framework.va) validates:
+1. `test_route_manifest_registration_and_validation` (Static, Dynamic, Catch-All, Optional Catch-All, API routes).
+2. `test_route_conflict_detection` (Catches ambiguous collisions like `/blog/[id]` vs `/blog/[slug]` and duplicate paths).
+3. `test_specificity_precedence` (Static `/posts/new` reliably beats dynamic `/posts/[slug]`).
+4. `test_dynamic_param_extraction` (Extracts parameterized segments into `req.params`).
+5. `test_catch_all_param_extraction` (Multi-segment capture into `[...path]`).
+6. `test_optional_catch_all_param_extraction` (Handles both 0 segments and multiple segments).
+7. `test_route_group_normalization` (`/(marketing)/pricing` matches `/pricing`).
+8. `test_nested_layout_resolution` (Root > Dashboard > Page nested HTML composition).
+9. `test_http_request_parsing_lifecycle` (Headers, query params, cookies, body).
+10. `test_http_response_and_wire_formatting` (Status lines, cookies, redirects, wire serialization).

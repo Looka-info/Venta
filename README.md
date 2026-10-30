@@ -88,11 +88,13 @@ Experience the official Venta language showcase, live benchmark visualizer, rele
 ### ⚡ VentaNext Framework — Next.js for Venta (in Pure Venta)
 
 A full-stack, server-side web framework inspired by Next.js, written 100% in pure Venta ([`ventanext/`](ventanext/)):
-- **Pages & App Router**: Declarative routing for `/`, `/dashboard`, `/docs`, and dynamic `:id` paths (e.g. `/posts/:id`).
-- **Server-Side Rendering (SSR)**: Pure Venta component functions render HTML on the server in microseconds with zero virtual DOM overhead.
-- **Typed JSON API Routes**: REST endpoints (`/api/status`, `/api/posts`, `/api/posts/:id`, `/api/echo`).
-- **Middleware Pipeline**: Built-in request logger, CORS, security headers, and Next.js-style 404 error boundaries.
-- **Ultra-Lean Native Binary**: Compiles to an **86 KB standalone native executable** (no Node.js, V8, or Python dependencies).
+- **Deterministic Route Manifest**: Init-time route registry with segment classification (`Static`, `Dynamic [param]`, `Catch-All [...param]`, and `Optional Catch-All [[...filter]]`).
+- **Specificity Precedence & Conflict Detection**: Strict specificity ranking (`Static (100)` > `Dynamic (50)` > `Catch-All (25)` > `Optional (10)`) with collision validation preventing overlapping route patterns.
+- **Outside-In Nested Layout Resolution**: True hierarchical layout resolution where the Root Layout seamlessly wraps nested sub-layouts (`/dashboard`, `/docs`) and leaf pages.
+- **Route Group Normalization**: Organizational folders `(marketing)` / `(dashboard)` stripped from URL routing paths.
+- **Typed HTTP Lifecycle**: Pure Venta request/response engine featuring case-insensitive `HeaderMap`, query string `QueryMap`, route parameter `ParamMap`, and `CookieMap`.
+- **Zero-Dependency Native Architecture**: 100% pure Venta code running directly on native metal without Node.js, V8, React, or Python runtimes.
+- **Automated Verification**: Comprehensive test suite (`ventanext/test_framework.va`) verifying all 10 core routing and lifecycle invariants.
 
 ```mermaid
 flowchart LR
@@ -109,6 +111,9 @@ flowchart LR
 ```
 
 ```bash
+# Run VentaNext automated verification suite (10 test suites)
+vanta run ventanext/test_framework.va
+
 # Run VentaNext server on http://localhost:3000
 vanta run ventanext/main.va
 

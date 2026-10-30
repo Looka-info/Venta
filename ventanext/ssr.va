@@ -1,15 +1,56 @@
 // ============================================================================
 // ⚡ VentaNext Framework — Server-Side Rendering (SSR) & Component Engine
-// Next.js-Style Layouts, Awwwards-Level Showcase UI, and Pure Venta HTML Renderers
+// Next.js-Class App Router Nested Layouts, Component Interface, and Render Context
 // ============================================================================
 
+import http::{ParamMap, QueryMap, HeaderMap, CookieMap, make_param_map, make_query_map, make_header_map, make_cookie_map};
 import std::string::String;
+import std::option::Option;
 
 // ----------------------------------------------------------------------------
-// 1. Root Layout (like Next.js app/layout.tsx)
+// 1. Render Context
 // ----------------------------------------------------------------------------
 
-pub fn render_layout(title: &str, active_nav: &str, content: &str) -> String {
+pub struct RenderContext {
+    pub path: String,
+    pub title: String,
+    pub active_nav: String,
+    pub params: ParamMap,
+    pub query: QueryMap,
+    pub headers: HeaderMap,
+    pub cookies: CookieMap,
+}
+
+pub fn make_render_context(
+    path: &str,
+    title: &str,
+    active_nav: &str,
+    params: ParamMap,
+    query: QueryMap,
+    headers: HeaderMap,
+    cookies: CookieMap,
+) -> RenderContext {
+    RenderContext {
+        path: String::from_str(path),
+        title: String::from_str(title),
+        active_nav: String::from_str(active_nav),
+        params: params,
+        query: query,
+        headers: headers,
+        cookies: cookies,
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 2. Nested Layout Resolution Engine
+// ----------------------------------------------------------------------------
+
+pub fn layout_none() -> i64 { 0 }
+pub fn layout_root() -> i64 { 1 }
+pub fn layout_root_and_dashboard() -> i64 { 2 }
+pub fn layout_root_and_docs() -> i64 { 3 }
+
+pub fn render_root_layout(title: &str, active_nav: &str, content: &str) -> String {
     let mut html = String::from_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
     html.push_str("    <meta charset=\"UTF-8\">\n");
     html.push_str("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
@@ -162,8 +203,59 @@ pub fn render_layout(title: &str, active_nav: &str, content: &str) -> String {
     html
 }
 
+pub fn render_dashboard_layout(ctx: &RenderContext, children: &str) -> String {
+    let mut s = String::from_str("<div style=\"display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: start;\">\n");
+    s.push_str("    <aside style=\"background: var(--bg-card); border: 1px solid var(--border-gold); border-radius: 16px; padding: 20px;\">\n");
+    s.push_str("        <h4 style=\"font-size: 0.82rem; text-transform: uppercase; color: var(--gold-core); letter-spacing: 0.05em; margin-bottom: 12px;\">Dashboard Section</h4>\n");
+    s.push_str("        <ul style=\"list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;\">\n");
+    s.push_str("            <li><a href=\"/dashboard\" style=\"color: var(--text-hero); text-decoration: none; font-weight: 600;\">📊 Metrics Overview</a></li>\n");
+    s.push_str("            <li><a href=\"/dashboard/routes\" style=\"color: var(--text-muted); text-decoration: none;\">🛣 Route Manifest</a></li>\n");
+    s.push_str("            <li><a href=\"/posts/1\" style=\"color: var(--text-muted); text-decoration: none;\">📝 Dynamic Posts</a></li>\n");
+    s.push_str("            <li><a href=\"/api/status\" style=\"color: var(--text-muted); text-decoration: none;\">⚡ Health API</a></li>\n");
+    s.push_str("        </ul>\n");
+    s.push_str("    </aside>\n");
+    s.push_str("    <section>\n");
+    s.push_str(children);
+    s.push_str("\n    </section>\n</div>\n");
+    s
+}
+
+pub fn render_docs_layout(ctx: &RenderContext, children: &str) -> String {
+    let mut s = String::from_str("<div style=\"display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: start;\">\n");
+    s.push_str("    <aside style=\"background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 20px;\">\n");
+    s.push_str("        <h4 style=\"font-size: 0.82rem; text-transform: uppercase; color: var(--gold-core); letter-spacing: 0.05em; margin-bottom: 12px;\">Documentation</h4>\n");
+    s.push_str("        <ul style=\"list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;\">\n");
+    s.push_str("            <li><a href=\"/docs\" style=\"color: var(--gold-bright); text-decoration: none; font-weight: 600;\">⚡ Getting Started</a></li>\n");
+    s.push_str("            <li><a href=\"/docs/router\" style=\"color: var(--text-muted); text-decoration: none;\">🛣 App Router Spec</a></li>\n");
+    s.push_str("            <li><a href=\"/docs/layouts\" style=\"color: var(--text-muted); text-decoration: none;\">📐 Nested Layouts</a></li>\n");
+    s.push_str("        </ul>\n");
+    s.push_str("    </aside>\n");
+    s.push_str("    <section>\n");
+    s.push_str(children);
+    s.push_str("\n    </section>\n</div>\n");
+    s
+}
+
+pub fn resolve_layout(layout_id: i64, ctx: &RenderContext, page_markup: &str) -> String {
+    if layout_id == layout_none() {
+        return String::from_str(page_markup);
+    }
+    if layout_id == layout_root() {
+        return render_root_layout(ctx.title.as_str(), ctx.active_nav.as_str(), page_markup);
+    }
+    if layout_id == layout_root_and_dashboard() {
+        let nested = render_dashboard_layout(ctx, page_markup);
+        return render_root_layout(ctx.title.as_str(), ctx.active_nav.as_str(), nested.as_str());
+    }
+    if layout_id == layout_root_and_docs() {
+        let nested = render_docs_layout(ctx, page_markup);
+        return render_root_layout(ctx.title.as_str(), ctx.active_nav.as_str(), nested.as_str());
+    }
+    render_root_layout(ctx.title.as_str(), ctx.active_nav.as_str(), page_markup)
+}
+
 // ----------------------------------------------------------------------------
-// 2. Component Helpers
+// 3. Component Helpers
 // ----------------------------------------------------------------------------
 
 pub fn component_code_block(title: &str, code: &str) -> String {
@@ -178,10 +270,10 @@ pub fn component_code_block(title: &str, code: &str) -> String {
 }
 
 // ----------------------------------------------------------------------------
-// 3. Page Renderers
+// 4. Page Component Renderers
 // ----------------------------------------------------------------------------
 
-pub fn render_home_page() -> String {
+pub fn render_home_page(ctx: &RenderContext) -> String {
     let mut c = String::from_str("<div class=\"hero\">\n");
     c.push_str("    <div class=\"hero-badge\">⚡ Venta Systems Programming Language • Next-Gen Compiler</div>\n");
     c.push_str("    <h1>PURE <span class=\"gradient-gold\">VELOCITY.</span><br>ABSOLUTE SAFETY.<br>ZERO <span class=\"gradient-gold\">OVERHEAD.</span></h1>\n");
@@ -207,21 +299,21 @@ pub fn render_home_page() -> String {
     c.push_str("        <p>Built-in --emit-json flag emitting machine-parseable spans, tokens, and type diagnostics designed for autonomous AI agents.</p>\n    </div>\n");
     c.push_str("    <div class=\"card-bento\">\n        <div class=\"card-icon\">🌐</div>\n");
     c.push_str("        <h3>VentaNext Framework</h3>\n");
-    c.push_str("        <p>Next.js-style server-side rendering, dynamic route parameters, and high-performance native HTTP engine written in pure Venta.</p>\n    </div>\n");
+    c.push_str("        <p>Next.js-style App Router, deterministic route manifest, nested layouts, and high-performance native HTTP lifecycle written in pure Venta.</p>\n    </div>\n");
     c.push_str("    <div class=\"card-bento\">\n        <div class=\"card-icon\">🎨</div>\n");
     c.push_str("        <h3>3D Gold File Icons</h3>\n");
     c.push_str("        <p>Official VS Code extension featuring custom 3D gold faceted lightning file icons for all .va and .vanta source files.</p>\n    </div>\n");
     c.push_str("</div>\n");
 
-    let sample_code = "// VentaNext Route Handler\nimport ventanext::http::{Request, Response};\n\npub fn handle_index(req: &Request) -> Response {\n    Response::html(\"<h1>Welcome to Venta!</h1>\")\n}\n\npub fn handle_api_status(req: &Request) -> Response {\n    Response::json(\"{\\\"status\\\": \\\"healthy\\\", \\\"runtime\\\": \\\"Venta\\\"}\")\n}";
-    c.push_str(component_code_block("app/routes.va", sample_code).as_str());
+    let sample_code = "// VentaNext Route Manifest & App Router\nimport ventanext::router::{RouteManifest, make_route_manifest};\nimport ventanext::http::{Request, Response};\n\nlet mut m = make_route_manifest();\nm.add_page_route(\"/\", layout_root(), 100);\nm.add_page_route(\"/dashboard\", layout_root_and_dashboard(), 101);\nm.add_page_route(\"/posts/[slug]\", layout_root(), 102);\nm.add_api_route(\"GET\", \"/api/status\", 200);\nm.validate();";
+    c.push_str(component_code_block("app/manifest.va", sample_code).as_str());
 
-    render_layout("Home", "home", c.as_str())
+    c
 }
 
-pub fn render_dashboard_page() -> String {
+pub fn render_dashboard_page(ctx: &RenderContext) -> String {
     let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.4rem; font-weight: 800; margin-bottom: 8px;\">Server Telemetry & Telemetry Dashboard</h1>\n");
-    c.push_str("<p style=\"color: var(--text-muted); margin-bottom: 36px;\">Live runtime metrics rendered via Server-Side Rendering (SSR) in pure Venta.</p>\n");
+    c.push_str("<p style=\"color: var(--text-muted); margin-bottom: 36px;\">Live runtime metrics rendered inside a nested dashboard layout in pure Venta.</p>\n");
 
     c.push_str("<div class=\"grid-bento\" style=\"margin-top: 0; margin-bottom: 36px;\">\n");
     c.push_str("    <div class=\"card-bento\">\n        <div class=\"card-icon\">⚡</div>\n");
@@ -234,46 +326,55 @@ pub fn render_dashboard_page() -> String {
     c.push_str("        <h3>63.8 MB/s</h3>\n        <p>Raw HTTP Throughput (Loopback)</p>\n    </div>\n");
     c.push_str("</div>\n");
 
-    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-bottom: 16px;\">Configured VentaNext Routes</h2>\n");
-    c.push_str("<table>\n    <thead>\n        <tr>\n            <th>Method</th>\n            <th>Route Pattern</th>\n            <th>Kind</th>\n            <th>Status</th>\n        </tr>\n    </thead>\n    <tbody>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/</code></td><td>Page (SSR)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/dashboard</code></td><td>Page (SSR)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/docs</code></td><td>Page (SSR)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/posts/:id</code></td><td>Dynamic Route (SSR)</td><td><span class=\"status-pill pill-green\">Active</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/status</code></td><td>API Route (JSON)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/posts</code></td><td>API Route (JSON)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/posts/:id</code></td><td>Dynamic API (JSON)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
-    c.push_str("        <tr><td><span class=\"status-pill pill-green\">POST</span></td><td><code>/api/echo</code></td><td>API Route (JSON)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-bottom: 16px;\">Deterministic App Router Routes</h2>\n");
+    c.push_str("<table>\n    <thead>\n        <tr>\n            <th>Method</th>\n            <th>Route Pattern</th>\n            <th>Layout Chain</th>\n            <th>Status</th>\n        </tr>\n    </thead>\n    <tbody>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/</code></td><td>Root Layout</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/dashboard</code></td><td>Root &gt; Dashboard</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/docs</code></td><td>Root &gt; Docs</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-gold\">GET</span></td><td><code>/posts/[id]</code></td><td>Root Layout</td><td><span class=\"status-pill pill-green\">Dynamic Param</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/status</code></td><td>None (JSON API)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/posts</code></td><td>None (JSON API)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-green\">GET</span></td><td><code>/api/posts/[id]</code></td><td>None (JSON API)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
+    c.push_str("        <tr><td><span class=\"status-pill pill-green\">POST</span></td><td><code>/api/echo</code></td><td>None (JSON API)</td><td><span class=\"status-pill pill-green\">200 OK</span></td></tr>\n");
     c.push_str("    </tbody>\n</table>\n");
 
-    render_layout("Dashboard", "dashboard", c.as_str())
+    c
 }
 
-pub fn render_docs_page() -> String {
+pub fn render_docs_page(ctx: &RenderContext) -> String {
     let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.4rem; font-weight: 800; margin-bottom: 8px;\">⚡ Venta Documentation</h1>\n");
     c.push_str("<p style=\"color: var(--text-muted); margin-bottom: 36px;\">Complete guide to building high-performance systems and web applications with Venta.</p>\n");
 
-    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-top: 24px; margin-bottom: 12px;\">1. Defining Page Routes</h2>\n");
-    c.push_str("<p style=\"color: var(--text-muted);\">Page routes handle incoming HTTP GET requests and return server-rendered HTML using <code>Response::html</code>:</p>\n");
-    let code1 = "import ventanext::http::{Request, Response};\nimport ventanext::ssr::render_layout;\n\npub fn handle_about(req: &Request) -> Response {\n    let content = \"<h1>About Us</h1><p>Built with VentaNext.</p>\";\n    let page_html = render_layout(\"About\", \"about\", content);\n    Response::html(page_html.as_str())\n}";
-    c.push_str(component_code_block("routes/about.va", code1).as_str());
+    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-top: 24px; margin-bottom: 12px;\">1. App Router & Route Manifest</h2>\n");
+    c.push_str("<p style=\"color: var(--text-muted);\">VentaNext registers routes deterministically into a route manifest at compile/start time:</p>\n");
+    let code1 = "import ventanext::router::{RouteManifest, make_route_manifest};\nimport ventanext::http::{Request, Response};\n\nlet mut m = make_route_manifest();\nm.add_page_route(\"/about\", 1, 101);\nm.validate();";
+    c.push_str(component_code_block("app/manifest.va", code1).as_str());
 
-    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-top: 32px; margin-bottom: 12px;\">2. Dynamic Route Parameters (:id, :slug)</h2>\n");
-    c.push_str("<p style=\"color: var(--text-muted);\">Dynamic routes automatically capture parameterized URL path segments into <code>req.param_value</code>:</p>\n");
-    let code2 = "pub fn handle_post(req: &Request) -> Response {\n    let post_id = req.param_value.as_str();\n    let mut content = String::from_str(\"<h1>Post #\");\n    content.push_str(post_id);\n    content.push_str(\"</h1>\");\n    Response::html(content.as_str())\n}";
+    c.push_str("<h2 style=\"font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; margin-top: 32px; margin-bottom: 12px;\">2. Dynamic Route Parameters ([id], [slug])</h2>\n");
+    c.push_str("<p style=\"color: var(--text-muted);\">Dynamic routes automatically capture parameterized URL path segments into <code>req.params</code>:</p>\n");
+    let code2 = "pub fn handle_post(req: &Request) -> Response {\n    let post_id = req.params.get(\"id\");\n    // Render post detail with id...\n}";
     c.push_str(component_code_block("routes/post.va", code2).as_str());
 
-    render_layout("Docs", "docs", c.as_str())
+    c
 }
 
-pub fn render_post_detail_page(post_id: &str) -> String {
+pub fn render_post_detail_page(ctx: &RenderContext) -> String {
+    let id_opt = ctx.params.get("id");
+    let mut post_id = String::from_str("1");
+    match id_opt {
+        Option::Some(id_val) => {
+            post_id = id_val;
+        }
+        Option::None => {}
+    }
+
     let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; margin-bottom: 12px;\">Post #");
-    c.push_str(post_id);
-    c.push_str("</h1>\n<p style=\"color: var(--text-muted); margin-bottom: 24px;\">Dynamic server-rendered route parameter resolved via VentaNext.</p>\n");
-    c.push_str("<div class=\"card-bento\">\n    <h3>Dynamic SSR Execution</h3>\n    <p>Route parameter: <code>");
-    c.push_str(post_id);
+    c.push_str(post_id.as_str());
+    c.push_str("</h1>\n<p style=\"color: var(--text-muted); margin-bottom: 24px;\">Dynamic server-rendered route parameter resolved via VentaNext App Router.</p>\n");
+    c.push_str("<div class=\"card-bento\">\n    <h3>Dynamic SSR Execution</h3>\n    <p>Captured parameter <code>id = ");
+    c.push_str(post_id.as_str());
     c.push_str("</code></p>\n    <p style=\"margin-top: 16px;\"><a href=\"/dashboard\" class=\"btn btn-gold\" style=\"padding: 6px 16px; font-size: 0.8rem;\">← Back to Dashboard</a></p>\n</div>\n");
-    render_layout("Post Detail", "dashboard", c.as_str())
+    c
 }
 
 pub fn render_404_page(path: &str) -> String {
@@ -282,7 +383,7 @@ pub fn render_404_page(path: &str) -> String {
     c.push_str("    <h2 style=\"font-size: 1.6rem; font-weight: 700; margin-bottom: 12px;\">Page Not Found</h2>\n");
     c.push_str("    <p style=\"color: var(--text-muted); margin-bottom: 24px;\">The requested path <code>");
     c.push_str(path);
-    c.push_str("</code> does not exist on this server.</p>\n");
+    c.push_str("</code> does not exist in the VentaNext App Router manifest.</p>\n");
     c.push_str("    <a href=\"/\" class=\"btn btn-gold\">Return Home →</a>\n</div>\n");
-    render_layout("404 Not Found", "none", c.as_str())
+    render_root_layout("404 Not Found", "none", c.as_str())
 }

@@ -1,16 +1,44 @@
 // ============================================================================
 // ⚡ VentaNext Framework — Server Application Engine
-// Connection lifecycle, route dispatching, middleware execution, and event loop
+// Connection Lifecycle, Route Manifest Dispatching, Middleware Pipeline, & SSR
 // ============================================================================
 
-import http::{Request, Response, parse_http_request, response_html, response_json, response_not_found, to_wire_format};
-import router::{path_equals, match_dynamic_route};
+import http::{
+    Request, Response, parse_http_request, response_html, response_json,
+    response_not_found, response_error, to_wire_format, clone_param_map
+};
+import router::{
+    RouteManifest, RouteMatch, make_route_manifest, match_route
+};
 import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
-import ssr::{render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page, render_404_page};
+import ssr::{
+    RenderContext, make_render_context, resolve_layout,
+    layout_root, layout_root_and_dashboard, layout_root_and_docs,
+    render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page, render_404_page
+};
 
 import std::net;
 import std::string::String;
 import std::option::Option;
+import std::result::Result;
+
+pub fn build_default_manifest() -> RouteManifest {
+    let mut m = make_route_manifest();
+
+    // 1. App Router Page Routes (with Layout Hierarchy)
+    m.add_page_route("/", layout_root(), 100);
+    m.add_page_route("/dashboard", layout_root_and_dashboard(), 101);
+    m.add_page_route("/docs", layout_root_and_docs(), 102);
+    m.add_page_route("/posts/[id]", layout_root(), 103);
+
+    // 2. Typed API Routes
+    m.add_api_route("GET", "/api/status", 200);
+    m.add_api_route("GET", "/api/posts", 201);
+    m.add_api_route("GET", "/api/posts/[id]", 202);
+    m.add_api_route("POST", "/api/echo", 203);
+
+    m
+}
 
 pub fn print_server_banner(port: i64) {
     print_str("\n====================================================================\n");
@@ -19,6 +47,7 @@ pub fn print_server_banner(port: i64) {
     print_str("====================================================================\n");
     print_str("   Architecture: System V AMD64 Native Machine Code (No LLVM)       \n");
     print_str("   Environment:  Production (v1.0-RC2 Runtime)                      \n");
+    print_str("   App Router:   Deterministic Route Manifest with Specificity       \n");
     print_str("   TCP Port:     ");
     print_i64(port);
     print_str("\n");
@@ -26,19 +55,19 @@ pub fn print_server_banner(port: i64) {
     print_i64(port);
     print_str("/\n");
     print_str("====================================================================\n");
-    print_str("   Available Routes:\n");
-    print_str("     - GET  /              -> Home Page (SSR)\n");
-    print_str("     - GET  /dashboard     -> Live Telemetry Dashboard (SSR)\n");
-    print_str("     - GET  /docs          -> Framework Documentation (SSR)\n");
-    print_str("     - GET  /posts/:id     -> Dynamic Post Detail (SSR Param)\n");
+    print_str("   Configured Manifest Routes:\n");
+    print_str("     - GET  /              -> Home Page (Root Layout)\n");
+    print_str("     - GET  /dashboard     -> Telemetry (Root > Dashboard Layout)\n");
+    print_str("     - GET  /docs          -> Documentation (Root > Docs Layout)\n");
+    print_str("     - GET  /posts/[id]    -> Post Detail (Dynamic Param [id])\n");
     print_str("     - GET  /api/status    -> System Diagnostics (JSON API)\n");
     print_str("     - GET  /api/posts     -> Posts Collection (JSON API)\n");
-    print_str("     - GET  /api/posts/:id -> Entity Lookup (JSON API Param)\n");
+    print_str("     - GET  /api/posts/[id]-> Dynamic Entity Lookup (JSON API)\n");
     print_str("     - POST /api/echo      -> Payload Reflection (JSON API)\n");
     print_str("====================================================================\n\n");
 }
 
-pub fn dispatch_request(req: &mut Request) -> Response {
+pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Request) -> Response {
     let method = req.method.as_str();
     let path = req.path.as_str();
 
@@ -47,82 +76,127 @@ pub fn dispatch_request(req: &mut Request) -> Response {
         return handle_options_preflight();
     }
 
-    // 2. Exact Page Routes (SSR)
-    if method.equals("GET") {
-        if path_equals(path, "/") {
-            let html = render_home_page();
-            return response_html(html.as_str());
-        }
-        if path_equals(path, "/dashboard") {
-            let html = render_dashboard_page();
-            return response_html(html.as_str());
-        }
-        if path_equals(path, "/docs") {
-            let html = render_docs_page();
-            return response_html(html.as_str());
-        }
+    // 2. Resolve Route via App Router Engine
+    let match_opt = match_route(manifest, path, method);
+    match match_opt {
+        Option::Some(m_res) => {
+            req.params = clone_param_map(&m_res.params);
 
-        // 3. Dynamic Page Route: /posts/:id
-        let post_param = match_dynamic_route(path, "/posts/");
-        match post_param {
-            Option::Some(id_str) => {
-                req.param_name = String::from_str("id");
-                req.param_value = id_str.clone();
-                let html = render_post_detail_page(id_str.as_str());
-                return response_html(html.as_str());
+            // Handle API Routes
+            if m_res.is_api {
+                if m_res.page_id == 200 {
+                    let json = "{\"framework\":\"VentaNext\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"status\":\"operational\",\"memory_safety\":\"guaranteed\",\"features\":[\"App Router Manifest\",\"Nested Layouts\",\"Dynamic Params ([slug])\",\"Catch-All ([...path])\",\"Typed API Routes\",\"Middleware Pipeline\"]}\n";
+                    return response_json(json);
+                }
+
+                if m_res.page_id == 201 {
+                    let json = "{\"posts\":[{\"id\":\"1\",\"title\":\"Introducing VentaNext\",\"author\":\"Antigravity\"},{\"id\":\"2\",\"title\":\"Server-Side Rendering at 60 MB/s\",\"author\":\"Looka\"},{\"id\":\"3\",\"title\":\"Affine Borrowing in Web Backends\",\"author\":\"Venta Team\"}]}\n";
+                    return response_json(json);
+                }
+
+                if m_res.page_id == 202 {
+                    let id_opt = req.params.get("id");
+                    let mut id_str = String::from_str("1");
+                    match id_opt {
+                        Option::Some(s) => { id_str = s; }
+                        Option::None => {}
+                    }
+                    let mut json = String::from_str("{\"id\":\"");
+                    json.push_str(id_str.as_str());
+                    json.push_str("\",\"title\":\"Dynamic Post #");
+                    json.push_str(id_str.as_str());
+                    json.push_str("\",\"body\":\"Fetched dynamically via VentaNext App Router dynamic parameter.\",\"framework\":\"VentaNext\"}\n");
+                    return response_json(json.as_str());
+                }
+
+                if m_res.page_id == 203 {
+                    let mut json = String::from_str("{\"status\":\"received\",\"method\":\"POST\",\"echo_payload\":");
+                    if req.body.is_empty() {
+                        json.push_str("null");
+                    } else {
+                        json.push_str("\"");
+                        json.push_str(req.body.as_str());
+                        json.push_str("\"");
+                    }
+                    json.push_str("}\n");
+                    return response_json(json.as_str());
+                }
+
+                return response_error("Unknown API handler identifier");
             }
-            Option::None => {}
-        }
 
-        // 4. API Routes (JSON)
-        if path_equals(path, "/api/status") {
-            let json = "{\"framework\":\"VentaNext\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"status\":\"operational\",\"memory_safety\":\"guaranteed\",\"features\":[\"File Routing\",\"Dynamic Params (:id)\",\"SSR Components\",\"Middleware Pipeline\",\"Typed API Routes\"]}\n";
-            return response_json(json);
-        }
-
-        if path_equals(path, "/api/posts") {
-            let json = "{\"posts\":[{\"id\":\"1\",\"title\":\"Introducing VentaNext\",\"author\":\"Antigravity\"},{\"id\":\"2\",\"title\":\"Server-Side Rendering at 60 MB/s\",\"author\":\"Looka\"},{\"id\":\"3\",\"title\":\"Affine Borrowing in Web Backends\",\"author\":\"Venta Team\"}]}\n";
-            return response_json(json);
-        }
-
-        // Dynamic API Route: /api/posts/:id
-        let api_post_param = match_dynamic_route(path, "/api/posts/");
-        match api_post_param {
-            Option::Some(id_str) => {
-                let mut json = String::from_str("{\"id\":\"");
-                json.push_str(id_str.as_str());
-                json.push_str("\",\"title\":\"Dynamic Post #");
-                json.push_str(id_str.as_str());
-                json.push_str("\",\"body\":\"Fetched dynamically via VentaNext API route.\",\"framework\":\"VentaNext\"}\n");
-                return response_json(json.as_str());
+            // Handle Page Routes (with Nested Layout Resolution)
+            let mut title = "Venta";
+            let mut active_nav = "none";
+            if m_res.page_id == 100 {
+                title = "Home";
+                active_nav = "home";
+            } else if m_res.page_id == 101 {
+                title = "Dashboard";
+                active_nav = "dashboard";
+            } else if m_res.page_id == 102 {
+                title = "Docs";
+                active_nav = "docs";
+            } else if m_res.page_id == 103 {
+                title = "Post Detail";
+                active_nav = "dashboard";
             }
-            Option::None => {}
+
+            let ctx = make_render_context(
+                path,
+                title,
+                active_nav,
+                clone_param_map(&req.params),
+                http::make_query_map(),
+                http::make_header_map(),
+                http::make_cookie_map(),
+            );
+
+            let mut page_markup = String::new();
+            if m_res.page_id == 100 {
+                page_markup = render_home_page(&ctx);
+            } else if m_res.page_id == 101 {
+                page_markup = render_dashboard_page(&ctx);
+            } else if m_res.page_id == 102 {
+                page_markup = render_docs_page(&ctx);
+            } else if m_res.page_id == 103 {
+                page_markup = render_post_detail_page(&ctx);
+            }
+
+            let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
+            return response_html(final_html.as_str());
         }
+        Option::None => {}
     }
 
-    // 5. POST API Routes
-    if method.equals("POST") {
-        if path_equals(path, "/api/echo") {
-            let mut json = String::from_str("{\"status\":\"received\",\"method\":\"POST\",\"echo_payload\":");
-            if req.body.is_empty() {
-                json.push_str("null");
-            } else {
-                json.push_str("\"");
-                json.push_str(req.body.as_str());
-                json.push_str("\"");
-            }
-            json.push_str("}\n");
-            return response_json(json.as_str());
-        }
-    }
-
-    // 6. Default 404 Fallback Page (SSR)
+    // 3. Fallback: 404 Boundary
     let not_found_html = render_404_page(path);
     response_not_found(not_found_html.as_str())
 }
 
+pub fn dispatch_request(req: &mut Request) -> Response {
+    let manifest = build_default_manifest();
+    dispatch_request_with_manifest(&manifest, req)
+}
+
 pub fn run_server(port: i64, serve_once: bool) -> i64 {
     print_server_banner(port);
+
+    let manifest = build_default_manifest();
+    let val_res = manifest.validate();
+    match val_res {
+        Result::Ok(route_count) => {
+            print_str("[VentaNext] Route manifest validated successfully: ");
+            print_i64(route_count);
+            print_str(" routes registered.\n");
+        }
+        Result::Err(err) => {
+            print_str("[VentaNext] Fatal error: Route manifest conflict: ");
+            print_str(err.as_str());
+            print_str("\n");
+            return 1;
+        }
+    }
 
     let server_fd = net::listen(port);
     if server_fd < 0 {
@@ -151,7 +225,7 @@ pub fn run_server(port: i64, serve_once: bool) -> i64 {
 
             if bytes_read > 0 {
                 let mut req = parse_http_request(raw_buf.as_str());
-                let mut resp = dispatch_request(&mut req);
+                let mut resp = dispatch_request_with_manifest(&manifest, &mut req);
 
                 // Execute Middleware Pipeline
                 apply_security_headers(&mut resp);

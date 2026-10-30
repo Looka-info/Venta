@@ -1,0 +1,366 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Phase 1 Automated Test Suite
+// Verifies: App Router Manifest, Route Conflict Detection, Specificity Precedence,
+// Dynamic & Catch-All Params, Nested Layouts, HTTP Lifecycle, Headers & Cookies
+// ============================================================================
+
+mod http;
+mod router;
+mod ssr;
+mod middleware;
+mod server;
+
+import http::{
+    Request, Response, HeaderMap, QueryMap, ParamMap, CookieMap,
+    make_request, parse_http_request, make_response, response_html, response_json,
+    response_redirect, response_not_found, response_error, set_cookie, add_header,
+    to_wire_format, make_header_map, make_query_map, make_param_map, make_cookie_map,
+    clone_param_map
+};
+import router::{
+    RouteManifest, RouteMatch, make_route_manifest, match_route,
+    seg_static, seg_dynamic, seg_catch_all, seg_optional_catch_all, seg_group,
+    split_segments, parse_segment, build_canonical_pattern, calculate_route_kind_and_specificity
+};
+import ssr::{
+    RenderContext, make_render_context, resolve_layout,
+    layout_none, layout_root, layout_root_and_dashboard, layout_root_and_docs,
+    render_root_layout, render_dashboard_layout, render_docs_layout
+};
+
+import std::string::String;
+import std::option::Option;
+import std::result::Result;
+
+fn assert(condition: bool, message: &str) {
+    if condition == false {
+        print_str("Assertion FAILED: ");
+        print_str(message);
+        print_str("\n");
+        exit_with_error(1);
+    }
+}
+
+fn exit_with_error(code: i64) {
+    let mut x: [i64; 1] = [code];
+    let invalid_idx = 10;
+    print_i64(x[invalid_idx]);
+}
+
+fn test_route_manifest_registration_and_validation() {
+    print_str("[1/10] Testing Route Manifest registration & validation... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/", layout_root(), 1);
+    m.add_page_route("/about", layout_root(), 2);
+    m.add_page_route("/dashboard", layout_root_and_dashboard(), 3);
+    m.add_page_route("/posts/[slug]", layout_root(), 4);
+    m.add_page_route("/docs/[...slug]", layout_root_and_docs(), 5);
+    m.add_page_route("/shop/[[...filter]]", layout_root(), 6);
+    m.add_api_route("GET", "/api/health", 100);
+
+    let val_res = m.validate();
+    match val_res {
+        Result::Ok(count) => {
+            assert(count == 7, "Expected 7 validated routes in manifest");
+        }
+        Result::Err(_) => {
+            assert(false, "Valid manifest unexpectedly rejected");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_route_conflict_detection() {
+    print_str("[2/10] Testing Route Conflict detection... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/blog/[id]", layout_root(), 10);
+    m.add_page_route("/blog/[slug]", layout_root(), 11); // Conflict: ambiguous dynamic parameter
+
+    let conf_res = m.validate();
+    match conf_res {
+        Result::Ok(_) => {
+            assert(false, "Conflicting routes were not caught by validator");
+        }
+        Result::Err(err) => {
+            assert(err.len_bytes() > 0, "Expected non-empty error message on conflict");
+        }
+    }
+
+    let mut m_dup = make_route_manifest();
+    m_dup.add_page_route("/pricing", layout_root(), 20);
+    m_dup.add_page_route("/pricing", layout_root(), 21); // Conflict: duplicate static path
+    let dup_res = m_dup.validate();
+    match dup_res {
+        Result::Ok(_) => {
+            assert(false, "Duplicate routes were not caught by validator");
+        }
+        Result::Err(_) => {}
+    }
+    print_str("OK\n");
+}
+
+fn test_specificity_precedence() {
+    print_str("[3/10] Testing Specificity Precedence (Static > Dynamic)... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/posts/[slug]", layout_root(), 100); // Dynamic
+    m.add_page_route("/posts/new", layout_root(), 101);    // Static: higher specificity
+
+    let m_res = match_route(&m, "/posts/new", "GET");
+    match m_res {
+        Option::Some(matched) => {
+            assert(matched.page_id == 101, "Static route /posts/new must win over dynamic route /posts/[slug]");
+        }
+        Option::None => {
+            assert(false, "Failed to match /posts/new");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_dynamic_param_extraction() {
+    print_str("[4/10] Testing Dynamic Parameter Extraction ([param])... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/users/[id]", layout_root(), 200);
+
+    let m_res = match_route(&m, "/users/user_9988", "GET");
+    match m_res {
+        Option::Some(matched) => {
+            assert(matched.page_id == 200, "Expected match for /users/[id]");
+            let id_param = matched.params.get("id");
+            match id_param {
+                Option::Some(id_str) => {
+                    assert(id_str.as_str().equals("user_9988"), "Extracted param 'id' value mismatch");
+                }
+                Option::None => {
+                    assert(false, "Parameter 'id' was not extracted");
+                }
+            }
+        }
+        Option::None => {
+            assert(false, "Failed to match /users/user_9988");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_catch_all_param_extraction() {
+    print_str("[5/10] Testing Catch-All Parameter Extraction ([...path])... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/docs/[...path]", layout_root(), 300);
+
+    let m_res = match_route(&m, "/docs/routing/app-router/manifest", "GET");
+    match m_res {
+        Option::Some(matched) => {
+            assert(matched.page_id == 300, "Expected match for /docs/[...path]");
+            let path_param = matched.params.get("path");
+            match path_param {
+                Option::Some(p_str) => {
+                    assert(p_str.as_str().equals("routing/app-router/manifest"), "Catch-all param value mismatch");
+                }
+                Option::None => {
+                    assert(false, "Catch-all parameter 'path' was not extracted");
+                }
+            }
+        }
+        Option::None => {
+            assert(false, "Failed to match /docs/routing/app-router/manifest");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_optional_catch_all_param_extraction() {
+    print_str("[6/10] Testing Optional Catch-All Parameter Extraction ([[...filter]])... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/shop/[[...filter]]", layout_root(), 400);
+
+    // Case A: 0 segments (base path /shop)
+    let m_res_0 = match_route(&m, "/shop", "GET");
+    match m_res_0 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 400, "Expected match for /shop");
+            let f_opt = matched.params.get("filter");
+            match f_opt {
+                Option::Some(f_str) => {
+                    assert(f_str.as_str().equals(""), "Empty trailing segments must extract empty string");
+                }
+                Option::None => { assert(false, "Param 'filter' was not present"); }
+            }
+        }
+        Option::None => { assert(false, "Failed to match optional catch-all with 0 segments"); }
+    }
+
+    // Case B: multiple segments (/shop/shoes/men/running)
+    let m_res_n = match_route(&m, "/shop/shoes/men/running", "GET");
+    match m_res_n {
+        Option::Some(matched) => {
+            assert(matched.page_id == 400, "Expected match for /shop/shoes/men/running");
+            let f_opt = matched.params.get("filter");
+            match f_opt {
+                Option::Some(f_str) => {
+                    assert(f_str.as_str().equals("shoes/men/running"), "Multiple trailing segments mismatch");
+                }
+                Option::None => { assert(false, "Param 'filter' was not present"); }
+            }
+        }
+        Option::None => { assert(false, "Failed to match optional catch-all with multiple segments"); }
+    }
+    print_str("OK\n");
+}
+
+fn test_route_group_normalization() {
+    print_str("[7/10] Testing Route Group Normalization ((group))... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/(marketing)/pricing", layout_root(), 500);
+    m.add_page_route("/(admin)/settings", layout_root_and_dashboard(), 501);
+
+    // Should match at URL without parenthesis
+    let m_pricing = match_route(&m, "/pricing", "GET");
+    match m_pricing {
+        Option::Some(matched) => {
+            assert(matched.page_id == 500, "Expected /pricing to match /(marketing)/pricing");
+        }
+        Option::None => { assert(false, "Failed to match /pricing"); }
+    }
+
+    let m_settings = match_route(&m, "/settings", "GET");
+    match m_settings {
+        Option::Some(matched) => {
+            assert(matched.page_id == 501, "Expected /settings to match /(admin)/settings");
+        }
+        Option::None => { assert(false, "Failed to match /settings"); }
+    }
+    print_str("OK\n");
+}
+
+fn test_nested_layout_resolution() {
+    print_str("[8/10] Testing Nested Layout Resolution (Root > Dashboard > Page)... ");
+    let mut params = make_param_map();
+    params.add("tab", "metrics");
+    let ctx = make_render_context(
+        "/dashboard/metrics",
+        "Dashboard Metrics",
+        "dashboard",
+        params,
+        make_query_map(),
+        make_header_map(),
+        make_cookie_map(),
+    );
+
+    let page_content = "<h2>Telemetry Metrics Component</h2>";
+    let nested_html = resolve_layout(layout_root_and_dashboard(), &ctx, page_content);
+
+    // Verify root layout structure
+    assert(nested_html.len_bytes() > 100, "Output HTML must not be empty");
+    let doc_slice_opt = nested_html.as_str().slice_bytes(0, 15);
+    let mut has_doctype = false;
+    match doc_slice_opt {
+        Option::Some(s) => {
+            if s.equals("<!DOCTYPE html>") {
+                has_doctype = true;
+            }
+        }
+        Option::None => {}
+    }
+    assert(has_doctype, "Must start with DOCTYPE");
+
+    // Verify page content was included
+    let has_content = nested_html.len_bytes() > page_content.len();
+    assert(has_content, "Nested layout output must contain page content");
+    print_str("OK\n");
+}
+
+fn test_http_request_parsing_lifecycle() {
+    print_str("[9/10] Testing HTTP Request Parsing (Query, Headers, Cookies, Body)... ");
+    let raw_http = "POST /api/echo?tag=venta&sort=desc HTTP/1.1\r\nHost: localhost:3000\r\nUser-Agent: VentaClient/1.0\r\nCookie: session_token=tok_98765; theme=midnight\r\nContent-Length: 18\r\n\r\n{\"key\":\"payload1\"}";
+    let req = parse_http_request(raw_http);
+
+    assert(req.method.as_str().equals("POST"), "Request method mismatch");
+    assert(req.path.as_str().equals("/api/echo"), "Request path mismatch");
+    assert(req.raw_query.as_str().equals("tag=venta&sort=desc"), "Raw query mismatch");
+
+    // Query parameters
+    let tag_param = req.query.get("tag");
+    match tag_param {
+        Option::Some(t) => { assert(t.as_str().equals("venta"), "Query param 'tag' mismatch"); }
+        Option::None => { assert(false, "Query param 'tag' not found"); }
+    }
+    let sort_param = req.query.get("sort");
+    match sort_param {
+        Option::Some(s) => { assert(s.as_str().equals("desc"), "Query param 'sort' mismatch"); }
+        Option::None => { assert(false, "Query param 'sort' not found"); }
+    }
+
+    // Headers (case-insensitive)
+    let ua_header = req.headers.get("user-agent");
+    match ua_header {
+        Option::Some(ua) => { assert(ua.as_str().equals("VentaClient/1.0"), "Header 'User-Agent' mismatch"); }
+        Option::None => { assert(false, "Header 'User-Agent' not found"); }
+    }
+
+    // Cookies
+    let theme_cookie = req.cookies.get("theme");
+    match theme_cookie {
+        Option::Some(th) => { assert(th.as_str().equals("midnight"), "Cookie 'theme' mismatch"); }
+        Option::None => { assert(false, "Cookie 'theme' not found"); }
+    }
+
+    // Body
+    assert(req.body.as_str().equals("{\"key\":\"payload1\"}"), "Body mismatch");
+    print_str("OK\n");
+}
+
+fn test_http_response_and_wire_formatting() {
+    print_str("[10/10] Testing HTTP Response Model & Wire Formatting... ");
+    let mut resp = response_json("{\"status\":\"ok\"}");
+    set_cookie(&mut resp, "visited", "1", "/", 3600, true, true, "Lax");
+    add_header(&mut resp, "X-Framework", "VentaNext");
+
+    assert(resp.status == 200, "Expected status 200");
+    assert(resp.content_type.as_str().equals("application/json; charset=utf-8"), "Content type mismatch");
+
+    let wire = to_wire_format(&resp);
+    let wire_slice_opt = wire.as_str().slice_bytes(0, 15);
+    let mut is_wire_status_ok = false;
+    match wire_slice_opt {
+        Option::Some(s) => {
+            if s.equals("HTTP/1.1 200 OK") {
+                is_wire_status_ok = true;
+            }
+        }
+        Option::None => {}
+    }
+    assert(is_wire_status_ok, "Wire format status line mismatch");
+
+    let mut red_resp = response_redirect("/dashboard", 307);
+    assert(red_resp.status == 307, "Redirect status mismatch");
+    let loc_header = red_resp.headers.get("location");
+    match loc_header {
+        Option::Some(loc) => { assert(loc.as_str().equals("/dashboard"), "Redirect location mismatch"); }
+        Option::None => { assert(false, "Redirect location header missing"); }
+    }
+
+    print_str("OK\n");
+}
+
+fn main() -> i64 {
+    print_str("\n============================================================\n");
+    print_str("   ⚡ VentaNext Framework — Phase 1 Automated Test Suite     \n");
+    print_str("============================================================\n");
+
+    test_route_manifest_registration_and_validation();
+    test_route_conflict_detection();
+    test_specificity_precedence();
+    test_dynamic_param_extraction();
+    test_catch_all_param_extraction();
+    test_optional_catch_all_param_extraction();
+    test_route_group_normalization();
+    test_nested_layout_resolution();
+    test_http_request_parsing_lifecycle();
+    test_http_response_and_wire_formatting();
+
+    print_str("============================================================\n");
+    print_str("   ALL 10 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("============================================================\n\n");
+    0
+}

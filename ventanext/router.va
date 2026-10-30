@@ -1,10 +1,476 @@
 // ============================================================================
-// ⚡ VentaNext Framework — Next.js-Style Router
-// Route pattern matching, dynamic parameter extraction (:id, :slug), and dispatch
+// ⚡ VentaNext Framework — App Router & Route Manifest Engine
+// Deterministic Route Manifest, Dynamic Params ([slug]), Catch-All ([...path]),
+// Optional Catch-All ([[...filter]]), Route Groups ((group)), and Conflict Checks
 // ============================================================================
 
+import http::{ParamMap, make_param_map, clone_param_map};
 import std::string::String;
 import std::option::Option;
+import std::result::Result;
+
+// ----------------------------------------------------------------------------
+// 1. Route & Segment Constants
+// ----------------------------------------------------------------------------
+
+pub fn seg_static() -> i64 { 1 }
+pub fn seg_dynamic() -> i64 { 2 }
+pub fn seg_catch_all() -> i64 { 3 }
+pub fn seg_optional_catch_all() -> i64 { 4 }
+pub fn seg_group() -> i64 { 5 }
+
+// ----------------------------------------------------------------------------
+// 2. Path Segment Splitting & Parsing
+// ----------------------------------------------------------------------------
+
+pub fn split_segments(path: &str) -> Vec<String> {
+    let mut segs: Vec<String> = Vec::new();
+    let len = path.len();
+    let mut start = 0;
+    let mut i = 0;
+
+    while i < len {
+        let ch: i64 = path[i];
+        if ch == 47 { // '/'
+            if i > start {
+                let slice_opt = path.slice_bytes(start, i);
+                match slice_opt {
+                    Option::Some(s) => {
+                        segs.push(String::from_str(s));
+                    }
+                    Option::None => {}
+                }
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+
+    if start < len {
+        let slice_opt = path.slice_bytes(start, len);
+        match slice_opt {
+            Option::Some(s) => {
+                segs.push(String::from_str(s));
+            }
+            Option::None => {}
+        }
+    }
+
+    segs
+}
+
+pub struct SegmentInfo {
+    pub raw: String,
+    pub kind: i64,
+    pub param_name: String,
+}
+
+pub fn parse_segment(seg: &str) -> SegmentInfo {
+    let len = seg.len();
+
+    // Route Group: (group)
+    if len >= 2 {
+        if seg[0] == 40 && seg[len - 1] == 41 {
+            let inner = seg.slice_bytes(1, len - 1);
+            let mut p_name = String::new();
+            match inner {
+                Option::Some(s) => { p_name = String::from_str(s); }
+                Option::None => {}
+            }
+            return SegmentInfo {
+                raw: String::from_str(seg),
+                kind: seg_group(),
+                param_name: p_name,
+            };
+        }
+    }
+
+    // Optional Catch-All: [[...param]]
+    if len >= 7 {
+        if seg[0] == 91 && seg[1] == 91 && seg[2] == 46 && seg[3] == 46 && seg[4] == 46 && seg[len - 2] == 93 && seg[len - 1] == 93 {
+            let inner = seg.slice_bytes(5, len - 2);
+            let mut p_name = String::new();
+            match inner {
+                Option::Some(s) => { p_name = String::from_str(s); }
+                Option::None => {}
+            }
+            return SegmentInfo {
+                raw: String::from_str(seg),
+                kind: seg_optional_catch_all(),
+                param_name: p_name,
+            };
+        }
+    }
+
+    // Catch-All: [...param]
+    if len >= 5 {
+        if seg[0] == 91 && seg[1] == 46 && seg[2] == 46 && seg[3] == 46 && seg[len - 1] == 93 {
+            let inner = seg.slice_bytes(4, len - 1);
+            let mut p_name = String::new();
+            match inner {
+                Option::Some(s) => { p_name = String::from_str(s); }
+                Option::None => {}
+            }
+            return SegmentInfo {
+                raw: String::from_str(seg),
+                kind: seg_catch_all(),
+                param_name: p_name,
+            };
+        }
+    }
+
+    // Dynamic Segment: [param]
+    if len >= 2 {
+        if seg[0] == 91 && seg[len - 1] == 93 {
+            let inner = seg.slice_bytes(1, len - 1);
+            let mut p_name = String::new();
+            match inner {
+                Option::Some(s) => { p_name = String::from_str(s); }
+                Option::None => {}
+            }
+            return SegmentInfo {
+                raw: String::from_str(seg),
+                kind: seg_dynamic(),
+                param_name: p_name,
+            };
+        }
+    }
+
+    // Static Segment
+    SegmentInfo {
+        raw: String::from_str(seg),
+        kind: seg_static(),
+        param_name: String::new(),
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 3. Route Entry and Specificity Computation
+// ----------------------------------------------------------------------------
+
+pub struct SpecificityResult {
+    pub kind: i64,
+    pub specificity: i64,
+}
+
+pub fn calculate_route_kind_and_specificity(canonical_pattern: &str) -> SpecificityResult {
+    let segs = split_segments(canonical_pattern);
+    if segs.len() == 0 {
+        return SpecificityResult { kind: seg_static(), specificity: 10000 };
+    }
+
+    let mut kind = seg_static();
+    let mut score: i64 = 0;
+    let mut i = 0;
+    while i < segs.len() {
+        let s = parse_segment(segs[i].as_str());
+        if s.kind == seg_static() {
+            score = score + 1000;
+        } else if s.kind == seg_dynamic() {
+            score = score + 100;
+            if kind < seg_dynamic() {
+                kind = seg_dynamic();
+            }
+        } else if s.kind == seg_catch_all() {
+            score = score + 10;
+            kind = seg_catch_all();
+        } else if s.kind == seg_optional_catch_all() {
+            score = score + 1;
+            kind = seg_optional_catch_all();
+        }
+        i = i + 1;
+    }
+
+    score = score + segs.len();
+    SpecificityResult { kind: kind, specificity: score }
+}
+
+pub fn build_canonical_pattern(raw_pattern: &str) -> String {
+    let segs = split_segments(raw_pattern);
+    let mut res = String::new();
+    let mut i = 0;
+    while i < segs.len() {
+        let seg_info = parse_segment(segs[i].as_str());
+        if seg_info.kind != seg_group() {
+            res.push_str("/");
+            res.push_str(seg_info.raw.as_str());
+        }
+        i = i + 1;
+    }
+    if res.is_empty() {
+        return String::from_str("/");
+    }
+    res
+}
+
+pub struct RouteEntry {
+    pub pattern: String,
+    pub canonical_pattern: String,
+    pub http_method: String,
+    pub kind: i64,
+    pub specificity: i64,
+    pub layout_id: i64,
+    pub page_id: i64,
+    pub is_api: bool,
+}
+
+// ----------------------------------------------------------------------------
+// 4. Deterministic Route Manifest & Conflict Detection
+// ----------------------------------------------------------------------------
+
+pub struct RouteManifest {
+    pub routes: Vec<RouteEntry>,
+}
+
+pub fn make_route_manifest() -> RouteManifest {
+    let v: Vec<RouteEntry> = Vec::new();
+    RouteManifest { routes: v }
+}
+
+impl RouteManifest {
+    pub fn add_page_route(self: &mut Self, pattern: &str, layout_id: i64, page_id: i64) {
+        let canonical = build_canonical_pattern(pattern);
+        let spec = calculate_route_kind_and_specificity(canonical.as_str());
+        self.routes.push(RouteEntry {
+            pattern: String::from_str(pattern),
+            canonical_pattern: canonical,
+            http_method: String::from_str("GET"),
+            kind: spec.kind,
+            specificity: spec.specificity,
+            layout_id: layout_id,
+            page_id: page_id,
+            is_api: false,
+        });
+    }
+
+    pub fn add_api_route(self: &mut Self, method: &str, pattern: &str, handler_id: i64) {
+        let canonical = build_canonical_pattern(pattern);
+        let spec = calculate_route_kind_and_specificity(canonical.as_str());
+        self.routes.push(RouteEntry {
+            pattern: String::from_str(pattern),
+            canonical_pattern: canonical,
+            http_method: String::from_str(method),
+            kind: spec.kind,
+            specificity: spec.specificity,
+            layout_id: 0,
+            page_id: handler_id,
+            is_api: true,
+        });
+    }
+
+    pub fn validate(self: &Self) -> Result<i64, String> {
+        let mut i = 0;
+        while i < self.routes.len() {
+            let mut j = i + 1;
+            while j < self.routes.len() {
+                let r1 = &self.routes[i];
+                let r2 = &self.routes[j];
+
+                let method_match = r1.http_method.as_str().equals(r2.http_method.as_str()) || r1.http_method.as_str().equals("*") || r2.http_method.as_str().equals("*");
+                if method_match {
+                    let segs1 = split_segments(r1.canonical_pattern.as_str());
+                    let segs2 = split_segments(r2.canonical_pattern.as_str());
+
+                    if segs1.len() == segs2.len() {
+                        let mut match_pattern = true;
+                        let mut k = 0;
+                        while k < segs1.len() {
+                            let p1 = parse_segment(segs1[k].as_str());
+                            let p2 = parse_segment(segs2[k].as_str());
+                            if p1.kind != p2.kind {
+                                match_pattern = false;
+                                k = segs1.len();
+                            } else if p1.kind == seg_static() {
+                                if p1.raw.as_str().equals(p2.raw.as_str()) == false {
+                                    match_pattern = false;
+                                    k = segs1.len();
+                                }
+                            }
+                            k = k + 1;
+                        }
+
+                        if match_pattern {
+                            let mut err = String::from_str("Route conflict detected between '");
+                            err.push_str(r1.pattern.as_str());
+                            err.push_str("' and '");
+                            err.push_str(r2.pattern.as_str());
+                            err.push_str("'");
+                            return Result::Err(err);
+                        }
+                    }
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        Result::Ok(self.routes.len())
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 5. Route Matching Engine
+// ----------------------------------------------------------------------------
+
+pub struct MatchResult {
+    pub matched: bool,
+    pub params: ParamMap,
+}
+
+pub struct RouteMatch {
+    pub layout_id: i64,
+    pub page_id: i64,
+    pub is_api: bool,
+    pub params: ParamMap,
+}
+
+fn try_match_segments(req_segs: &Vec<String>, pat_segs: &Vec<String>, kind: i64) -> MatchResult {
+    if kind == seg_static() {
+        if req_segs.len() != pat_segs.len() {
+            return MatchResult { matched: false, params: make_param_map() };
+        }
+        let mut i = 0;
+        while i < req_segs.len() {
+            let eq = req_segs[i].as_str().equals(pat_segs[i].as_str());
+            if eq == false {
+                return MatchResult { matched: false, params: make_param_map() };
+            }
+            i = i + 1;
+        }
+        return MatchResult { matched: true, params: make_param_map() };
+    }
+
+    if kind == seg_dynamic() {
+        if req_segs.len() != pat_segs.len() {
+            return MatchResult { matched: false, params: make_param_map() };
+        }
+        let mut params = make_param_map();
+        let mut i = 0;
+        while i < req_segs.len() {
+            let p_info = parse_segment(pat_segs[i].as_str());
+            if p_info.kind == seg_static() {
+                if req_segs[i].as_str().equals(p_info.raw.as_str()) == false {
+                    return MatchResult { matched: false, params: make_param_map() };
+                }
+            } else if p_info.kind == seg_dynamic() {
+                params.add(p_info.param_name.as_str(), req_segs[i].as_str());
+            }
+            i = i + 1;
+        }
+        return MatchResult { matched: true, params: params };
+    }
+
+    if kind == seg_catch_all() {
+        if req_segs.len() < pat_segs.len() {
+            return MatchResult { matched: false, params: make_param_map() };
+        }
+        let mut params = make_param_map();
+        let catch_idx = pat_segs.len() - 1;
+        let mut i = 0;
+        while i < catch_idx {
+            let p_info = parse_segment(pat_segs[i].as_str());
+            if p_info.kind == seg_static() {
+                if req_segs[i].as_str().equals(p_info.raw.as_str()) == false {
+                    return MatchResult { matched: false, params: make_param_map() };
+                }
+            } else if p_info.kind == seg_dynamic() {
+                params.add(p_info.param_name.as_str(), req_segs[i].as_str());
+            }
+            i = i + 1;
+        }
+
+        let p_info = parse_segment(pat_segs[catch_idx].as_str());
+        let mut joined = String::new();
+        let mut k = catch_idx;
+        while k < req_segs.len() {
+            if k > catch_idx {
+                joined.push_str("/");
+            }
+            joined.push_str(req_segs[k].as_str());
+            k = k + 1;
+        }
+        params.add(p_info.param_name.as_str(), joined.as_str());
+        return MatchResult { matched: true, params: params };
+    }
+
+    if kind == seg_optional_catch_all() {
+        let prefix_len = pat_segs.len() - 1;
+        if req_segs.len() < prefix_len {
+            return MatchResult { matched: false, params: make_param_map() };
+        }
+        let mut prefix_params = make_param_map();
+        let mut i = 0;
+        while i < prefix_len {
+            let p_info = parse_segment(pat_segs[i].as_str());
+            if p_info.kind == seg_static() {
+                if req_segs[i].as_str().equals(p_info.raw.as_str()) == false {
+                    return MatchResult { matched: false, params: make_param_map() };
+                }
+            } else if p_info.kind == seg_dynamic() {
+                prefix_params.add(p_info.param_name.as_str(), req_segs[i].as_str());
+            }
+            i = i + 1;
+        }
+
+        let p_info = parse_segment(pat_segs[prefix_len].as_str());
+        if req_segs.len() == prefix_len {
+            let mut p_out = clone_param_map(&prefix_params);
+            p_out.add(p_info.param_name.as_str(), "");
+            return MatchResult { matched: true, params: p_out };
+        } else {
+            let mut p_out = clone_param_map(&prefix_params);
+            let mut joined = String::new();
+            let mut k = prefix_len;
+            while k < req_segs.len() {
+                if k > prefix_len {
+                    joined.push_str("/");
+                }
+                joined.push_str(req_segs[k].as_str());
+                k = k + 1;
+            }
+            p_out.add(p_info.param_name.as_str(), joined.as_str());
+            return MatchResult { matched: true, params: p_out };
+        }
+    }
+
+    MatchResult { matched: false, params: make_param_map() }
+}
+
+pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option<RouteMatch> {
+    let req_segs = split_segments(path);
+    let mut best_match_idx = -1;
+    let mut best_specificity = -1;
+    let mut best_params = make_param_map();
+
+    let mut i = 0;
+    while i < manifest.routes.len() {
+        let route = &manifest.routes[i];
+        let method_matches = route.http_method.as_str().equals(method) || route.http_method.as_str().equals("*");
+        if method_matches {
+            let pat_segs = split_segments(route.canonical_pattern.as_str());
+            let m_res = try_match_segments(&req_segs, &pat_segs, route.kind);
+            if m_res.matched {
+                if route.specificity > best_specificity {
+                    best_specificity = route.specificity;
+                    best_match_idx = i;
+                    best_params = clone_param_map(&m_res.params);
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    if best_match_idx >= 0 {
+        let r = &manifest.routes[best_match_idx];
+        return Option::Some(RouteMatch {
+            layout_id: r.layout_id,
+            page_id: r.page_id,
+            is_api: r.is_api,
+            params: clone_param_map(&best_params),
+        });
+    }
+
+    Option::None
+}
 
 pub fn path_equals(path: &str, expected: &str) -> bool {
     path.equals(expected)
@@ -21,29 +487,4 @@ pub fn is_api_route(path: &str) -> bool {
         }
     }
     false
-}
-
-pub fn match_dynamic_route(path: &str, prefix: &str) -> Option<String> {
-    let p_len = prefix.len();
-    let path_len = path.len();
-    if path_len <= p_len {
-        return Option::None;
-    }
-
-    let sub_opt = path.slice_bytes(0, p_len);
-    match sub_opt {
-        Option::Some(p) => {
-            if p.equals(prefix) {
-                let val_opt = path.slice_bytes(p_len, path_len);
-                match val_opt {
-                    Option::Some(val) => {
-                        return Option::Some(String::from_str(val));
-                    }
-                    Option::None => {}
-                }
-            }
-        }
-        Option::None => {}
-    }
-    Option::None
 }

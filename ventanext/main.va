@@ -39,18 +39,22 @@ fn main() -> i64 {
                 if arg.equals("--once") {
                     serve_once = true;
                 }
-                if (arg.equals("--port") || arg.equals("-p")) && (i + 1 < args.len()) {
-                    let next_arg = args[i + 1].clone();
-                    if next_arg.equals("3000") {
-                        port = 3000;
-                    } else if next_arg.equals("8080") {
-                        port = 8080;
-                    } else if next_arg.equals("8000") {
-                        port = 8000;
-                    } else if next_arg.equals("9000") {
-                        port = 9000;
+                if arg.equals("--port") || arg.equals("-p") {
+                    if i + 1 < args.len() {
+                        let next_arg = args[i + 1].clone();
+                        if next_arg.equals("3000") {
+                            port = 3000;
+                        } else if next_arg.equals("8080") {
+                            port = 8080;
+                        } else if next_arg.equals("8081") {
+                            port = 8081;
+                        } else if next_arg.equals("8000") {
+                            port = 8000;
+                        } else if next_arg.equals("9000") {
+                            port = 9000;
+                        }
+                        i = i + 1;
                     }
-                    i = i + 1;
                 }
                 i = i + 1;
             }

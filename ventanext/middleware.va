@@ -15,7 +15,7 @@ pub fn apply_security_headers(resp: &mut Response) {
 
 pub fn apply_cors_headers(resp: &mut Response) {
     add_header(resp, "Access-Control-Allow-Origin", "*");
-    add_header(resp, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    add_header(resp, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
     add_header(resp, "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 }
 
@@ -33,9 +33,9 @@ pub fn log_request(req_id: i64, req: &Request, resp: &Response) {
     print_str(req.method.as_str());
     print_str(" ");
     print_str(req.path.as_str());
-    if req.query.len_bytes() > 0 {
+    if req.raw_query.len_bytes() > 0 {
         print_str("?");
-        print_str(req.query.as_str());
+        print_str(req.raw_query.as_str());
     }
     print_str(" -> ");
     print_i64(resp.status);
