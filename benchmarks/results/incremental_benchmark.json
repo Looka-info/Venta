@@ -1,0 +1,9 @@
+{
+  "clean_build_ms": 70.32,
+  "cold_incremental_ms": 72.32,
+  "warm_noop_ms": 17.41,
+  "noop_speedup_x": 4.04,
+  "single_function_edit_ms": 72.01,
+  "link_only_rebuild_ms": 18.94,
+  "corruption_recovery_ms": 71.63
+}

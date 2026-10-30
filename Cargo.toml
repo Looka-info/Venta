@@ -11,6 +11,7 @@ members = [
     "crates/vanta_codegen_x86_64",
     "crates/vanta_codegen_aarch64",
     "crates/vanta_linker",
+    "crates/vanta_build",
     "crates/vanta_driver",
     "crates/vanta_fmt",
     "crates/vanta_lsp",
@@ -34,5 +35,6 @@ vanta_target = { path = "crates/vanta_target" }
 vanta_codegen_x86_64 = { path = "crates/vanta_codegen_x86_64" }
 vanta_codegen_aarch64 = { path = "crates/vanta_codegen_aarch64" }
 vanta_linker = { path = "crates/vanta_linker" }
+vanta_build = { path = "crates/vanta_build" }
 vanta_fmt = { path = "crates/vanta_fmt" }
 vanta_lsp = { path = "crates/vanta_lsp" }

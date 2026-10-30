@@ -3,6 +3,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+pub use vanta_build::{
+    ArtifactType, BuildStats, CacheCleanReport, CacheEntryMetadata, CacheManager, CacheStats,
+    CacheVerificationReport, CompilerIdentity, ContentFingerprint, Domain, FingerprintBuilder,
+    IncrementalBuildEngine, IncrementalOptions,
+};
 use vanta_codegen_aarch64::AArch64Backend;
 pub use vanta_codegen_x86_64::TargetFeatures;
 use vanta_codegen_x86_64::X86_64Backend;
@@ -75,6 +80,10 @@ pub struct CompilerOptions {
     pub map_file: Option<PathBuf>,
     pub lib_search_paths: Vec<PathBuf>,
     pub libs: Vec<String>,
+    pub incremental: bool,
+    pub cache_dir: Option<PathBuf>,
+    pub build_stats: bool,
+    pub explain_rebuild: bool,
 }
 
 impl CompilerOptions {
@@ -114,6 +123,10 @@ impl CompilerOptions {
             map_file: None,
             lib_search_paths: Vec::new(),
             libs: Vec::new(),
+            incremental: false,
+            cache_dir: None,
+            build_stats: false,
+            explain_rebuild: false,
         }
     }
 }
@@ -127,6 +140,8 @@ impl Default for CompilerOptions {
 pub struct CompilerSession {
     pub source_map: SourceMap,
     pub diagnostics: DiagnosticBag,
+    pub last_build_stats: Option<BuildStats>,
+    pub rebuild_explanations: Vec<(String, String)>,
 }
 
 impl Default for CompilerSession {
@@ -140,6 +155,8 @@ impl CompilerSession {
         Self {
             source_map: SourceMap::new(),
             diagnostics: DiagnosticBag::new(),
+            last_build_stats: None,
+            rebuild_explanations: Vec::new(),
         }
     }
 
@@ -233,6 +250,71 @@ impl CompilerSession {
             let output = format!("{:#?}", tokens);
             return Ok(Some(output.into_bytes()));
         }
+
+        let is_codegen_or_link = matches!(options.emit_target, EmitTarget::Obj | EmitTarget::Exe);
+
+        // Incremental fast-path: check if we can reuse cached object or entire executable
+        let incremental_state = if options.incremental && is_codegen_or_link {
+            let src = fs::read_to_string(&options.input_file).map_err(|e| {
+                format!("Failed to read input file {:?}: {}", options.input_file, e)
+            })?;
+            let inc_opts = IncrementalOptions {
+                enabled: true,
+                cache_dir: options
+                    .cache_dir
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(CacheManager::DEFAULT_CACHE_REL_PATH)),
+                target_triple: options.target.spec().triple.to_string(),
+                opt_level: format!("{:?}", options.opt_level),
+                target_features: format!("{:?}", options.target_features),
+                debug_info: options.debug_info,
+                explain_rebuild: options.explain_rebuild,
+                build_stats: options.build_stats,
+            };
+            let mut engine = IncrementalBuildEngine::new(inc_opts)?;
+            engine.stats_mut().source_files_total = 1;
+            let source_fp = engine.compute_source_fingerprint(&options.input_file, &src);
+
+            if let Some(cached_obj_bytes) =
+                engine.query_cached_object(&options.input_file, &source_fp)
+            {
+                if options.emit_target == EmitTarget::Obj {
+                    fs::write(&options.output_file, &cached_obj_bytes)
+                        .map_err(|e| format!("Failed to write object file: {}", e))?;
+                    self.last_build_stats = Some(engine.stats().clone());
+                    self.rebuild_explanations = engine.explanations().to_vec();
+                    return Ok(Some(cached_obj_bytes));
+                }
+
+                if options.emit_target == EmitTarget::Exe {
+                    let obj_fp = engine.compute_object_fingerprint(&source_fp);
+                    let link_fp = engine.compute_link_fingerprint(
+                        &[obj_fp],
+                        &options.link_archives,
+                        &options.additional_inputs,
+                    );
+                    if engine.check_link_reusable(&link_fp, &options.output_file) {
+                        // Complete no-op hit: zero compilation, zero relinking!
+                        self.last_build_stats = Some(engine.stats().clone());
+                        self.rebuild_explanations = engine.explanations().to_vec();
+                        return Ok(Some(cached_obj_bytes));
+                    }
+
+                    // Relink using cached object artifact
+                    let target_spec = options.target.spec();
+                    Self::link_target_executable(options, &target_spec, &cached_obj_bytes)?;
+                    let _ =
+                        engine.record_linked_executable(&link_fp, &options.output_file, &[obj_fp]);
+                    self.last_build_stats = Some(engine.stats().clone());
+                    self.rebuild_explanations = engine.explanations().to_vec();
+                    return Ok(Some(cached_obj_bytes));
+                }
+            }
+
+            Some((engine, source_fp))
+        } else {
+            None
+        };
 
         let mut module_tree = vanta_sema::module::ModuleLoader::load_module_tree_with_std(
             &options.input_file,
@@ -329,6 +411,32 @@ impl CompilerSession {
                 Err(e) => return Err(format!("AArch64 backend code generation failed: {}", e)),
             },
         };
+
+        if let Some((mut engine, source_fp)) = incremental_state {
+            let _ = engine.store_compiled_object(&source_fp, &obj_bytes);
+            if options.emit_target == EmitTarget::Obj {
+                fs::write(&options.output_file, &obj_bytes)
+                    .map_err(|e| format!("Failed to write object file: {}", e))?;
+                self.last_build_stats = Some(engine.stats().clone());
+                self.rebuild_explanations = engine.explanations().to_vec();
+                return Ok(Some(obj_bytes));
+            }
+
+            // Linking to Native Executable
+            engine.stats_mut().linking_performed = true;
+            engine.stats_mut().linking_reason = Some("cold build or modified object".into());
+            Self::link_target_executable(options, &target_spec, &obj_bytes)?;
+            let obj_fp = engine.compute_object_fingerprint(&source_fp);
+            let link_fp = engine.compute_link_fingerprint(
+                &[obj_fp],
+                &options.link_archives,
+                &options.additional_inputs,
+            );
+            let _ = engine.record_linked_executable(&link_fp, &options.output_file, &[obj_fp]);
+            self.last_build_stats = Some(engine.stats().clone());
+            self.rebuild_explanations = engine.explanations().to_vec();
+            return Ok(Some(obj_bytes));
+        }
 
         if options.emit_target == EmitTarget::Obj {
             fs::write(&options.output_file, &obj_bytes)

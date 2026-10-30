@@ -41,13 +41,19 @@ USAGE:
 
 COMMANDS:
     compile               Compile the input file (default)
-    build                 Compile and link input files
+    build                 Compile and link input files incrementally
     check                 Quickly verify syntax, types, borrows, and MIR without linking
     fmt                   Format {lang_name} source files canonically
     archive <subcommand>  Manage static archives: create, list, inspect
+    cache <subcommand>    Manage build cache: stats, clean, verify, inspect
 
 OPTIONS:
     -o <file>             Write output to <file> (default: a.out)
+    --incremental         Enable deterministic incremental compilation
+    --no-incremental      Disable incremental compilation (clean rebuild)
+    --cache-dir=<dir>     Path to incremental cache directory
+    --build-stats         Print detailed incremental build statistics
+    --explain-rebuild     Explain reasons for rebuilding affected units
     -g, --debug           Emit DWARF 5 source-level debug information
     -O0, --no-opt         Disable all optimizations
     -O1, -O, --opt        Enable standard optimizations (default)
@@ -153,6 +159,10 @@ fn main() {
     let mut map_file: Option<PathBuf> = None;
     let mut lib_search_paths: Vec<PathBuf> = Vec::new();
     let mut libs: Vec<String> = Vec::new();
+    let mut incremental = false;
+    let mut cache_dir: Option<PathBuf> = None;
+    let mut build_stats = false;
+    let mut explain_rebuild = false;
 
     let mut idx = 1;
 
@@ -163,8 +173,13 @@ fn main() {
                 mode = CommandMode::Check;
                 idx += 1;
             }
-            "compile" | "build" => {
+            "compile" => {
                 mode = CommandMode::Compile;
+                idx += 1;
+            }
+            "build" => {
+                mode = CommandMode::Compile;
+                incremental = true;
                 idx += 1;
             }
             "fmt" => {
@@ -268,6 +283,88 @@ fn main() {
                     }
                 }
             }
+            "cache" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!(
+                        "Error: 'cache' requires a subcommand: 'stats', 'clean', 'verify', or 'inspect'"
+                    );
+                    process::exit(2);
+                }
+                let mut target_filter: Option<String> = None;
+                let mut cache_root =
+                    PathBuf::from(vanta_driver::CacheManager::DEFAULT_CACHE_REL_PATH);
+                let subcmd = args[idx].clone();
+                idx += 1;
+                while idx < args.len() {
+                    if (args[idx] == "--target" || args[idx] == "-t") && idx + 1 < args.len() {
+                        target_filter = Some(args[idx + 1].clone());
+                        idx += 2;
+                    } else if args[idx].starts_with("--target=") {
+                        target_filter = Some(args[idx]["--target=".len()..].to_string());
+                        idx += 1;
+                    } else if args[idx] == "--cache-dir" && idx + 1 < args.len() {
+                        cache_root = PathBuf::from(&args[idx + 1]);
+                        idx += 2;
+                    } else if args[idx].starts_with("--cache-dir=") {
+                        cache_root = PathBuf::from(&args[idx]["--cache-dir=".len()..]);
+                        idx += 1;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                let default_triple = target.spec().triple.to_string();
+                let target_triple = target_filter.as_deref().unwrap_or(&default_triple);
+                let manager = match vanta_driver::CacheManager::new(cache_root, target_triple) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("Error opening cache: {}", e);
+                        process::exit(1);
+                    }
+                };
+                match subcmd.as_str() {
+                    "stats" => {
+                        let stats = manager.stats();
+                        println!("Venta Cache Stats (target: {}):", manager.target_triple());
+                        println!("  Total cache size: {} bytes", stats.total_bytes);
+                        println!("  Cached objects:   {}", stats.object_count);
+                        println!("  Cached functions: {}", stats.function_count);
+                        println!("  Cached MIR units: {}", stats.mir_count);
+                        println!("  Cached interfaces:{}", stats.interface_count);
+                        println!("  Cached links:     {}", stats.link_count);
+                        println!("  Cached archives:  {}", stats.archive_count);
+                        process::exit(0);
+                    }
+                    "clean" => {
+                        let report = manager.clean_cache(target_filter.as_deref());
+                        println!("Venta Cache Cleaned:");
+                        println!("  Files removed: {}", report.files_removed);
+                        println!("  Bytes freed:   {} bytes", report.bytes_freed);
+                        process::exit(0);
+                    }
+                    "verify" | "inspect" => {
+                        let report = manager.verify_cache();
+                        println!(
+                            "Venta Cache Verification (target: {}):",
+                            manager.target_triple()
+                        );
+                        println!("  Total entries:       {}", report.total_entries);
+                        println!("  Valid entries:       {}", report.valid_entries);
+                        println!("  Corrupted entries:   {}", report.corrupted_entries);
+                        println!("  Schema mismatches:   {}", report.schema_mismatches);
+                        println!("  Compiler mismatches: {}", report.compiler_mismatches);
+                        println!("  Missing data files:  {}", report.missing_data_files);
+                        process::exit(0);
+                    }
+                    other => {
+                        eprintln!(
+                            "Error: Unknown cache subcommand '{}'. Expected 'stats', 'clean', 'verify', or 'inspect'",
+                            other
+                        );
+                        process::exit(2);
+                    }
+                }
+            }
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
                 let file_name = std::path::Path::new(&invoked)
@@ -313,6 +410,30 @@ fn main() {
             }
             "-v" | "--verbose" => {
                 verbose = true;
+            }
+            "--incremental" => {
+                incremental = true;
+            }
+            "--no-incremental" => {
+                incremental = false;
+            }
+            "--build-stats" => {
+                build_stats = true;
+            }
+            "--explain-rebuild" => {
+                explain_rebuild = true;
+            }
+            s if s.starts_with("--cache-dir=") => {
+                let p = s.split_once('=').unwrap().1;
+                cache_dir = Some(PathBuf::from(p));
+            }
+            "--cache-dir" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("Error: --cache-dir requires a path");
+                    process::exit(2);
+                }
+                cache_dir = Some(PathBuf::from(&args[idx]));
             }
             "--check" => {
                 fmt_check = true;
@@ -725,6 +846,10 @@ fn main() {
         map_file,
         lib_search_paths,
         libs,
+        incremental,
+        cache_dir,
+        build_stats,
+        explain_rebuild,
     };
 
     let mut session = CompilerSession::new();
@@ -760,11 +885,91 @@ fn main() {
                 ) {
                     println!("{}", String::from_utf8_lossy(&bytes));
                 }
+                if build_stats {
+                    if let Some(stats) = &session.last_build_stats {
+                        println!("Venta incremental build:");
+                        println!("  Source files:");
+                        println!("    Total:                 {}", stats.source_files_total);
+                        println!(
+                            "    Unchanged:             {}",
+                            stats.source_files_unchanged
+                        );
+                        println!("    Changed:                {}", stats.source_files_changed);
+                        println!("  Objects:");
+                        println!("    Reused:                 {}", stats.objects_reused);
+                        println!("    Regenerated:            {}", stats.objects_regenerated);
+                        println!("  Linking:");
+                        println!(
+                            "    Status:                 {}",
+                            if stats.linking_performed {
+                                "Performed"
+                            } else {
+                                "Skipped (no-op)"
+                            }
+                        );
+                        println!(
+                            "    Reason:                 {}",
+                            stats
+                                .linking_reason
+                                .as_deref()
+                                .unwrap_or("No link inputs changed")
+                        );
+                        println!("  Cache:");
+                        println!("    Hits:                  {}", stats.cache_hits);
+                        println!("    Misses:                 {}", stats.cache_misses);
+                        println!("    Corrupted recovered:    {}", stats.cache_corruptions);
+                    }
+                }
+                if explain_rebuild {
+                    if session.rebuild_explanations.is_empty() {
+                        println!("All artifacts up to date; zero rebuilds.");
+                    } else {
+                        println!("Incremental rebuild explanations:");
+                        for (unit, reason) in &session.rebuild_explanations {
+                            println!("  - {}: {}", unit, reason);
+                        }
+                    }
+                }
                 process::exit(0);
             }
             Ok(None) => {
                 if diagnostic_format == DiagnosticFormat::Json {
                     println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
+                }
+                if build_stats {
+                    if let Some(stats) = &session.last_build_stats {
+                        println!("Venta incremental build:");
+                        println!("  Source files:");
+                        println!("    Total:                 {}", stats.source_files_total);
+                        println!(
+                            "    Unchanged:             {}",
+                            stats.source_files_unchanged
+                        );
+                        println!("    Changed:                {}", stats.source_files_changed);
+                        println!("  Objects:");
+                        println!("    Reused:                 {}", stats.objects_reused);
+                        println!("    Regenerated:            {}", stats.objects_regenerated);
+                        println!("  Linking:");
+                        println!(
+                            "    Status:                 {}",
+                            if stats.linking_performed {
+                                "Performed"
+                            } else {
+                                "Skipped (no-op)"
+                            }
+                        );
+                        println!(
+                            "    Reason:                 {}",
+                            stats
+                                .linking_reason
+                                .as_deref()
+                                .unwrap_or("No link inputs changed")
+                        );
+                        println!("  Cache:");
+                        println!("    Hits:                  {}", stats.cache_hits);
+                        println!("    Misses:                 {}", stats.cache_misses);
+                        println!("    Corrupted recovered:    {}", stats.cache_corruptions);
+                    }
                 }
                 process::exit(0);
             }

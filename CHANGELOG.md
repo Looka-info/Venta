@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0-alpha.1] - 2026-10-30 (Milestone 32 — Venta v2.1 Incremental Compilation, Content-Addressed Build Graphs & Function-Level Caching)
+
+**First Feature Milestone for v2.1 Architecture: Content-Addressed Incremental Build System**
+
+### Added
+- **Build Graph Subsystem (`crates/vanta_build/src/graph.rs`)**:
+  - Implemented explicit dependency graph `BuildGraph` with typed nodes (`Workspace`, `SourceFile`, `Module`, `Declaration`, `TypeInterface`, `GenericTemplate`, `ConcreteInstantiation`, `Function`, `CodegenFragment`, `ObjectFile`, `Archive`, `Executable`).
+  - Implemented typed dependency edges (`Body`, `Signature`, `TypeLayout`, `TraitResolution`, `GenericTemplate`, `Codegen`, `Link`, `Debug`).
+  - Added fine-grained invalidation propagation: function body mutations only invalidate downstream body callers and containing objects without triggering false recompilations of callers depending strictly on signatures.
+  - Added cycle detection that safely allows mutual function recursion while catching invalid compilation graph cycles.
+  - Added deterministic topological sorting with lexicographical BTree tie-breaking for predictable execution order.
+- **Content-Addressed Cryptographic Cache (`crates/vanta_build/src/cache.rs`, `fingerprint.rs`)**:
+  - Pure-Rust, FIPS 180-4 compliant SHA-256 content fingerprinting with length-prefixed domain separation (`Domain::Source`, `Domain::Object`, `Domain::Link`, etc.).
+  - Explicit compiler identity verification (`CompilerIdentity`) tracking package version, cache schema version (`v1`), git revision, target triple, optimization level, target features, and debug flags.
+  - Versioned on-disk cache layout under `.venta/cache/v1/<target_triple>/` with subdirectories for `objects`, `modules`, `interfaces`, `mir`, `functions`, `archives`, `links`, `metadata`, and `locks`.
+  - Crash-safe atomic publication using temporary writes in `locks/` followed by atomic filesystem renames (`fs::rename`).
+  - Automated corruption detection and recovery: reads verify file sizes and SHA-256 digests against metadata manifests, cleanly purging corrupted entries and rebuilding from source.
+- **Incremental Compilation & Linking Engine (`crates/vanta_build/src/engine.rs`, `crates/vanta_driver`)**:
+  - Module and compilation-unit level caching: clean build results are stored in the cache and reused on identical warm builds.
+  - Incremental linking: final link fingerprints track ordered object hashes, static archive member digests, and link options, skipping the link phase entirely on no-op builds.
+  - Link-only rebuild: when executable outputs are deleted or link options change, cached object artifacts are supplied directly to `vanta_linker` without invoking frontend or backend compilation.
+  - Verified **4.04x speedup** on warm no-op builds (17.41 ms vs 70.32 ms clean build) and **3.71x speedup** on link-only rebuilds (18.94 ms).
+- **CLI Flags & Cache Management Subcommands**:
+  - Added `--incremental` (enabled by default for `ventac build`) and `--no-incremental` (forcing clean builds).
+  - Added `--cache-dir=<dir>` for custom cache location configuration.
+  - Added `--build-stats` for detailed metrics reporting (source files unchanged, objects reused, linking status, cache hit/miss counts).
+  - Added `--explain-rebuild` for transparent explanations of rebuilt units.
+  - Added `ventac cache stats` for viewing cache artifact counts and total on-disk size.
+  - Added `ventac cache verify` for scanning and verifying checksum integrity across all cached artifacts.
+  - Added `ventac cache clean [--target=<triple>]` for safe garbage collection and cache clearing.
+- **Integration Tests & Benchmarks**:
+  - Added comprehensive test suite `crates/vanta_driver/tests/incremental_tests.rs` (10 passed tests covering cold build, warm no-op, source edit, link-only rebuild, cache corruption recovery, clean-build equivalence, generics, trait dispatch, target namespace isolation, and stats).
+  - Added benchmark suite `benchmarks/run_incremental_benchmarks.py` outputting structured benchmark data to `benchmarks/results/incremental_benchmark.json`.
+
+---
+
 ## [2.0.0-alpha.1] - 2026-10-30 (Milestone 31 — Venta v2.0 Self-Contained Native Linker & Multi-Object Static Archives)
 
 **First Feature Milestone for v2.0 Architecture: Pure-Rust Native Linker and Multi-Object Toolchain**

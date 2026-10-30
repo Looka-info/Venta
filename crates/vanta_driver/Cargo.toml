@@ -32,6 +32,7 @@ vanta_target = { workspace = true }
 vanta_codegen_x86_64 = { workspace = true }
 vanta_codegen_aarch64 = { workspace = true }
 vanta_linker = { workspace = true }
+vanta_build = { workspace = true }
 vanta_fmt = { workspace = true }
 
 [dev-dependencies]

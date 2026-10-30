@@ -157,6 +157,13 @@ flowchart LR
   - Conducted zero-subprocess audit verifying complete toolchain independence under `--linker internal`.
   - Automated malformed-input fuzzing across ELF64, COFF, Mach-O, and Archive parsers with zero panics.
   - Built standalone benchmark suite measuring link times from 0.025 ms (2 objects) to 0.150 ms (100 objects).
-- **Incremental Compilation (Planned)**:
-  - Module-level content addressing and dependency hashing to recompile only mutated functions.
-  - Incremental register allocation and fast function patching for near-instant compile-edit-run cycles.
+- **Incremental Compilation, Content-Addressed Build Graphs & Function-Level Caching (Milestone 32 - Completed)**:
+  - Implemented dedicated incremental build crate `vanta_build` providing explicit directed build graphs (`BuildGraph`, `BuildNode`, `DependencyKind`).
+  - Implemented FIPS 180-4 compliant pure-Rust cryptographic SHA-256 content fingerprinting (`ContentFingerprint`, `Domain`, `FingerprintBuilder`) with domain separation.
+  - Implemented versioned persistent cache layout under `.venta/cache/v1/<target_triple>/` with subdirectories for `objects`, `modules`, `interfaces`, `mir`, `functions`, `archives`, `links`, `metadata`, and `locks`.
+  - Implemented crash-safe atomic staging and publishing via temporary writes and atomic renames.
+  - Implemented schema versioning, compiler identity validation, and automatic corruption detection with safe recovery and rebuilds.
+  - Implemented true no-op warm builds achieving a verified **4.04x speedup** (17.41 ms vs 70.32 ms clean build) with 0 recompilations and 0 relinking.
+  - Implemented link-only rebuilds (3.71x speedup) reusing cached object artifacts when only link configuration or missing executables require relinking.
+  - Implemented CLI commands: `ventac cache stats`, `ventac cache clean`, `ventac cache verify`, `ventac cache inspect`, and compiler options `--incremental`, `--no-incremental`, `--cache-dir`, `--build-stats`, and `--explain-rebuild`.
+

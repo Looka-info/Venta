@@ -1,0 +1,18 @@
+[package]
+name = "vanta_build"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Venta incremental build system, dependency graph, and content-addressed cache"
+
+[dependencies]
+vanta_source = { workspace = true }
+vanta_target = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.8"
+
+[dev-dependencies]
+tempfile = "3.8"

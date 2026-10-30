@@ -372,6 +372,10 @@ fn handle_run(args: &[String]) {
         map_file: None,
         lib_search_paths: Vec::new(),
         libs: Vec::new(),
+        incremental: false,
+        cache_dir: None,
+        build_stats: false,
+        explain_rebuild: false,
     };
 
     let mut session = CompilerSession::new();
@@ -691,6 +695,10 @@ fn handle_compile(args: &[String]) {
         map_file: None,
         lib_search_paths: Vec::new(),
         libs: Vec::new(),
+        incremental: false,
+        cache_dir: None,
+        build_stats: false,
+        explain_rebuild: false,
     };
 
     let mut session = CompilerSession::new();
@@ -822,6 +830,10 @@ fn handle_check(args: &[String]) {
         map_file: None,
         lib_search_paths: Vec::new(),
         libs: Vec::new(),
+        incremental: false,
+        cache_dir: None,
+        build_stats: false,
+        explain_rebuild: false,
     };
 
     let mut session = CompilerSession::new();

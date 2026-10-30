@@ -126,3 +126,17 @@ crates/vanta_linker/
   - `__DATA`: Contains section `__data` and zero-fill section `__bss`. Permissions: `VM_PROT_READ | VM_PROT_WRITE`.
   - `__LINKEDIT`: Contains dyld symbol tables (`nlist_64`) and string tables. Permissions: `VM_PROT_READ`.
   - Load commands: `LC_LOAD_DYLINKER` (`/usr/lib/dyld`), `LC_MAIN` (entry point offset), and `LC_LOAD_DYLIB` (`/usr/lib/libSystem.B.dylib`).
+
+---
+
+## 6. Incremental Linking Integration (Milestone 32)
+
+Milestone 32 connects `vanta_linker` directly to the `vanta_build` dependency graph:
+
+1. **Deterministic Final Link Fingerprint:**
+   A cryptographic digest is computed over all ordered input object hashes, static archive member digests, target triple, entry point, map file setting, and debug information flags.
+2. **True No-Op Link Skip:**
+   If the link fingerprint matches the cached record and the output executable already exists on disk, linking is skipped entirely.
+3. **Object Reuse on Relink:**
+   When an executable is missing or link options change (such as map file generation), cached object artifacts are supplied directly to `vanta_linker` without invoking frontend compilation or backend machine code generation.
+
