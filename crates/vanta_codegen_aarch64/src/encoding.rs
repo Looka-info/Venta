@@ -395,7 +395,7 @@ impl ArmCodeEmitter {
                 let rt2 = r2.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
                 let imm7 = ((*imm / 8) & 0x7F) as u32;
-                self.emit_u32(0xA9BF0000 | (imm7 << 15) | (rt2 << 10) | (rn << 5) | rt1);
+                self.emit_u32(0xA9800000 | (imm7 << 15) | (rt2 << 10) | (rn << 5) | rt1);
             }
             ArmInst::LdpPostIndex { r1, r2, base, imm } => {
                 let rt1 = r1.hw_encoding() as u32;
@@ -534,6 +534,24 @@ mod tests {
             src: AArch64Reg::X1,
         });
         assert_eq!(&emitter.bytes[12..16], &0xAA0103E0u32.to_le_bytes());
+
+        // 5. stp x29, x30, [sp, #-32]! -> 0xA9BE7BFD
+        emitter.encode_instruction(&ArmInst::StpPreIndex {
+            r1: AArch64Reg::X29,
+            r2: AArch64Reg::X30,
+            base: AArch64Reg::SP,
+            imm: -32,
+        });
+        assert_eq!(&emitter.bytes[16..20], &0xA9BE7BFDu32.to_le_bytes());
+
+        // 6. ldp x29, x30, [sp], #32 -> 0xA8C27BFD
+        emitter.encode_instruction(&ArmInst::LdpPostIndex {
+            r1: AArch64Reg::X29,
+            r2: AArch64Reg::X30,
+            base: AArch64Reg::SP,
+            imm: 32,
+        });
+        assert_eq!(&emitter.bytes[20..24], &0xA8C27BFDu32.to_le_bytes());
     }
 
     #[test]
