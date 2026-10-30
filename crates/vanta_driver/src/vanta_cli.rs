@@ -130,6 +130,7 @@ fn handle_run(args: &[String]) {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
+    let mut linker = LinkerKind::System;
 
     let mut i = 0;
     while i < args.len() {
@@ -278,6 +279,35 @@ fn handle_run(args: &[String]) {
                     process::exit(2);
                 }
             }
+        } else if let Some(l_str) = arg.strip_prefix("--linker=") {
+            linker = match l_str {
+                "internal" => LinkerKind::Internal,
+                "system" => LinkerKind::System,
+                _ => {
+                    eprintln!(
+                        "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                        l_str
+                    );
+                    process::exit(2);
+                }
+            };
+        } else if arg == "--linker" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --linker requires an argument");
+                process::exit(2);
+            }
+            linker = match args[i].as_str() {
+                "internal" => LinkerKind::Internal,
+                "system" => LinkerKind::System,
+                _ => {
+                    eprintln!(
+                        "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                        args[i]
+                    );
+                    process::exit(2);
+                }
+            };
         } else if arg.starts_with("-C") {
             let c_arg = if arg == "-C" {
                 i += 1;
@@ -366,7 +396,7 @@ fn handle_run(args: &[String]) {
         enable_code_align,
         target_features,
         debug_info,
-        linker: LinkerKind::Internal,
+        linker,
         linker_flags: Vec::new(),
         link_archives: Vec::new(),
         additional_inputs: Vec::new(),
@@ -380,11 +410,16 @@ fn handle_run(args: &[String]) {
     };
 
     let mut session = CompilerSession::new();
-    if let Err(_e) = session.compile(&options) {
+    if let Err(e) = session.compile(&options) {
         if diagnostic_format == DiagnosticFormat::Json {
             println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
         } else {
-            eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+            let diag = session.render_diagnostics(DiagnosticFormat::Human);
+            if !diag.trim().is_empty() {
+                eprintln!("{}", diag);
+            } else {
+                eprintln!("Error: {}", e);
+            }
         }
         let _ = fs::remove_dir_all(&temp_dir);
         process::exit(1);
@@ -445,6 +480,7 @@ fn handle_compile(args: &[String]) {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
+    let mut linker = LinkerKind::System;
 
     let mut i = 0;
     while i < args.len() {
@@ -597,6 +633,35 @@ fn handle_compile(args: &[String]) {
                     process::exit(2);
                 }
             }
+        } else if let Some(l_str) = arg.strip_prefix("--linker=") {
+            linker = match l_str {
+                "internal" => LinkerKind::Internal,
+                "system" => LinkerKind::System,
+                _ => {
+                    eprintln!(
+                        "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                        l_str
+                    );
+                    process::exit(2);
+                }
+            };
+        } else if arg == "--linker" {
+            i += 1;
+            if i >= args.len() {
+                eprintln!("Error: --linker requires an argument");
+                process::exit(2);
+            }
+            linker = match args[i].as_str() {
+                "internal" => LinkerKind::Internal,
+                "system" => LinkerKind::System,
+                _ => {
+                    eprintln!(
+                        "Error: Unknown linker '{}', expected 'internal' or 'system'",
+                        args[i]
+                    );
+                    process::exit(2);
+                }
+            };
         } else if arg.starts_with("-C") {
             let c_arg = if arg == "-C" {
                 i += 1;
@@ -690,7 +755,7 @@ fn handle_compile(args: &[String]) {
         enable_code_align,
         target_features,
         debug_info,
-        linker: LinkerKind::Internal,
+        linker,
         linker_flags: Vec::new(),
         link_archives: Vec::new(),
         additional_inputs: Vec::new(),
@@ -710,11 +775,16 @@ fn handle_compile(args: &[String]) {
                 println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
             }
         }
-        Err(_e) => {
+        Err(e) => {
             if diagnostic_format == DiagnosticFormat::Json {
                 println!("{}", session.render_diagnostics(DiagnosticFormat::Json));
             } else {
-                eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+                let diag = session.render_diagnostics(DiagnosticFormat::Human);
+                if !diag.trim().is_empty() {
+                    eprintln!("{}", diag);
+                } else {
+                    eprintln!("Error: {}", e);
+                }
             }
             process::exit(1);
         }

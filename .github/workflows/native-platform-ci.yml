@@ -71,8 +71,10 @@ jobs:
 
           # Native execution
           chmod +x app_linux
+          set +e
           ./app_linux
           EXIT_CODE=$?
+          set -e
           echo "Process exit status: ${EXIT_CODE}"
           test "${EXIT_CODE}" -eq 42
 
@@ -115,7 +117,7 @@ jobs:
           target/debug/ventac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
 
           # Execute natively on Windows
-          ./app_win.exe || true
+          & .\app_win.exe
           $ec = $LASTEXITCODE
           Write-Output "Windows native exit code: $ec"
           if ($ec -ne 42) {
@@ -182,7 +184,9 @@ jobs:
 
           # Native execution on Apple Silicon
           chmod +x app_mac
-          ./app_mac || true
+          set +e
+          ./app_mac
           EXIT_CODE=$?
+          set -e
           echo "macOS native exit status: ${EXIT_CODE}"
           test "${EXIT_CODE}" -eq 42
