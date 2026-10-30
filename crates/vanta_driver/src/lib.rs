@@ -316,7 +316,9 @@ impl CompilerSession {
 
         let link_res =
             Self::invoke_system_linker(&temp_obj_path, &options.output_file, &rt_archive);
-        let _ = fs::remove_file(&temp_obj_path);
+        if link_res.is_ok() {
+            let _ = fs::remove_file(&temp_obj_path);
+        }
 
         match link_res {
             Ok(_) => Ok(Some(elf_bytes)),

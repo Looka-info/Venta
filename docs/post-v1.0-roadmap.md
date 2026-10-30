@@ -102,13 +102,23 @@ flowchart LR
 
 ### Version 1.3 — Advanced User-Defined Generics & Polymorphic Traits
 **Target Focus**: Expressiveness and large-scale software engineering.
-- **Full Monomorphized Generics**:
-  - User-defined generic structs (`struct Pair<T1, T2>`), enums (`enum Either<L, R>`), and functions (`fn swap<T>(a: &mut T, b: &mut T)`).
-  - Trait bounds (`fn serialize<T: Serializable>(item: &T) -> String`).
-- **Dynamic Dispatch (Trait Objects)**:
-  - Vtable generation for dynamic trait pointers (`&dyn Printable`), enabling runtime polymorphism where static monomorphization is impractical.
-- **Standard Library Collections**:
-  - Implement `std::collections::HashMap`, `BTreeMap`, and `RingBuffer` with custom linear-probing allocators.
+- **Full Monomorphized Generics (Milestone 29 - Completed)**:
+  - User-defined generic structs (`struct Pair<A, B>`) and generic functions (`fn identity<T>(x: T) -> T`).
+  - Trait bounds (`fn serialize<T: Bound1 + Bound2>(item: &T)`) with compile-time satisfaction validation emitting `E0707_TRAIT_BOUND_NOT_SATISFIED`.
+  - Turbofish syntax for explicit call-site specialization: `callee::<T1, T2>(args)`.
+  - Automatic `>>` token splitting in parser resolving nested generic arguments (`Pair<i64, Option<bool>>`).
+  - Monomorphization recursion depth limits (64) and total instantiation limits (1024), guarded by `E0211_RECURSIVE_GENERIC_INSTANTIATION`.
+- **Dynamic Dispatch & Trait Objects (Milestone 29 - Completed)**:
+  - 16-byte wide references `&dyn Trait` and `&mut dyn Trait` carrying `[data_ptr, vtable_ptr]` classified under System V AMD64 ABI as `AbiClass::Integer2` across two GPRs (`rdi:rsi`, etc.) and returned in `rax:rdx`.
+  - Static vtables emitted to ELF `.rodata` with `R_X86_64_64` relocations in `.rela.rodata` targeting concrete trait method symbols.
+  - Native x86-64 indirect call emission (`call *%reg` with `0xFF /2` and proper REX.B prefix for extended registers like `%r11`).
+  - Explicit object-safety verification rules emitting `E0710_NOT_OBJECT_SAFE`.
+  - SROA and Mem2Reg escape analysis updated to treat `StoreSlice` and `CallIndirect` as escaping references, preventing illegal stack aggregate decomposition.
+  - Global DCE reachability roots seeded with all methods in `MirProgram.vtables`.
+- **Standard Library Collections (Milestone 29 - Completed)**:
+  - Implemented generic `std::collections::HashMap<K, V>` using linear probing buckets and `Hash` + `Eq` trait constraints.
+  - Implemented generic circular FIFO `std::collections::RingBuffer<T>` with `push`, `pop`, `is_empty`, `is_full`, and `capacity`.
+  - Documented `BTreeMap` as a planned follow-up for self-balancing ordered collections.
 
 ---
 

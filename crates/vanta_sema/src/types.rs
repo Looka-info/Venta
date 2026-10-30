@@ -24,6 +24,8 @@ pub enum Type {
     Slice(Box<Type>),
     Struct(String),
     Enum(String),
+    TypeParam(String),
+    TraitObject(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,11 +307,31 @@ impl fmt::Display for Type {
             Type::Slice(inner) => write!(f, "[{}]", inner),
             Type::Struct(name) => write!(f, "{}", name),
             Type::Enum(name) => write!(f, "{}", name),
+            Type::TypeParam(name) => write!(f, "{}", name),
+            Type::TraitObject(name) => write!(f, "dyn {}", name),
         }
     }
 }
 
 impl Type {
+    pub fn is_trait_object(&self) -> bool {
+        match self {
+            Type::TraitObject(_) => true,
+            Type::Ref { inner, .. } => matches!(**inner, Type::TraitObject(_)),
+            _ => false,
+        }
+    }
+
+    pub fn trait_object_name(&self) -> Option<&str> {
+        match self {
+            Type::TraitObject(name) => Some(name.as_str()),
+            Type::Ref { inner, .. } => match &**inner {
+                Type::TraitObject(name) => Some(name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
@@ -366,7 +388,7 @@ impl Type {
             Type::Str | Type::Slice(_) => false,
             Type::Ref { is_mut, .. } => !*is_mut, // Shared references (&T and &str) are Copy; &mut T are Move
             Type::Array { inner, .. } => inner.is_copy(),
-            Type::Struct(_) | Type::Enum(_) => false,
+            Type::Struct(_) | Type::Enum(_) | Type::TypeParam(_) | Type::TraitObject(_) => false,
         }
     }
 
@@ -409,6 +431,7 @@ impl Type {
                 }
             }
             Type::Enum(name) => enums.get(name).map(|e| e.is_copy).unwrap_or(false),
+            Type::TypeParam(_) | Type::TraitObject(_) => false,
         }
     }
 
@@ -493,7 +516,10 @@ impl Type {
             Type::I64 | Type::U64 | Type::F64 => 8,
             Type::Unit | Type::Str | Type::Slice(_) => 0,
             Type::Ref { inner, .. } => {
-                if **inner == Type::Str || matches!(**inner, Type::Slice(_)) {
+                if **inner == Type::Str
+                    || matches!(**inner, Type::Slice(_))
+                    || matches!(**inner, Type::TraitObject(_))
+                {
                     16
                 } else {
                     8
@@ -520,6 +546,8 @@ impl Type {
                 }
             }
             Type::Enum(name) => enums.get(name).map(|e| e.total_size).unwrap_or(8),
+            Type::TypeParam(_) => 8,
+            Type::TraitObject(_) => 0,
         }
     }
 
@@ -556,6 +584,8 @@ impl Type {
                 }
             }
             Type::Enum(name) => enums.get(name).map(|e| e.alignment).unwrap_or(4),
+            Type::TypeParam(_) => 8,
+            Type::TraitObject(_) => 1,
         }
     }
 
@@ -585,6 +615,8 @@ impl Type {
             Type::Slice(inner) => format!("slice_{}", inner.to_mangled_string()),
             Type::Struct(name) => name.clone(),
             Type::Enum(name) => name.clone(),
+            Type::TypeParam(name) => name.clone(),
+            Type::TraitObject(name) => format!("dyn_{}", name),
         }
     }
 
@@ -596,8 +628,11 @@ impl Type {
             Type::I64 | Type::U64 | Type::F64 => 8,
             Type::Unit | Type::Str | Type::Slice(_) => 0,
             Type::Ref { inner, .. } => {
-                if **inner == Type::Str || matches!(**inner, Type::Slice(_)) {
-                    16 // 2-word slice descriptor (data pointer + byte/elem length)
+                if **inner == Type::Str
+                    || matches!(**inner, Type::Slice(_))
+                    || matches!(**inner, Type::TraitObject(_))
+                {
+                    16 // 2-word slice/trait-object descriptor (data pointer + byte/elem length or vtable)
                 } else {
                     8 // 64-bit pointers on x86-64
                 }
@@ -610,6 +645,8 @@ impl Type {
                     8
                 }
             }
+            Type::TypeParam(_) => 8,
+            Type::TraitObject(_) => 0,
         }
     }
 
@@ -626,7 +663,8 @@ impl Type {
             Type::Unit => 1,
             Type::Ref { .. } => 8,
             Type::Array { inner, .. } => inner.alignment(),
-            Type::Struct(_) | Type::Enum(_) => 8,
+            Type::Struct(_) | Type::Enum(_) | Type::TypeParam(_) => 8,
+            Type::TraitObject(_) => 1,
         }
     }
 

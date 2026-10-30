@@ -28,6 +28,7 @@ pub enum TokenKind {
     Trait,
     For,
     In,
+    Dyn,
 
     // Primitive Type names
     I8,

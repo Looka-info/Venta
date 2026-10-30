@@ -337,6 +337,13 @@ impl InductionVarOpt {
             } => vec![*base_ptr, *index],
             Instruction::FieldAddr { base_ptr, .. } => vec![*base_ptr],
             Instruction::Call { args, .. } => args.clone(),
+            Instruction::CallIndirect {
+                callee_ptr, args, ..
+            } => {
+                let mut u = vec![*callee_ptr];
+                u.extend_from_slice(args);
+                u
+            }
             Instruction::Copy { src, .. } => vec![*src],
             Instruction::Phi { inputs, .. } => inputs.iter().map(|(_, v)| *v).collect(),
             Instruction::StoreSlice { ptr, len, .. } => vec![*ptr, *len],
@@ -401,6 +408,18 @@ impl InductionVarOpt {
                         }
                     }
                     Instruction::Call { args, .. } => {
+                        for a in args {
+                            if let Some(&new_a) = subst.get(a) {
+                                *a = new_a;
+                            }
+                        }
+                    }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        if let Some(&new_ptr) = subst.get(callee_ptr) {
+                            *callee_ptr = new_ptr;
+                        }
                         for a in args {
                             if let Some(&new_a) = subst.get(a) {
                                 *a = new_a;

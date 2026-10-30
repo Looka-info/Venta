@@ -787,6 +787,13 @@ impl CodeEmitter {
                     r_type: 4, // R_X86_64_PLT32
                 });
             }
+            MachineInst::CallReg(reg) => {
+                if reg.is_extended() {
+                    self.emit_u8(0x41); // REX.B
+                }
+                self.emit_u8(0xFF);
+                self.emit_u8(0xD0 | reg.hw_encoding());
+            }
             MachineInst::TailJmp(symbol) => {
                 self.emit_u8(0xE9); // JMP rel32 opcode
                 let rel_offset = self.bytes.len();

@@ -98,6 +98,8 @@ pub enum MachineInst {
     Jcc { cond: ConditionCode, target: String },
     /// call function_name
     Call(String),
+    /// Indirect call through register: call *%reg
+    CallReg(Reg),
     /// Direct sibling tail call jump to external/symbolic callee: jmp symbol
     TailJmp(String),
     /// ret

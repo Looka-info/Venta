@@ -796,6 +796,41 @@ Both `String` and `&str` provide `.slice_bytes(start: i64, end: i64) -> Option<&
   - User Structs: Structs containing `String` fields recursively drop string fields on scope exit.
 - **Borrow Safety**: While `s.as_str()` or `s.slice_bytes()` is live, `s` is immutably borrowed (`BorrowState::Shared`). Mutating (`s.push_str`, `s.clear`) or moving `s` emits `E0306_MUTATE_WHILE_BORROWED` or `E0307_MOVE_WHILE_BORROWED`.
 
+## 17. User-Defined Generics, Multiple Trait Bounds, Monomorphization & Dynamic Dispatch
+
+### 17.1 User-Defined Generic Types & Functions
+Venta supports user-defined generic functions, structs, and enums parameterized by type parameters enclosed in angle brackets:
+- Generic functions: `fn identity<T>(x: T) -> T { x }`
+- Generic structs: `struct Pair<A, B> { first: A, second: B }`
+- Generic enums: `enum Either<L, R> { Left(L), Right(R) }`
+- Turbofish syntax: `identity::<i64>(42)` explicitly specifies type arguments at call sites.
+
+### 17.2 Trait Bounds & Multiple Constraints
+Type parameters may declare one or more trait bounds separated by `+`:
+```venta
+fn display_and_compare<T: Printable + Comparable>(a: &T, b: &T) {
+    ...
+}
+```
+During semantic analysis, the compiler validates that every concrete type argument satisfies all declared bounds, emitting diagnostic `E0707_TRAIT_BOUND_NOT_SATISFIED` if an implementation is missing.
+
+### 17.3 Monomorphization Engine
+Generic functions and types undergo full static monomorphization at compile-time:
+- Symbol mangling: `func__Type1_Type2` produces deterministic, collision-free symbols.
+- Instantiation limits: Monomorphization recursion depth is bounded to 64 and total instantiated functions to 1024, preventing infinite expansion and emitting `E0211_RECURSIVE_GENERIC_INSTANTIATION`.
+- Zero runtime overhead: Specialized code paths are optimized independently by the MIR optimization passes.
+
+### 17.4 Trait Objects & Dynamic Dispatch
+Where runtime polymorphism is required, Venta provides first-class dynamically dispatched trait objects via `&dyn Trait` and `&mut dyn Trait`:
+- **Object Safety**: A trait is object-safe if every method has `self` (`&Self` or `&mut Self`) as its first parameter, does not return `Self`, and has no generic type parameters. Using `&dyn Trait` on a non-object-safe trait emits `E0710_NOT_OBJECT_SAFE`.
+- **Memory Representation**: Trait objects are 16-byte wide fat references:
+  - First word (offset 0): 64-bit pointer to concrete data instance (`data_ptr`).
+  - Second word (offset 8): 64-bit pointer to static vtable (`vtable_ptr`).
+- **System V AMD64 ABI Classification**: Classified as `AbiClass::Integer2 { size: 16 }`, passed in two 64-bit integer registers (`rdi`, `rsi` etc.) and returned in `rax` and `rdx`.
+- **Vtable Layout**: The compiler emits static vtables (`_vtable_{trait}_{target}`) in `.rodata` containing 64-bit function pointers corresponding to each trait method in declaration order.
+- **Dynamic Dispatch Emission**: Method invocations on `&dyn Trait` calculate `vtable_ptr + method_idx * 8`, load the function pointer via `Instruction::LoadIndirect`, set `data_ptr` as the first receiver argument, and emit `Instruction::CallIndirect` (`call *%reg`).
+
+
 
 
 

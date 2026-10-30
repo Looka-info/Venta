@@ -93,6 +93,16 @@ pub enum Instruction {
         args: Vec<ValueId>,
         ret_type: Type,
     },
+    CallIndirect {
+        dest: Option<ValueId>,
+        callee_ptr: ValueId,
+        args: Vec<ValueId>,
+        ret_type: Type,
+    },
+    VtableAddr {
+        dest: ValueId,
+        symbol: String,
+    },
     IndexAddr {
         dest: ValueId,
         slot: SlotId,
@@ -231,6 +241,23 @@ impl MirFunction {
                             max = max.max(a.0);
                         }
                     }
+                    Instruction::CallIndirect {
+                        dest,
+                        callee_ptr,
+                        args,
+                        ..
+                    } => {
+                        if let Some(d) = dest {
+                            max = max.max(d.0);
+                        }
+                        max = max.max(callee_ptr.0);
+                        for a in args {
+                            max = max.max(a.0);
+                        }
+                    }
+                    Instruction::VtableAddr { dest, .. } => {
+                        max = max.max(dest.0);
+                    }
                     Instruction::StrSlice {
                         dest_ptr, dest_len, ..
                     }
@@ -288,6 +315,8 @@ impl Instruction {
             | Instruction::Copy { dest, .. }
             | Instruction::Phi { dest, .. } => vec![*dest],
             Instruction::Call { dest, .. } => dest.map(|d| vec![d]).unwrap_or_default(),
+            Instruction::CallIndirect { dest, .. } => dest.map(|d| vec![d]).unwrap_or_default(),
+            Instruction::VtableAddr { dest, .. } => vec![*dest],
             Instruction::StrSlice {
                 dest_ptr, dest_len, ..
             }
@@ -314,6 +343,14 @@ impl Instruction {
             Instruction::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
             Instruction::Unary { operand, .. } => vec![*operand],
             Instruction::Call { args, .. } => args.clone(),
+            Instruction::CallIndirect {
+                callee_ptr, args, ..
+            } => {
+                let mut u = vec![*callee_ptr];
+                u.extend_from_slice(args);
+                u
+            }
+            Instruction::VtableAddr { .. } => Vec::new(),
             Instruction::IndexAddr { index, .. } => vec![*index],
             Instruction::IndexPtrAddr {
                 base_ptr, index, ..
@@ -335,10 +372,17 @@ pub struct StringLiteral {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VtableDef {
+    pub symbol: String,
+    pub methods: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MirProgram {
     pub functions: Vec<MirFunction>,
     pub string_literals: Vec<StringLiteral>,
     pub structs: HashMap<String, StructDef>,
     pub enums: HashMap<String, EnumDef>,
+    pub vtables: Vec<VtableDef>,
 }

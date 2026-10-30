@@ -29,6 +29,7 @@ pub struct Elf64Writer {
     text_section: Vec<u8>,
     rodata_section: Vec<u8>,
     relocations: Vec<Relocation>,
+    rodata_relocations: Vec<Relocation>,
     functions: Vec<FunctionSymbol>,
     rodata_symbols: Vec<RodataSymbol>,
     debug_sections: Option<DebugSections>,
@@ -46,10 +47,16 @@ impl Elf64Writer {
             text_section,
             rodata_section,
             relocations,
+            rodata_relocations: Vec::new(),
             functions,
             rodata_symbols,
             debug_sections: None,
         }
+    }
+
+    pub fn with_rodata_relocations(mut self, rodata_relocations: Vec<Relocation>) -> Self {
+        self.rodata_relocations = rodata_relocations;
+        self
     }
 
     pub fn with_debug(mut self, debug_sections: Option<DebugSections>) -> Self {
@@ -73,6 +80,7 @@ impl Elf64Writer {
         let sh_text_name = add_shstr(".text");
         let sh_rodata_name = add_shstr(".rodata");
         let sh_rela_text_name = add_shstr(".rela.text");
+        let sh_rela_rodata_name = add_shstr(".rela.rodata");
         let sh_debug_info_name = add_shstr(".debug_info");
         let sh_rela_debug_info_name = add_shstr(".rela.debug_info");
         let sh_debug_abbrev_name = add_shstr(".debug_abbrev");
@@ -98,6 +106,15 @@ impl Elf64Writer {
         let mut next_sec = 3u32;
 
         let sec_rela_text = if has_rela_text {
+            let s = next_sec;
+            next_sec += 1;
+            Some(s)
+        } else {
+            None
+        };
+
+        let has_rela_rodata = !self.rodata_relocations.is_empty();
+        let sec_rela_rodata = if has_rela_rodata {
             let s = next_sec;
             next_sec += 1;
             Some(s)
@@ -303,6 +320,23 @@ impl Elf64Writer {
             }
         }
 
+        // External / undefined symbols referenced in rodata relocations
+        for rel in &self.rodata_relocations {
+            if !sym_indices.contains_key(&rel.symbol) {
+                let st_name = add_str(&rel.symbol);
+                let sym_idx = symtab_entries.len() as u32;
+                symtab_entries.push(ElfSym {
+                    st_name,
+                    st_info: 0x10, // (STB_GLOBAL << 4) | STT_NOTYPE
+                    st_other: 0,
+                    st_shndx: 0, // SHN_UNDEF
+                    st_value: 0,
+                    st_size: 0,
+                });
+                sym_indices.insert(rel.symbol.clone(), sym_idx);
+            }
+        }
+
         // Build .rela.text entries
         let mut rela_text_entries = Vec::new();
         for rel in &self.relocations {
@@ -314,6 +348,23 @@ impl Elf64Writer {
             });
             let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
             rela_text_entries.push(ElfRela {
+                r_offset: rel.offset as u64,
+                r_info,
+                r_addend: rel.addend,
+            });
+        }
+
+        // Build .rela.rodata entries
+        let mut rela_rodata_entries = Vec::new();
+        for rel in &self.rodata_relocations {
+            let sym_idx = *sym_indices.get(&rel.symbol).unwrap_or_else(|| {
+                panic!(
+                    "Rodata relocation symbol '{}' must exist in symbol table",
+                    rel.symbol
+                );
+            });
+            let r_info = ((sym_idx as u64) << 32) | (rel.r_type as u64);
+            rela_rodata_entries.push(ElfRela {
                 r_offset: rel.offset as u64,
                 r_info,
                 r_addend: rel.addend,
@@ -373,6 +424,17 @@ impl Elf64Writer {
             current_offset = (current_offset + 7) & !7;
             let off = current_offset;
             let sz = rela_text_entries.len() * 24;
+            current_offset += sz;
+            (off, sz)
+        } else {
+            (0, 0)
+        };
+
+        // .rela.rodata (align 8)
+        let (rela_rodata_offset, rela_rodata_size) = if sec_rela_rodata.is_some() {
+            current_offset = (current_offset + 7) & !7;
+            let off = current_offset;
+            let sz = rela_rodata_entries.len() * 24;
             current_offset += sz;
             (off, sz)
         } else {
@@ -496,6 +558,18 @@ impl Elf64Writer {
                 out.push(0);
             }
             for rela in &rela_text_entries {
+                out.extend_from_slice(&rela.r_offset.to_le_bytes());
+                out.extend_from_slice(&rela.r_info.to_le_bytes());
+                out.extend_from_slice(&rela.r_addend.to_le_bytes());
+            }
+        }
+
+        // .rela.rodata
+        if sec_rela_rodata.is_some() {
+            while out.len() < rela_rodata_offset {
+                out.push(0);
+            }
+            for rela in &rela_rodata_entries {
                 out.extend_from_slice(&rela.r_offset.to_le_bytes());
                 out.extend_from_slice(&rela.r_info.to_le_bytes());
                 out.extend_from_slice(&rela.r_addend.to_le_bytes());
@@ -637,6 +711,21 @@ impl Elf64Writer {
                 rela_text_size as u64,
                 sec_symtab, // sh_link: .symtab index
                 sec_text,   // sh_info: target section (.text)
+                8,
+                24,
+            );
+        }
+
+        // Section (optional): .rela.rodata (SHT_RELA = 4, SHF_INFO_LINK = 0x40, align 8)
+        if sec_rela_rodata.is_some() {
+            write_shdr(
+                sh_rela_rodata_name,
+                4,
+                0x40,
+                rela_rodata_offset as u64,
+                rela_rodata_size as u64,
+                sec_symtab, // sh_link: .symtab index
+                sec_rodata, // sh_info: target section (.rodata)
                 8,
                 24,
             );

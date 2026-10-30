@@ -173,23 +173,42 @@ impl SemanticContext {
         }
         if let (
             Type::Ref {
-                is_mut: false,
+                is_mut: from_mut,
                 inner: from_inner,
             },
             Type::Ref {
-                is_mut: false,
+                is_mut: to_mut,
                 inner: to_inner,
             },
         ) = (from, to)
         {
-            if let (
-                Type::Array {
-                    inner: from_elem, ..
-                },
-                Type::Slice(to_elem),
-            ) = (&**from_inner, &**to_inner)
-            {
-                return from_elem == to_elem;
+            if *to_mut && !*from_mut {
+                return false;
+            }
+            if let Type::TraitObject(trait_name) = &**to_inner {
+                if let Type::Struct(s_name) = &**from_inner {
+                    let s_base = s_name.rsplit("__").next().unwrap_or(s_name);
+                    let t_base = trait_name.rsplit("__").next().unwrap_or(trait_name);
+                    let implements = self.trait_impls.keys().any(|(tr, tg)| {
+                        let tr_b = tr.rsplit("__").next().unwrap_or(tr);
+                        let tg_b = tg.rsplit("__").next().unwrap_or(tg);
+                        (tr == trait_name || tr_b == t_base) && (tg == s_name || tg_b == s_base)
+                    });
+                    if implements {
+                        return true;
+                    }
+                }
+            }
+            if !*from_mut && !*to_mut {
+                if let (
+                    Type::Array {
+                        inner: from_elem, ..
+                    },
+                    Type::Slice(to_elem),
+                ) = (&**from_inner, &**to_inner)
+                {
+                    return from_elem == to_elem;
+                }
             }
         }
         false
@@ -243,6 +262,46 @@ impl SemanticContext {
             }
         }
         None
+    }
+
+    pub fn is_object_safe(&self, trait_name: &str) -> Result<(), String> {
+        let trait_def = self.traits.get(trait_name).or_else(|| {
+            self.traits
+                .iter()
+                .find(|(k, _)| {
+                    k.as_str() == trait_name
+                        || k.ends_with(&format!("__{}", trait_name))
+                        || k.ends_with(&format!("::{}", trait_name))
+                })
+                .map(|(_, v)| v)
+        });
+
+        if let Some(td) = trait_def {
+            if !td.type_params.is_empty() {
+                return Err(format!(
+                    "Trait '{}' has generic type parameters and cannot be made into a trait object",
+                    td.name
+                ));
+            }
+            for (m_name, sig) in &td.methods {
+                let has_receiver = !sig.params.is_empty() && sig.params[0].0 == "self";
+                if !has_receiver {
+                    return Err(format!(
+                        "Method '{}' in trait '{}' does not take a '&self' or '&mut self' receiver and cannot be called on a trait object",
+                        m_name, td.name
+                    ));
+                }
+                if let Type::Struct(s) = &sig.ret_type {
+                    if s == "Self" {
+                        return Err(format!(
+                            "Method '{}' in trait '{}' returns 'Self' and cannot be called on a trait object",
+                            m_name, td.name
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn new() -> Self {
@@ -2265,6 +2324,45 @@ impl SemanticContext {
                 );
                 Type::Unit
             }
+            TypeExprKind::TraitObject { trait_name, .. } => {
+                let canon_name = self
+                    .traits
+                    .get(trait_name)
+                    .map(|t| t.canonical_name.clone())
+                    .or_else(|| {
+                        let curr_scope = self.module_scopes.get(&self.current_module);
+                        curr_scope.and_then(|s| s.traits.get(trait_name).cloned())
+                    })
+                    .or_else(|| {
+                        if self.traits.contains_key(trait_name)
+                            || self.declared_trait_names.contains(trait_name)
+                        {
+                            Some(trait_name.clone())
+                        } else {
+                            None
+                        }
+                    });
+                match canon_name {
+                    Some(name) => {
+                        if let Err(err_msg) = self.is_object_safe(&name) {
+                            diags.emit(
+                                Diagnostic::error(err_msg)
+                                    .with_code(codes::E0710_NOT_OBJECT_SAFE)
+                                    .with_span(ty_expr.span),
+                            );
+                        }
+                        Type::TraitObject(name)
+                    }
+                    None => {
+                        diags.emit(
+                            Diagnostic::error(format!("Unknown trait '{}'", trait_name))
+                                .with_code(codes::E0701_UNKNOWN_TRAIT)
+                                .with_span(ty_expr.span),
+                        );
+                        Type::Unit
+                    }
+                }
+            }
         }
     }
 }
@@ -2298,6 +2396,11 @@ pub fn type_to_type_expr(ty: &Type, span: Span) -> TypeExpr {
             inner: Box::new(type_to_type_expr(inner, span)),
         },
         Type::Struct(name) | Type::Enum(name) => TypeExprKind::Named(name.clone()),
+        Type::TypeParam(name) => TypeExprKind::Named(name.clone()),
+        Type::TraitObject(name) => TypeExprKind::TraitObject {
+            trait_name: name.clone(),
+            lifetime: None,
+        },
     };
     TypeExpr::new(kind, span)
 }
@@ -2339,6 +2442,13 @@ pub fn subst_type_expr(ty: &TypeExpr, substs: &HashMap<String, Type>) -> TypeExp
             inner: Box::new(subst_type_expr(inner, substs)),
         },
         TypeExprKind::Lifetime(lt) => TypeExprKind::Lifetime(lt.clone()),
+        TypeExprKind::TraitObject {
+            trait_name,
+            lifetime,
+        } => TypeExprKind::TraitObject {
+            trait_name: trait_name.clone(),
+            lifetime: lifetime.clone(),
+        },
         TypeExprKind::Primitive(p) => TypeExprKind::Primitive(*p),
         TypeExprKind::Unit => TypeExprKind::Unit,
     };
@@ -3252,6 +3362,7 @@ impl SemanticAnalyzer {
 
                         let mut methods = HashMap::new();
                         let mut seen_method_names = HashSet::new();
+                        self.ctx.current_impl_target = Some("Self".to_string());
                         for m in &t.methods {
                             if !seen_method_names.insert(m.name.name.clone()) {
                                 diags.emit(
@@ -3368,6 +3479,7 @@ impl SemanticAnalyzer {
                                 span: t.span,
                             },
                         );
+                        self.ctx.current_impl_target = None;
                         self.ctx.active_lifetime_params = prev_t_lts;
                     }
                     Item::Impl(impl_block) => {
@@ -7658,6 +7770,99 @@ impl SemanticAnalyzer {
                             .with_span(method.span),
                         );
                         Type::Unit
+                    }
+                } else if target_ty.is_trait_object() {
+                    let trait_name = target_ty.trait_object_name().unwrap_or("");
+                    let trait_def = self
+                        .ctx
+                        .traits
+                        .get(trait_name)
+                        .or_else(|| {
+                            self.ctx
+                                .traits
+                                .iter()
+                                .find(|(k, _)| {
+                                    k.as_str() == trait_name
+                                        || k.ends_with(&format!("__{}", trait_name))
+                                        || k.ends_with(&format!("::{}", trait_name))
+                                })
+                                .map(|(_, v)| v)
+                        })
+                        .cloned();
+
+                    if let Some(tdef) = trait_def {
+                        if let Some(sig) = tdef.methods.get(&method.name).cloned() {
+                            if sig.is_mut_self {
+                                self.check_place_mutability(target, &target.span, diags);
+                                if let Type::Ref { is_mut: false, .. } = target_ty {
+                                    diags.emit(
+                                        Diagnostic::error(format!(
+                                            "Cannot call method '{}' requiring '&mut Self' on immutable reference",
+                                            method.name
+                                        ))
+                                        .with_code(codes::E0303_MUTATE_IMMUTABLE)
+                                        .with_span(target.span),
+                                    );
+                                }
+                            }
+
+                            let expected_arg_count = sig.params.len().saturating_sub(1);
+                            if args.len() != expected_arg_count {
+                                diags.emit(
+                                    Diagnostic::error(format!(
+                                        "Method '{}' expects {} arguments, but {} were provided",
+                                        method.name,
+                                        expected_arg_count,
+                                        args.len()
+                                    ))
+                                    .with_code(codes::E0205_ARGUMENT_MISMATCH)
+                                    .with_span(expr.span),
+                                );
+                            }
+
+                            for (idx, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(arg, diags);
+                                if let Some((_, param_ty, _)) = sig.params.get(idx + 1) {
+                                    if !self.ctx.can_coerce(&arg_ty, param_ty) {
+                                        diags.emit(
+                                            Diagnostic::error(format!(
+                                                "Argument {} to method '{}' expects {}, found {}",
+                                                idx + 1,
+                                                method.name,
+                                                param_ty,
+                                                arg_ty
+                                            ))
+                                            .with_code(codes::E0201_TYPE_MISMATCH)
+                                            .with_expected(format!("{}", param_ty))
+                                            .with_actual(format!("{}", arg_ty))
+                                            .with_span(arg.span),
+                                        );
+                                    }
+                                }
+                            }
+
+                            sig.ret_type
+                        } else {
+                            diags.emit(
+                                Diagnostic::error(format!(
+                                    "No method named '{}' found on trait '{}'",
+                                    method.name, trait_name
+                                ))
+                                .with_code(codes::E0108_UNKNOWN_METHOD)
+                                .with_span(method.span),
+                            );
+                            Type::I64
+                        }
+                    } else {
+                        diags.emit(
+                            Diagnostic::error(format!(
+                                "Unknown trait '{}' for trait object",
+                                trait_name
+                            ))
+                            .with_code(codes::E0701_UNKNOWN_TRAIT)
+                            .with_span(method.span),
+                        );
+                        Type::I64
                     }
                 } else {
                     let type_name = match &target_ty {

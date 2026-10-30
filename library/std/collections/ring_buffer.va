@@ -1,0 +1,55 @@
+import std::option::Option;
+
+pub struct RingBuffer<T> {
+    pub data: Vec<T>,
+    pub head: i64,
+    pub tail: i64,
+    pub count: i64,
+    pub capacity: i64,
+}
+
+pub fn new_ring_buffer<T>(capacity: i64) -> RingBuffer<T> {
+    RingBuffer {
+        data: Vec::new(),
+        head: 0,
+        tail: 0,
+        count: 0,
+        capacity: capacity,
+    }
+}
+
+pub fn push<T>(rb: &mut RingBuffer<T>, item: T) -> bool {
+    if rb.count >= rb.capacity {
+        return false;
+    }
+    rb.data.push(item);
+    rb.tail = (rb.tail + 1) % rb.capacity;
+    rb.count = rb.count + 1;
+    return true;
+}
+
+pub fn pop<T>(rb: &mut RingBuffer<T>) -> Option<T> {
+    if rb.count == 0 {
+        return Option::None;
+    }
+    let item = rb.data[rb.head];
+    rb.head = (rb.head + 1) % rb.capacity;
+    rb.count = rb.count - 1;
+    return Option::Some(item);
+}
+
+pub fn is_empty<T>(rb: &RingBuffer<T>) -> bool {
+    return rb.count == 0;
+}
+
+pub fn is_full<T>(rb: &RingBuffer<T>) -> bool {
+    return rb.count >= rb.capacity;
+}
+
+pub fn len<T>(rb: &RingBuffer<T>) -> i64 {
+    return rb.count;
+}
+
+pub fn capacity<T>(rb: &RingBuffer<T>) -> i64 {
+    return rb.capacity;
+}

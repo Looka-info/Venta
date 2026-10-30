@@ -343,9 +343,10 @@ impl X86_64Backend {
         // Patch local jumps
         emitter.resolve_fixups();
 
-        // Construct rodata section from string literals
+        // Construct rodata section from string literals and vtables
         let mut rodata_section = Vec::new();
         let mut rodata_symbols = Vec::new();
+        let mut rodata_relocations = Vec::new();
 
         for lit in &program.string_literals {
             let offset = rodata_section.len();
@@ -356,6 +357,30 @@ impl X86_64Backend {
                 offset,
                 size: lit.bytes.len(),
             });
+        }
+
+        // Vtables in .rodata
+        for vtable in &program.vtables {
+            while !rodata_section.len().is_multiple_of(8) {
+                rodata_section.push(0);
+            }
+            let offset = rodata_section.len();
+            let size = vtable.methods.len() * 8;
+            rodata_symbols.push(RodataSymbol {
+                name: vtable.symbol.clone(),
+                offset,
+                size,
+            });
+            for (idx, method_symbol) in vtable.methods.iter().enumerate() {
+                let entry_offset = offset + idx * 8;
+                rodata_relocations.push(Relocation {
+                    offset: entry_offset,
+                    symbol: method_symbol.clone(),
+                    addend: 0,
+                    r_type: 1, // R_X86_64_64
+                });
+                rodata_section.extend_from_slice(&0u64.to_le_bytes());
+            }
         }
 
         while !rodata_section.len().is_multiple_of(16) {
@@ -452,6 +477,7 @@ impl X86_64Backend {
             functions,
             rodata_symbols,
         )
+        .with_rodata_relocations(rodata_relocations)
         .with_debug(debug_sections);
 
         Ok(writer.write())

@@ -67,6 +67,27 @@ impl Parser {
         }
     }
 
+    fn check_gt(&self) -> bool {
+        self.check(&TokenKind::Gt) || self.check(&TokenKind::Shr)
+    }
+
+    fn expect_gt(&mut self, diags: &mut DiagnosticBag) -> Option<Token> {
+        if self.check(&TokenKind::Gt) {
+            Some(self.bump())
+        } else if self.check(&TokenKind::Shr) {
+            let tok = self.current().clone();
+            if self.cursor < self.tokens.len() {
+                self.tokens[self.cursor].kind = TokenKind::Gt;
+            }
+            Some(Token {
+                kind: TokenKind::Gt,
+                span: tok.span,
+            })
+        } else {
+            self.expect(TokenKind::Gt, diags)
+        }
+    }
+
     // --- High-level Parsing ---
 
     pub fn parse_program(&mut self, diags: &mut DiagnosticBag) -> Program {
@@ -278,7 +299,7 @@ impl Parser {
     fn parse_type_args(&mut self, diags: &mut DiagnosticBag) -> Option<Vec<TypeExpr>> {
         self.expect(TokenKind::Lt, diags)?;
         let mut type_args = Vec::new();
-        while !self.check(&TokenKind::Gt) && !self.check(&TokenKind::Eof) {
+        while !self.check_gt() && !self.check(&TokenKind::Eof) {
             let arg = self.parse_type(diags)?;
             type_args.push(arg);
             if self.check(&TokenKind::Comma) {
@@ -287,7 +308,7 @@ impl Parser {
                 break;
             }
         }
-        self.expect(TokenKind::Gt, diags)?;
+        self.expect_gt(diags)?;
         Some(type_args)
     }
 
@@ -356,26 +377,31 @@ impl Parser {
         self.expect(TokenKind::Lt, diags)?;
         let mut lifetime_params = Vec::new();
         let mut type_params = Vec::new();
-        while !self.check(&TokenKind::Gt) && !self.check(&TokenKind::Eof) {
+        while !self.check_gt() && !self.check(&TokenKind::Eof) {
             if let TokenKind::Lifetime(lt_name) = self.peek() {
                 let lt_name = lt_name.clone();
                 let tok = self.bump();
                 lifetime_params.push(Ident::new(lt_name, tok.span));
             } else {
                 let id = self.parse_ident(diags)?;
-                let bound = if self.check(&TokenKind::Colon) {
+                let mut bounds = Vec::new();
+                if self.check(&TokenKind::Colon) {
                     self.bump();
-                    Some(self.parse_path_ident(diags)?)
-                } else {
-                    None
-                };
-                let span = if let Some(ref b) = bound {
-                    id.span.merge(b.span)
+                    bounds.push(self.parse_path_ident(diags)?);
+                    while self.check(&TokenKind::Plus) {
+                        self.bump();
+                        bounds.push(self.parse_path_ident(diags)?);
+                    }
+                }
+                let bound = bounds.first().cloned();
+                let span = if let Some(last_b) = bounds.last() {
+                    id.span.merge(last_b.span)
                 } else {
                     id.span
                 };
                 type_params.push(TypeParam {
                     name: id,
+                    bounds,
                     bound,
                     span,
                 });
@@ -386,7 +412,7 @@ impl Parser {
                 break;
             }
         }
-        self.expect(TokenKind::Gt, diags)?;
+        self.expect_gt(diags)?;
         Some((lifetime_params, type_params))
     }
 
@@ -752,6 +778,25 @@ impl Parser {
                     span: start_span.merge(end_tok.span),
                 })
             }
+            TokenKind::Dyn => {
+                self.bump();
+                let trait_id = self.parse_path_ident(diags)?;
+                let lifetime = if let TokenKind::Lifetime(name) = self.peek() {
+                    let name = name.clone();
+                    let tok = self.bump();
+                    Some(Ident::new(name, tok.span))
+                } else {
+                    None
+                };
+                let span = start_span.merge(trait_id.span);
+                Some(TypeExpr {
+                    kind: TypeExprKind::TraitObject {
+                        trait_name: trait_id.name,
+                        lifetime,
+                    },
+                    span,
+                })
+            }
             TokenKind::Ident(name) => {
                 let mut name = name.clone();
                 self.bump();
@@ -769,7 +814,7 @@ impl Parser {
                 } else if self.check(&TokenKind::Lt) {
                     self.bump();
                     let mut type_args = Vec::new();
-                    while !self.check(&TokenKind::Gt) && !self.check(&TokenKind::Eof) {
+                    while !self.check_gt() && !self.check(&TokenKind::Eof) {
                         let arg = self.parse_type(diags)?;
                         type_args.push(arg);
                         if self.check(&TokenKind::Comma) {
@@ -778,7 +823,7 @@ impl Parser {
                             break;
                         }
                     }
-                    let end_tok = self.expect(TokenKind::Gt, diags)?;
+                    let end_tok = self.expect_gt(diags)?;
                     Some(TypeExpr {
                         kind: TypeExprKind::Generic { name, type_args },
                         span: start_span.merge(end_tok.span),
@@ -1401,7 +1446,7 @@ impl Parser {
                     let mut args = Vec::new();
                     let mut ok = true;
                     let mut scratch_diags = DiagnosticBag::new();
-                    while !self.check(&TokenKind::Gt) && !self.check(&TokenKind::Eof) {
+                    while !self.check_gt() && !self.check(&TokenKind::Eof) {
                         if let Some(arg) = self.parse_type(&mut scratch_diags) {
                             args.push(arg);
                             if self.check(&TokenKind::Comma) {
@@ -1414,8 +1459,8 @@ impl Parser {
                             break;
                         }
                     }
-                    if ok && !scratch_diags.has_errors() && self.check(&TokenKind::Gt) {
-                        self.bump(); // consume '>'
+                    if ok && !scratch_diags.has_errors() && self.check_gt() {
+                        let _ = self.expect_gt(&mut scratch_diags);
                         if self.check(&TokenKind::LBrace)
                             || self.check(&TokenKind::LParen)
                             || self.check(&TokenKind::ColonColon)
@@ -1429,10 +1474,25 @@ impl Parser {
                     }
                 }
 
+                // Turbofish syntax: name::<T1, T2>
+                if type_args.is_empty()
+                    && self.check(&TokenKind::ColonColon)
+                    && self.tokens.get(self.cursor + 1).map(|t| &t.kind) == Some(&TokenKind::Lt)
+                {
+                    self.bump(); // consume '::'
+                    if let Some(args) = self.parse_type_args(diags) {
+                        type_args = args;
+                    }
+                }
+
                 // Check for associated call, qualified function call, or variant constructor
                 if self.check(&TokenKind::ColonColon) {
                     let mut path_segments = vec![Ident::new(name.clone(), start_span)];
                     while self.check(&TokenKind::ColonColon) {
+                        if self.tokens.get(self.cursor + 1).map(|t| &t.kind) == Some(&TokenKind::Lt)
+                        {
+                            break;
+                        }
                         self.bump(); // consume '::'
                         path_segments.push(self.parse_ident(diags)?);
                     }
@@ -1447,6 +1507,17 @@ impl Parser {
                         .join("::");
                     let prefix_ident = Ident::new(prefix_name.clone(), prefix_span);
                     let full_qualified = format!("{}::{}", prefix_name, last.name);
+
+                    // Qualified turbofish: mod::sub::func::<T1, T2>
+                    if type_args.is_empty()
+                        && self.check(&TokenKind::ColonColon)
+                        && self.tokens.get(self.cursor + 1).map(|t| &t.kind) == Some(&TokenKind::Lt)
+                    {
+                        self.bump(); // consume '::'
+                        if let Some(args) = self.parse_type_args(diags) {
+                            type_args = args;
+                        }
+                    }
 
                     if self.check(&TokenKind::LParen) {
                         self.bump();
@@ -2085,6 +2156,139 @@ mod tests {
                 assert_eq!(i.target_args.len(), 2);
             }
             _ => panic!("Expected Impl item"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generics_advanced_syntax() {
+        let src = r#"
+        struct Pair<T1, T2> {
+            first: T1,
+            second: T2,
+        }
+
+        enum Either<L, R> {
+            Left(L),
+            Right(R),
+        }
+
+        trait Printable {
+            fn print(self: &Self);
+        }
+
+        trait Comparable {
+            fn compare(self: &Self, other: &Self) -> i64;
+        }
+
+        fn process<T: Printable + Comparable>(item: &T) {
+            item.print();
+        }
+
+        fn show_dyn(item: &dyn Printable, mut_item: &mut dyn Printable) {
+            item.print();
+        }
+
+        fn run() {
+            let p: Pair<i64, Option<bool>> = Pair::<i64, Option<bool>> {
+                first: 42,
+                second: Option::Some(true),
+            };
+            let id = identity::<i64>(42);
+        }
+        "#;
+        let mut sm = SourceMap::new();
+        let file_id = sm.add_file("generics_syntax_test.va".into(), src.into());
+        let file = sm.get_file(file_id).unwrap();
+
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        assert!(!diags.has_errors());
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+        assert!(
+            !diags.has_errors(),
+            "Parse errors: {:?}",
+            diags.diagnostics()
+        );
+        assert_eq!(program.items.len(), 7);
+
+        // 1. Struct Pair<T1, T2>
+        match &program.items[0] {
+            Item::Struct(s) => {
+                assert_eq!(s.name.name, "Pair");
+                assert_eq!(s.type_params.len(), 2);
+                assert_eq!(s.type_params[0].name.name, "T1");
+                assert_eq!(s.type_params[1].name.name, "T2");
+            }
+            _ => panic!("Expected Struct item"),
+        }
+
+        // 2. Enum Either<L, R>
+        match &program.items[1] {
+            Item::Enum(e) => {
+                assert_eq!(e.name.name, "Either");
+                assert_eq!(e.type_params.len(), 2);
+                assert_eq!(e.type_params[0].name.name, "L");
+                assert_eq!(e.type_params[1].name.name, "R");
+            }
+            _ => panic!("Expected Enum item"),
+        }
+
+        // 5. Function process with multiple bounds: T: Printable + Comparable
+        match &program.items[4] {
+            Item::Function(f) => {
+                assert_eq!(f.name.name, "process");
+                assert_eq!(f.type_params.len(), 1);
+                assert_eq!(f.type_params[0].name.name, "T");
+                assert_eq!(f.type_params[0].bounds.len(), 2);
+                assert_eq!(f.type_params[0].bounds[0].name, "Printable");
+                assert_eq!(f.type_params[0].bounds[1].name, "Comparable");
+            }
+            _ => panic!("Expected Function item"),
+        }
+
+        // 6. Function show_dyn with &dyn Printable and &mut dyn Printable
+        match &program.items[5] {
+            Item::Function(f) => {
+                assert_eq!(f.name.name, "show_dyn");
+                assert_eq!(f.params.len(), 2);
+                match &f.params[0].ty.kind {
+                    TypeExprKind::Reference { is_mut, inner, .. } => {
+                        assert!(!*is_mut);
+                        match &inner.kind {
+                            TypeExprKind::TraitObject { trait_name, .. } => {
+                                assert_eq!(trait_name, "Printable");
+                            }
+                            _ => panic!("Expected TraitObject inner"),
+                        }
+                    }
+                    _ => panic!("Expected Reference param"),
+                }
+                match &f.params[1].ty.kind {
+                    TypeExprKind::Reference { is_mut, inner, .. } => {
+                        assert!(*is_mut);
+                        match &inner.kind {
+                            TypeExprKind::TraitObject { trait_name, .. } => {
+                                assert_eq!(trait_name, "Printable");
+                            }
+                            _ => panic!("Expected TraitObject inner"),
+                        }
+                    }
+                    _ => panic!("Expected Reference param"),
+                }
+            }
+            _ => panic!("Expected Function item"),
+        }
+
+        // 7. run function with nested generics Pair<i64, Option<bool>> and turbofish call
+        match &program.items[6] {
+            Item::Function(f) => {
+                assert_eq!(f.name.name, "run");
+                assert_eq!(f.body.stmts.len(), 2);
+            }
+            _ => panic!("Expected Function item"),
         }
     }
 }

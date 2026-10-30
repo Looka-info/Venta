@@ -521,6 +521,14 @@ impl<'a> GvnContext<'a> {
                     *arg = self.find_leader(*arg);
                 }
             }
+            Instruction::CallIndirect {
+                callee_ptr, args, ..
+            } => {
+                *callee_ptr = self.find_leader(*callee_ptr);
+                for arg in args {
+                    *arg = self.find_leader(*arg);
+                }
+            }
             Instruction::IndexAddr { index, .. } => {
                 *index = self.find_leader(*index);
             }
@@ -558,7 +566,8 @@ impl<'a> GvnContext<'a> {
             | Instruction::SlotAddr { .. }
             | Instruction::Load { .. }
             | Instruction::StrSlice { .. }
-            | Instruction::LoadSlice { .. } => {}
+            | Instruction::LoadSlice { .. }
+            | Instruction::VtableAddr { .. } => {}
         }
     }
 

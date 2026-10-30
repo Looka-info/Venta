@@ -26,6 +26,12 @@ pub struct InstructionSelector<'a> {
     source_map: Option<&'a vanta_source::SourceMap>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum CallTarget<'a> {
+    Direct(&'a str),
+    Indirect(ValueId),
+}
+
 impl<'a> InstructionSelector<'a> {
     pub fn new(
         func: &'a MirFunction,
@@ -2720,354 +2726,40 @@ impl<'a> InstructionSelector<'a> {
                     return;
                 }
 
-                // General System V AMD64 Function Call Lowering
-                let mut arg_is_vector = vec![false; args.len()];
-                if let Some((sig_params, _)) = self.fn_signatures.and_then(|s| s.get(callee)) {
-                    let mut a_idx = 0;
-                    for p_ty in sig_params {
-                        if a_idx >= args.len() {
-                            break;
-                        }
-                        if classify_type(p_ty, self.structs, self.enums).is_vector() {
-                            arg_is_vector[a_idx] = true;
-                            a_idx += 1;
-                        } else if p_ty.is_str_slice()
-                            || p_ty.is_slice()
-                            || matches!(p_ty, Type::Ref { inner, .. } if inner.is_str_slice() || inner.is_slice())
-                        {
-                            // Slice parameter consumes 2 args in MIR (ptr and len)
-                            a_idx += 2;
-                        } else {
-                            a_idx += 1;
-                        }
+                self.emit_general_call(dest, CallTarget::Direct(callee), args, ret_type, out);
+            }
+            Instruction::CallIndirect {
+                dest,
+                callee_ptr,
+                args,
+                ret_type,
+            } => {
+                self.emit_general_call(
+                    dest,
+                    CallTarget::Indirect(*callee_ptr),
+                    args,
+                    ret_type,
+                    out,
+                );
+            }
+            Instruction::VtableAddr { dest, symbol } => {
+                let dest_op = self.get_val_op(*dest);
+                match dest_op {
+                    Operand::Reg(dst) => {
+                        out.push(MachineInst::LeaRip {
+                            dest: dst,
+                            symbol: symbol.clone(),
+                        });
                     }
-                } else {
-                    for (i, arg) in args.iter().enumerate() {
-                        if self
-                            .simd_val_map
-                            .map(|m| m.contains_key(arg))
-                            .unwrap_or(false)
-                        {
-                            arg_is_vector[i] = true;
-                        }
-                    }
-                }
-
-                enum CallArgDest {
-                    IntReg(Reg),
-                    VecReg(SimdReg),
-                    IntStack(i32),
-                    VecStack(i32),
-                }
-
-                let mut arg_dests = Vec::with_capacity(args.len());
-                let mut int_reg_idx = if ret_class.is_memory() { 1 } else { 0 };
-                let mut vec_reg_idx = 0;
-                let mut current_stack_offset = 0usize;
-
-                for (i, _arg) in args.iter().enumerate() {
-                    if arg_is_vector[i] {
-                        if vec_reg_idx < 8 {
-                            let reg = SimdReg(vec_reg_idx as u8);
-                            vec_reg_idx += 1;
-                            arg_dests.push(CallArgDest::VecReg(reg));
-                        } else {
-                            current_stack_offset = (current_stack_offset + 31) & !31;
-                            let off = current_stack_offset as i32;
-                            current_stack_offset += 32;
-                            arg_dests.push(CallArgDest::VecStack(off));
-                        }
-                    } else {
-                        if int_reg_idx < Reg::ARG_REGS.len() {
-                            let reg = Reg::ARG_REGS[int_reg_idx];
-                            int_reg_idx += 1;
-                            arg_dests.push(CallArgDest::IntReg(reg));
-                        } else {
-                            current_stack_offset = (current_stack_offset + 7) & !7;
-                            let off = current_stack_offset as i32;
-                            current_stack_offset += 8;
-                            arg_dests.push(CallArgDest::IntStack(off));
-                        }
-                    }
-                }
-
-                let stack_arg_bytes = if current_stack_offset > 0 {
-                    (current_stack_offset + 31) & !31
-                } else {
-                    0
-                };
-
-                if ret_class.is_memory() {
-                    let d = dest.expect("Call with memory return must have dest ValueId");
-                    let buf_offset = self
-                        .frame
-                        .call_return_buffers
-                        .get(&d)
-                        .copied()
-                        .unwrap_or_else(|| self.frame.value_offsets.get(&d).copied().unwrap_or(8));
-                    out.push(MachineInst::Lea {
-                        dest: Reg::Rdi,
-                        src: Operand::Mem {
-                            base: Reg::Rbp,
-                            offset: -buf_offset,
-                        },
-                    });
-                }
-
-                if stack_arg_bytes > 0 {
-                    out.push(MachineInst::Sub {
-                        dest: Operand::Reg(Reg::Rsp),
-                        src: Operand::Imm(stack_arg_bytes as i64),
-                    });
-                }
-
-                for (idx, arg) in args.iter().enumerate() {
-                    match arg_dests[idx] {
-                        CallArgDest::VecReg(target_ymm) => {
-                            if let Some(loc) = self.get_simd_loc(*arg) {
-                                match loc {
-                                    SimdLocation::Reg(r) => {
-                                        if r != target_ymm {
-                                            out.push(MachineInst::Vmovups {
-                                                width: VectorWidth::V256,
-                                                dest: SimdOperand::Reg(target_ymm),
-                                                src: SimdOperand::Reg(r),
-                                            });
-                                        }
-                                    }
-                                    SimdLocation::Spill(slot) => {
-                                        let spill_op = self.frame.get_simd_spill_op(slot);
-                                        if let Operand::Mem { base, offset } = spill_op {
-                                            let eff_offset = if base == Reg::Rsp {
-                                                offset + (stack_arg_bytes as i32)
-                                            } else {
-                                                offset
-                                            };
-                                            out.push(MachineInst::Vmovups {
-                                                width: VectorWidth::V256,
-                                                dest: SimdOperand::Reg(target_ymm),
-                                                src: SimdOperand::Mem {
-                                                    base,
-                                                    offset: eff_offset,
-                                                },
-                                            });
-                                        }
-                                    }
-                                }
-                            } else {
-                                let val_op = self.get_val_op(*arg);
-                                let base_r = match val_op {
-                                    Operand::Reg(r) => r,
-                                    Operand::Mem { base, offset } => {
-                                        let eff_offset = if base == Reg::Rsp {
-                                            offset + (stack_arg_bytes as i32)
-                                        } else {
-                                            offset
-                                        };
-                                        out.push(MachineInst::Mov {
-                                            dest: Operand::Reg(Reg::R10),
-                                            src: Operand::Mem {
-                                                base,
-                                                offset: eff_offset,
-                                            },
-                                        });
-                                        Reg::R10
-                                    }
-                                    _ => Reg::R10,
-                                };
-                                out.push(MachineInst::Vmovups {
-                                    width: VectorWidth::V256,
-                                    dest: SimdOperand::Reg(target_ymm),
-                                    src: SimdOperand::Mem {
-                                        base: base_r,
-                                        offset: 0,
-                                    },
-                                });
-                            }
-                        }
-                        CallArgDest::IntReg(target_reg) => {
-                            let val_op = self.get_val_op(*arg);
-                            let eff_op = match val_op {
-                                Operand::Mem {
-                                    base: Reg::Rsp,
-                                    offset,
-                                } => Operand::Mem {
-                                    base: Reg::Rsp,
-                                    offset: offset + (stack_arg_bytes as i32),
-                                },
-                                op => op,
-                            };
-                            if eff_op != Operand::Reg(target_reg) {
-                                out.push(MachineInst::Mov {
-                                    dest: Operand::Reg(target_reg),
-                                    src: eff_op,
-                                });
-                            }
-                        }
-                        CallArgDest::VecStack(offset) => {
-                            if let Some(loc) = self.get_simd_loc(*arg) {
-                                match loc {
-                                    SimdLocation::Reg(r) => {
-                                        out.push(MachineInst::Vmovups {
-                                            width: VectorWidth::V256,
-                                            dest: SimdOperand::Mem {
-                                                base: Reg::Rsp,
-                                                offset,
-                                            },
-                                            src: SimdOperand::Reg(r),
-                                        });
-                                    }
-                                    SimdLocation::Spill(slot) => {
-                                        let spill_op = self.frame.get_simd_spill_op(slot);
-                                        if let Operand::Mem {
-                                            base,
-                                            offset: s_off,
-                                        } = spill_op
-                                        {
-                                            let eff_off = if base == Reg::Rsp {
-                                                s_off + (stack_arg_bytes as i32)
-                                            } else {
-                                                s_off
-                                            };
-                                            out.push(MachineInst::Vmovups {
-                                                width: VectorWidth::V256,
-                                                dest: SimdOperand::Reg(
-                                                    SimdRegisterAllocator::SCRATCH_A,
-                                                ),
-                                                src: SimdOperand::Mem {
-                                                    base,
-                                                    offset: eff_off,
-                                                },
-                                            });
-                                            out.push(MachineInst::Vmovups {
-                                                width: VectorWidth::V256,
-                                                dest: SimdOperand::Mem {
-                                                    base: Reg::Rsp,
-                                                    offset,
-                                                },
-                                                src: SimdOperand::Reg(
-                                                    SimdRegisterAllocator::SCRATCH_A,
-                                                ),
-                                            });
-                                        }
-                                    }
-                                }
-                            } else {
-                                let val_op = self.get_val_op(*arg);
-                                let base_r = match val_op {
-                                    Operand::Reg(r) => r,
-                                    Operand::Mem {
-                                        base,
-                                        offset: v_off,
-                                    } => {
-                                        let eff_v_off = if base == Reg::Rsp {
-                                            v_off + (stack_arg_bytes as i32)
-                                        } else {
-                                            v_off
-                                        };
-                                        out.push(MachineInst::Mov {
-                                            dest: Operand::Reg(Reg::R10),
-                                            src: Operand::Mem {
-                                                base,
-                                                offset: eff_v_off,
-                                            },
-                                        });
-                                        Reg::R10
-                                    }
-                                    _ => Reg::R10,
-                                };
-                                out.push(MachineInst::Vmovups {
-                                    width: VectorWidth::V256,
-                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                    src: SimdOperand::Mem {
-                                        base: base_r,
-                                        offset: 0,
-                                    },
-                                });
-                                out.push(MachineInst::Vmovups {
-                                    width: VectorWidth::V256,
-                                    dest: SimdOperand::Mem {
-                                        base: Reg::Rsp,
-                                        offset,
-                                    },
-                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
-                                });
-                            }
-                        }
-                        CallArgDest::IntStack(offset) => {
-                            let val_op = self.get_val_op(*arg);
-                            let eff_op = match val_op {
-                                Operand::Mem {
-                                    base: Reg::Rsp,
-                                    offset: v_off,
-                                } => Operand::Mem {
-                                    base: Reg::Rsp,
-                                    offset: v_off + (stack_arg_bytes as i32),
-                                },
-                                op => op,
-                            };
-                            out.push(MachineInst::Mov {
-                                dest: Operand::Reg(Reg::R10),
-                                src: eff_op,
-                            });
-                            out.push(MachineInst::Mov {
-                                dest: Operand::Mem {
-                                    base: Reg::Rsp,
-                                    offset,
-                                },
-                                src: Operand::Reg(Reg::R10),
-                            });
-                        }
-                    }
-                }
-
-                out.push(MachineInst::Call(callee.clone()));
-
-                if stack_arg_bytes > 0 {
-                    out.push(MachineInst::Add {
-                        dest: Operand::Reg(Reg::Rsp),
-                        src: Operand::Imm(stack_arg_bytes as i64),
-                    });
-                }
-
-                if let Some(d) = dest {
-                    if ret_class.is_vector() {
-                        if let Some(simd_loc) = self.get_simd_loc(*d) {
-                            match simd_loc {
-                                SimdLocation::Reg(r) => {
-                                    if r != SimdReg(0) {
-                                        out.push(MachineInst::Vmovups {
-                                            width: VectorWidth::V256,
-                                            dest: SimdOperand::Reg(r),
-                                            src: SimdOperand::Reg(SimdReg(0)),
-                                        });
-                                    }
-                                }
-                                SimdLocation::Spill(slot) => {
-                                    let spill_op = self.frame.get_simd_spill_op(slot);
-                                    if let Operand::Mem { base, offset } = spill_op {
-                                        out.push(MachineInst::Vmovups {
-                                            width: VectorWidth::V256,
-                                            dest: SimdOperand::Mem { base, offset },
-                                            src: SimdOperand::Reg(SimdReg(0)),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        let dest_op = self.get_val_op(*d);
+                    _ => {
+                        out.push(MachineInst::LeaRip {
+                            dest: Reg::Rax,
+                            symbol: symbol.clone(),
+                        });
                         out.push(MachineInst::Mov {
                             dest: dest_op,
-                            src: Operand::Imm(d.0 as i64),
+                            src: Operand::Reg(Reg::Rax),
                         });
-                    } else {
-                        let dest_op = self.get_val_op(*d);
-                        if dest_op != Operand::Reg(Reg::Rax) {
-                            out.push(MachineInst::Mov {
-                                dest: dest_op,
-                                src: Operand::Reg(Reg::Rax),
-                            });
-                        }
                     }
                 }
             }
@@ -3483,6 +3175,400 @@ impl<'a> InstructionSelector<'a> {
                             });
                         }
                     }
+                }
+            }
+        }
+    }
+
+    fn emit_general_call(
+        &self,
+        dest: &Option<ValueId>,
+        target: CallTarget,
+        args: &[ValueId],
+        ret_type: &Type,
+        out: &mut Vec<MachineInst>,
+    ) {
+        let ret_class = classify_type(ret_type, self.structs, self.enums);
+        let mut arg_is_vector = vec![false; args.len()];
+        if let CallTarget::Direct(callee) = target {
+            if let Some((sig_params, _)) = self.fn_signatures.and_then(|s| s.get(callee)) {
+                let mut a_idx = 0;
+                for p_ty in sig_params {
+                    if a_idx >= args.len() {
+                        break;
+                    }
+                    if classify_type(p_ty, self.structs, self.enums).is_vector() {
+                        arg_is_vector[a_idx] = true;
+                        a_idx += 1;
+                    } else if p_ty.is_str_slice()
+                        || p_ty.is_slice()
+                        || p_ty.is_trait_object()
+                        || matches!(p_ty, Type::Ref { inner, .. } if inner.is_str_slice() || inner.is_slice() || inner.is_trait_object())
+                    {
+                        a_idx += 2;
+                    } else {
+                        a_idx += 1;
+                    }
+                }
+            } else {
+                for (i, arg) in args.iter().enumerate() {
+                    if self
+                        .simd_val_map
+                        .map(|m| m.contains_key(arg))
+                        .unwrap_or(false)
+                    {
+                        arg_is_vector[i] = true;
+                    }
+                }
+            }
+        } else {
+            for (i, arg) in args.iter().enumerate() {
+                if self
+                    .simd_val_map
+                    .map(|m| m.contains_key(arg))
+                    .unwrap_or(false)
+                {
+                    arg_is_vector[i] = true;
+                }
+            }
+        }
+
+        enum CallArgDest {
+            IntReg(Reg),
+            VecReg(SimdReg),
+            IntStack(i32),
+            VecStack(i32),
+        }
+
+        let mut arg_dests = Vec::with_capacity(args.len());
+        let mut int_reg_idx = if ret_class.is_memory() { 1 } else { 0 };
+        let mut vec_reg_idx = 0;
+        let mut current_stack_offset = 0usize;
+
+        for (i, _arg) in args.iter().enumerate() {
+            if arg_is_vector[i] {
+                if vec_reg_idx < 8 {
+                    let reg = SimdReg(vec_reg_idx as u8);
+                    vec_reg_idx += 1;
+                    arg_dests.push(CallArgDest::VecReg(reg));
+                } else {
+                    current_stack_offset = (current_stack_offset + 31) & !31;
+                    let off = current_stack_offset as i32;
+                    current_stack_offset += 32;
+                    arg_dests.push(CallArgDest::VecStack(off));
+                }
+            } else {
+                if int_reg_idx < Reg::ARG_REGS.len() {
+                    let reg = Reg::ARG_REGS[int_reg_idx];
+                    int_reg_idx += 1;
+                    arg_dests.push(CallArgDest::IntReg(reg));
+                } else {
+                    current_stack_offset = (current_stack_offset + 7) & !7;
+                    let off = current_stack_offset as i32;
+                    current_stack_offset += 8;
+                    arg_dests.push(CallArgDest::IntStack(off));
+                }
+            }
+        }
+
+        let stack_arg_bytes = if current_stack_offset > 0 {
+            (current_stack_offset + 31) & !31
+        } else {
+            0
+        };
+
+        if ret_class.is_memory() {
+            let d = dest.expect("Call with memory return must have dest ValueId");
+            let buf_offset = self
+                .frame
+                .call_return_buffers
+                .get(&d)
+                .copied()
+                .unwrap_or_else(|| self.frame.value_offsets.get(&d).copied().unwrap_or(8));
+            out.push(MachineInst::Lea {
+                dest: Reg::Rdi,
+                src: Operand::Mem {
+                    base: Reg::Rbp,
+                    offset: -buf_offset,
+                },
+            });
+        }
+
+        if stack_arg_bytes > 0 {
+            out.push(MachineInst::Sub {
+                dest: Operand::Reg(Reg::Rsp),
+                src: Operand::Imm(stack_arg_bytes as i64),
+            });
+        }
+
+        for (idx, arg) in args.iter().enumerate() {
+            let dest_loc = &arg_dests[idx];
+            match *dest_loc {
+                CallArgDest::VecReg(target_ymm) => {
+                    if let Some(loc) = self.get_simd_loc(*arg) {
+                        match loc {
+                            SimdLocation::Reg(r) => {
+                                if r != target_ymm {
+                                    out.push(MachineInst::Vmovups {
+                                        width: VectorWidth::V256,
+                                        dest: SimdOperand::Reg(target_ymm),
+                                        src: SimdOperand::Reg(r),
+                                    });
+                                }
+                            }
+                            SimdLocation::Spill(slot) => {
+                                let spill_op = self.frame.get_simd_spill_op(slot);
+                                let (base, offset) = match spill_op {
+                                    Operand::Mem { base, offset } => (base, offset),
+                                    _ => unreachable!(),
+                                };
+                                let eff_offset = if base == Reg::Rsp {
+                                    offset + (stack_arg_bytes as i32)
+                                } else {
+                                    offset
+                                };
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Reg(target_ymm),
+                                    src: SimdOperand::Mem {
+                                        base,
+                                        offset: eff_offset,
+                                    },
+                                });
+                            }
+                        }
+                    } else {
+                        let val_op = self.get_val_op(*arg);
+                        let base_r = match val_op {
+                            Operand::Reg(r) => r,
+                            Operand::Mem {
+                                base,
+                                offset: v_off,
+                            } => {
+                                let eff_v_off = if base == Reg::Rsp {
+                                    v_off + (stack_arg_bytes as i32)
+                                } else {
+                                    v_off
+                                };
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R10),
+                                    src: Operand::Mem {
+                                        base,
+                                        offset: eff_v_off,
+                                    },
+                                });
+                                Reg::R10
+                            }
+                            _ => Reg::R10,
+                        };
+                        out.push(MachineInst::Vmovups {
+                            width: VectorWidth::V256,
+                            dest: SimdOperand::Reg(target_ymm),
+                            src: SimdOperand::Mem {
+                                base: base_r,
+                                offset: 0,
+                            },
+                        });
+                    }
+                }
+                CallArgDest::IntReg(target_reg) => {
+                    let val_op = self.get_val_op(*arg);
+                    let eff_op = match val_op {
+                        Operand::Mem {
+                            base: Reg::Rsp,
+                            offset,
+                        } => Operand::Mem {
+                            base: Reg::Rsp,
+                            offset: offset + (stack_arg_bytes as i32),
+                        },
+                        op => op,
+                    };
+                    if eff_op != Operand::Reg(target_reg) {
+                        out.push(MachineInst::Mov {
+                            dest: Operand::Reg(target_reg),
+                            src: eff_op,
+                        });
+                    }
+                }
+                CallArgDest::VecStack(offset) => {
+                    if let Some(loc) = self.get_simd_loc(*arg) {
+                        match loc {
+                            SimdLocation::Reg(r) => {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Mem {
+                                        base: Reg::Rsp,
+                                        offset,
+                                    },
+                                    src: SimdOperand::Reg(r),
+                                });
+                            }
+                            SimdLocation::Spill(slot) => {
+                                let spill_op = self.frame.get_simd_spill_op(slot);
+                                let (base, s_off) = match spill_op {
+                                    Operand::Mem { base, offset: o } => (base, o),
+                                    _ => unreachable!(),
+                                };
+                                let eff_s_off = if base == Reg::Rsp {
+                                    s_off + (stack_arg_bytes as i32)
+                                } else {
+                                    s_off
+                                };
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                                    src: SimdOperand::Mem {
+                                        base,
+                                        offset: eff_s_off,
+                                    },
+                                });
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Mem {
+                                        base: Reg::Rsp,
+                                        offset,
+                                    },
+                                    src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                                });
+                            }
+                        }
+                    } else {
+                        let val_op = self.get_val_op(*arg);
+                        let base_r = match val_op {
+                            Operand::Reg(r) => r,
+                            Operand::Mem {
+                                base,
+                                offset: v_off,
+                            } => {
+                                let eff_v_off = if base == Reg::Rsp {
+                                    v_off + (stack_arg_bytes as i32)
+                                } else {
+                                    v_off
+                                };
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R10),
+                                    src: Operand::Mem {
+                                        base,
+                                        offset: eff_v_off,
+                                    },
+                                });
+                                Reg::R10
+                            }
+                            _ => Reg::R10,
+                        };
+                        out.push(MachineInst::Vmovups {
+                            width: VectorWidth::V256,
+                            dest: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                            src: SimdOperand::Mem {
+                                base: base_r,
+                                offset: 0,
+                            },
+                        });
+                        out.push(MachineInst::Vmovups {
+                            width: VectorWidth::V256,
+                            dest: SimdOperand::Mem {
+                                base: Reg::Rsp,
+                                offset,
+                            },
+                            src: SimdOperand::Reg(SimdRegisterAllocator::SCRATCH_A),
+                        });
+                    }
+                }
+                CallArgDest::IntStack(offset) => {
+                    let val_op = self.get_val_op(*arg);
+                    let eff_op = match val_op {
+                        Operand::Mem {
+                            base: Reg::Rsp,
+                            offset: v_off,
+                        } => Operand::Mem {
+                            base: Reg::Rsp,
+                            offset: v_off + (stack_arg_bytes as i32),
+                        },
+                        op => op,
+                    };
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Reg(Reg::R10),
+                        src: eff_op,
+                    });
+                    out.push(MachineInst::Mov {
+                        dest: Operand::Mem {
+                            base: Reg::Rsp,
+                            offset,
+                        },
+                        src: Operand::Reg(Reg::R10),
+                    });
+                }
+            }
+        }
+
+        match target {
+            CallTarget::Direct(callee) => {
+                out.push(MachineInst::Call(callee.to_string()));
+            }
+            CallTarget::Indirect(callee_ptr) => {
+                let callee_op = self.get_val_op(callee_ptr);
+                let eff_callee_op = match callee_op {
+                    Operand::Mem {
+                        base: Reg::Rsp,
+                        offset: v_off,
+                    } => Operand::Mem {
+                        base: Reg::Rsp,
+                        offset: v_off + (stack_arg_bytes as i32),
+                    },
+                    op => op,
+                };
+                out.push(MachineInst::Mov {
+                    dest: Operand::Reg(Reg::R11),
+                    src: eff_callee_op,
+                });
+                out.push(MachineInst::CallReg(Reg::R11));
+            }
+        }
+
+        if stack_arg_bytes > 0 {
+            out.push(MachineInst::Add {
+                dest: Operand::Reg(Reg::Rsp),
+                src: Operand::Imm(stack_arg_bytes as i64),
+            });
+        }
+
+        if let Some(d) = dest {
+            if ret_class.is_vector() {
+                if let Some(simd_loc) = self.get_simd_loc(*d) {
+                    match simd_loc {
+                        SimdLocation::Reg(r) => {
+                            if r != SimdReg(0) {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Reg(r),
+                                    src: SimdOperand::Reg(SimdReg(0)),
+                                });
+                            }
+                        }
+                        SimdLocation::Spill(slot) => {
+                            let spill_op = self.frame.get_simd_spill_op(slot);
+                            if let Operand::Mem { base, offset } = spill_op {
+                                out.push(MachineInst::Vmovups {
+                                    width: VectorWidth::V256,
+                                    dest: SimdOperand::Mem { base, offset },
+                                    src: SimdOperand::Reg(SimdReg(0)),
+                                });
+                            }
+                        }
+                    }
+                }
+                let dest_op = self.get_val_op(*d);
+                out.push(MachineInst::Mov {
+                    dest: dest_op,
+                    src: Operand::Imm(d.0 as i64),
+                });
+            } else {
+                let dest_op = self.get_val_op(*d);
+                if dest_op != Operand::Reg(Reg::Rax) {
+                    out.push(MachineInst::Mov {
+                        dest: dest_op,
+                        src: Operand::Reg(Reg::Rax),
+                    });
                 }
             }
         }

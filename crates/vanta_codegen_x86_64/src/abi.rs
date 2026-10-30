@@ -283,14 +283,15 @@ pub fn classify_type(
         Type::I32 | Type::U32 | Type::F32 => AbiClass::Integer1 { size: 4 },
         Type::I64 | Type::U64 | Type::F64 => AbiClass::Integer1 { size: 8 },
         Type::Ref { inner, .. } => {
-            if **inner == Type::Str || matches!(**inner, Type::Slice(_)) {
-                // 16-byte slice descriptor: ptr (8 bytes) + len (8 bytes)
+            if **inner == Type::Str || matches!(**inner, Type::Slice(_) | Type::TraitObject(_)) {
+                // 16-byte wide descriptor: ptr (8 bytes) + len/vtable (8 bytes)
                 AbiClass::Integer2 { size: 16 }
             } else {
                 AbiClass::Integer1 { size: 8 }
             }
         }
-        Type::Str | Type::Slice(_) => AbiClass::Integer2 { size: 16 },
+        Type::Str | Type::Slice(_) | Type::TraitObject(_) => AbiClass::Integer2 { size: 16 },
+        Type::TypeParam(_) => AbiClass::Integer1 { size: 8 },
         Type::Array { inner, len } => {
             let elem_size = inner.size_with_context(structs, enums);
             let total_size = elem_size * len;

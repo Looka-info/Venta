@@ -66,6 +66,7 @@ pub mod codes {
     pub const E0707_TRAIT_BOUND_NOT_SATISFIED: &str = "E0707";
     pub const E0708_DUPLICATE_TRAIT: &str = "E0708";
     pub const E0709_INVALID_TRAIT_RECEIVER: &str = "E0709";
+    pub const E0710_NOT_OBJECT_SAFE: &str = "E0710";
 
     // Milestone 11: Standard Library Foundation, Option, Result, and Error Propagation
     pub const E0801_INVALID_TRY_OPERAND: &str = "E0801";

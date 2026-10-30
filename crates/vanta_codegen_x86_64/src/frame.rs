@@ -378,7 +378,7 @@ impl FrameLayout {
                         });
                     }
                 }
-            } else if ty.is_str_slice() || ty.is_slice() {
+            } else if ty.is_str_slice() || ty.is_slice() || ty.is_trait_object() {
                 let slot_offset = self.slot_offsets.get(slot).copied().unwrap_or(16);
                 if arg_reg_idx + 1 < Reg::ARG_REGS.len() {
                     let r1 = Reg::ARG_REGS[arg_reg_idx];

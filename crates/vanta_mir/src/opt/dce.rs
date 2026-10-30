@@ -127,6 +127,14 @@ impl DeadCodeElimination {
                             used_values.insert(*arg);
                         }
                     }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        used_values.insert(*callee_ptr);
+                        for arg in args {
+                            used_values.insert(*arg);
+                        }
+                    }
                     Instruction::Binary { lhs, rhs, .. } => {
                         used_values.insert(*lhs);
                         used_values.insert(*rhs);
@@ -163,7 +171,8 @@ impl DeadCodeElimination {
                     | Instruction::SlotAddr { .. }
                     | Instruction::Load { .. }
                     | Instruction::StrSlice { .. }
-                    | Instruction::LoadSlice { .. } => {}
+                    | Instruction::LoadSlice { .. }
+                    | Instruction::VtableAddr { .. } => {}
                 }
             }
 
@@ -206,6 +215,7 @@ impl DeadCodeElimination {
                     Instruction::Copy { dest, .. } | Instruction::Phi { dest, .. } => {
                         used_values.contains(dest)
                     }
+                    Instruction::VtableAddr { dest, .. } => used_values.contains(dest),
                     Instruction::StrSlice {
                         dest_ptr, dest_len, ..
                     } => used_values.contains(dest_ptr) || used_values.contains(dest_len),
@@ -219,7 +229,8 @@ impl DeadCodeElimination {
                     | Instruction::StoreIndirect { .. }
                     | Instruction::StoreIndirect32 { .. }
                     | Instruction::LoadIndirect { .. }
-                    | Instruction::Call { .. } => true,
+                    | Instruction::Call { .. }
+                    | Instruction::CallIndirect { .. } => true,
                 }
             });
 

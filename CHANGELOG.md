@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-10-30 (Milestone 28 — Venta Language Server Protocol (LSP) Daemon)
+## [1.3.0-alpha.1] - 2026-10-30 (Milestone 29 — Venta v1.3 Generics, Trait Bounds, Monomorphization & Dynamic Dispatch)
+
+**First Feature Milestone for v1.3 Generics & Type System Evolution**
+
+### Added
+- **Generic Syntax & Grammar Extensions (`crates/vanta_lexer`, `crates/vanta_parser`)**:
+  - Added `dyn` keyword token (`TokenKind::Dyn`) for trait object types.
+  - Implemented generic type parameters on structs and functions: `struct Pair<A, B> { first: A, second: B }`, `fn identity<T>(x: T) -> T`.
+  - Added multiple trait bound syntax: `T: Bound1 + Bound2`.
+  - Added turbofish syntax for explicit type application in calls: `callee::<T1, T2>(args)`.
+  - Automatic `>>` token splitting (`TokenKind::Shr` -> two `TokenKind::Gt`) for nested generic arguments (e.g. `Pair<i64, Option<bool>>`).
+- **Semantic Analysis & Monomorphization Engine (`crates/vanta_sema`)**:
+  - Extended type system with `Type::TypeParam(String)` and `Type::TraitObject(String)`.
+  - Enforced compile-time trait bound validation emitting `E0707_TRAIT_BOUND_NOT_SATISFIED` for unfulfilled bounds.
+  - Enforced strict monomorphization recursion depth limits (64) and total instantiation limits (1024), emitting `E0211_RECURSIVE_GENERIC_INSTANTIATION`.
+  - Defined and enforced object-safety verification rules emitting `E0710_NOT_OBJECT_SAFE` (rejecting methods returning `Self` by value, generic trait methods, or static methods on trait objects).
+  - Implemented automatic coercions from concrete references `&T` / `&mut T` to trait object references `&dyn Trait` / `&mut dyn Trait`.
+  - Trait object method resolution supporting dynamic dispatch calls (`obj.method(...)`).
+- **MIR Representation & Optimization Safety (`crates/vanta_mir`)**:
+  - Added `Instruction::CallIndirect` for indirect function pointer calls.
+  - Added `Instruction::VtableAddr` for resolving static vtable addresses.
+  - Sized trait objects as 16-byte wide references `[data_ptr, vtable_ptr]` across all MIR passes.
+  - Updated SROA and Mem2Reg escape analysis to recognize `Instruction::StoreSlice` and `Instruction::CallIndirect` as escaping references, preserving aggregate stack slots.
+  - Updated Global DCE to seed reachability roots with all methods referenced in program vtables (`MirProgram.vtables`).
+- **Native x86-64 Backend & Dynamic Dispatch (`crates/vanta_codegen_x86_64`)**:
+  - System V AMD64 ABI classification for trait objects (`&dyn Trait`, `&mut dyn Trait`) as 16-byte `AbiClass::Integer2`, passed across two GPRs (`rdi:rsi`, `rdx:rcx`, `r8:r9`) and returned in `rax:rdx`.
+  - Emitted static vtables into ELF `.rodata` with `R_X86_64_64` relocations in `.rela.rodata` targeting concrete trait method symbols.
+  - Machine IR `MachineInst::CallReg(Reg)` emitting `call *%reg` (`0xFF /2`) with correct REX.B prefix for extended registers (e.g. `call *%r11` as `41 ff d3`).
+  - Scratch register `%r11` used for indirect callee pointer without clobbering ABI argument registers.
+- **Standard Library Generic Collections (`library/std/collections/`)**:
+  - Implemented generic `HashMap<K, V>` using linear probing buckets, `Hash` and `Eq` trait constraints, `insert`, `get`, `contains_key`, and `len`.
+  - Implemented generic circular FIFO `RingBuffer<T>` with `push`, `pop`, `is_empty`, `is_full`, and `capacity`.
+  - Documented `BTreeMap` as a planned self-balancing ordered collection.
+- **Comprehensive Verification Suite (`crates/vanta_driver/tests/generics_dynamic_dispatch_tests.rs`)**:
+  - 9 automated native differential tests (`-O0` vs `-O1`) verifying generic structs, generic functions, monomorphization trait bounds, trait object dynamic dispatch, multi-method vtables, mutable dynamic dispatch, inter-function trait object passing, and rejection diagnostics for trait bound failure (`E0707`) and object safety violation (`E0710`).
+- **Language Specification Updates (`docs/language-spec.md`)**:
+  - Added Section 17 detailing generic type declarations, function signatures, turbofish syntax, trait bounds, monomorphization semantics and limits, object safety rules, wide reference layout, and vtable dispatch.
+
+---
+
+## [1.2.0-alpha.2] - 2026-10-30 (Milestone 28 — Venta Language Server Protocol (LSP) Daemon)
 
 **Second Feature Milestone for v1.2 Debugging & Tooling**
 

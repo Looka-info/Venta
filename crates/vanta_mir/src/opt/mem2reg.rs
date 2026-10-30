@@ -198,6 +198,14 @@ impl Mem2Reg {
                             used_values.insert(*a);
                         }
                     }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        used_values.insert(*callee_ptr);
+                        for a in args {
+                            used_values.insert(*a);
+                        }
+                    }
                     Instruction::IndexAddr { index, .. } => {
                         used_values.insert(*index);
                     }
@@ -558,6 +566,14 @@ impl Mem2Reg {
                             *arg = resolve(*arg);
                         }
                     }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        *callee_ptr = resolve(*callee_ptr);
+                        for arg in args {
+                            *arg = resolve(*arg);
+                        }
+                    }
                     Instruction::IndexAddr { index, .. } => {
                         *index = resolve(*index);
                     }
@@ -595,7 +611,8 @@ impl Mem2Reg {
                     | Instruction::SlotAddr { .. }
                     | Instruction::Load { .. }
                     | Instruction::StrSlice { .. }
-                    | Instruction::LoadSlice { .. } => {}
+                    | Instruction::LoadSlice { .. }
+                    | Instruction::VtableAddr { .. } => {}
                 }
             }
 

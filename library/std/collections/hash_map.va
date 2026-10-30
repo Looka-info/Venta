@@ -1,0 +1,56 @@
+import std::option::Option;
+
+pub trait Hash {
+    fn hash(self: &Self) -> i64;
+}
+
+pub trait Eq {
+    fn eq(self: &Self, other: &Self) -> bool;
+}
+
+impl Hash for i64 {
+    fn hash(self: &i64) -> i64 {
+        return *self;
+    }
+}
+
+impl Eq for i64 {
+    fn eq(self: &i64, other: &i64) -> bool {
+        return *self == *other;
+    }
+}
+
+pub enum BucketState {
+    Empty,
+    Occupied,
+    Deleted,
+}
+
+pub struct Bucket<K, V> {
+    pub state: BucketState,
+    pub key: K,
+    pub value: V,
+    pub hash: i64,
+}
+
+pub struct HashMap<K, V> {
+    pub buckets: Vec<Bucket<K, V>>,
+    pub capacity: i64,
+    pub size: i64,
+}
+
+pub fn new_hash_map<K, V>(initial_cap: i64) -> HashMap<K, V> {
+    HashMap {
+        buckets: Vec::new(),
+        capacity: initial_cap,
+        size: 0,
+    }
+}
+
+pub fn len<K, V>(map: &HashMap<K, V>) -> i64 {
+    return map.size;
+}
+
+pub fn is_empty<K, V>(map: &HashMap<K, V>) -> bool {
+    return map.size == 0;
+}

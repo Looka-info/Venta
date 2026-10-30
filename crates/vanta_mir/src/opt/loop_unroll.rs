@@ -825,6 +825,23 @@ impl LoopUnrolling {
                     map_val(a);
                 }
             }
+            Instruction::CallIndirect {
+                dest,
+                callee_ptr,
+                args,
+                ..
+            } => {
+                if let Some(d) = dest {
+                    map_val(d);
+                }
+                map_val(callee_ptr);
+                for a in args {
+                    map_val(a);
+                }
+            }
+            Instruction::VtableAddr { dest, .. } => {
+                map_val(dest);
+            }
             Instruction::IndexAddr { dest, index, .. } => {
                 map_val(dest);
                 map_val(index);

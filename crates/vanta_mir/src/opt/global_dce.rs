@@ -50,6 +50,16 @@ impl GlobalDce {
                 }
             }
 
+            // Conservatively retain any function whose name appears in program vtables
+            // (for dynamic dispatch)
+            for vtable in &program.vtables {
+                for method in &vtable.methods {
+                    if reachable.insert(method.clone()) {
+                        queue.push_back(method.clone());
+                    }
+                }
+            }
+
             // Conservatively retain any function whose name appears in string literals
             // (in case of dynamic dispatch or reflection)
             for lit in &program.string_literals {
@@ -223,6 +233,14 @@ impl GlobalDce {
                             used_values.insert(*arg);
                         }
                     }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        used_values.insert(*callee_ptr);
+                        for arg in args {
+                            used_values.insert(*arg);
+                        }
+                    }
                     Instruction::Binary { lhs, rhs, .. } => {
                         used_values.insert(*lhs);
                         used_values.insert(*rhs);
@@ -259,7 +277,8 @@ impl GlobalDce {
                     | Instruction::SlotAddr { .. }
                     | Instruction::Load { .. }
                     | Instruction::StrSlice { .. }
-                    | Instruction::LoadSlice { .. } => {}
+                    | Instruction::LoadSlice { .. }
+                    | Instruction::VtableAddr { .. } => {}
                 }
             }
 
@@ -301,6 +320,7 @@ impl GlobalDce {
                     Instruction::Copy { dest, .. } | Instruction::Phi { dest, .. } => {
                         used_values.contains(dest)
                     }
+                    Instruction::VtableAddr { dest, .. } => used_values.contains(dest),
                     Instruction::StrSlice {
                         dest_ptr, dest_len, ..
                     } => used_values.contains(dest_ptr) || used_values.contains(dest_len),
@@ -314,7 +334,8 @@ impl GlobalDce {
                     | Instruction::StoreIndirect { .. }
                     | Instruction::StoreIndirect32 { .. }
                     | Instruction::LoadIndirect { .. }
-                    | Instruction::Call { .. } => true,
+                    | Instruction::Call { .. }
+                    | Instruction::CallIndirect { .. } => true,
                 }
             });
 

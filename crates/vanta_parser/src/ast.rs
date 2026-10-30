@@ -60,6 +60,10 @@ pub enum TypeExprKind {
         name: String,
         type_args: Vec<TypeExpr>,
     },
+    TraitObject {
+        trait_name: String,
+        lifetime: Option<Ident>,
+    },
     Lifetime(Ident),
     Unit,
 }
@@ -95,6 +99,7 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeParam {
     pub name: Ident,
+    pub bounds: Vec<Ident>,
     pub bound: Option<Ident>,
     pub span: Span,
 }
@@ -106,11 +111,24 @@ impl std::ops::Deref for TypeParam {
     }
 }
 
+impl TypeParam {
+    pub fn new(name: Ident, bounds: Vec<Ident>, span: Span) -> Self {
+        let bound = bounds.first().cloned();
+        Self {
+            name,
+            bounds,
+            bound,
+            span,
+        }
+    }
+}
+
 impl From<Ident> for TypeParam {
     fn from(name: Ident) -> Self {
         let span = name.span;
         Self {
             name,
+            bounds: Vec::new(),
             bound: None,
             span,
         }

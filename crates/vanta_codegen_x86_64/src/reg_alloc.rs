@@ -152,7 +152,10 @@ impl RegisterAllocator {
             let start_p = point;
             for inst in &block.instructions {
                 point += 2;
-                if matches!(inst, Instruction::Call { .. }) {
+                if matches!(
+                    inst,
+                    Instruction::Call { .. } | Instruction::CallIndirect { .. }
+                ) {
                     call_points.push(point);
                 }
                 for d in Self::get_inst_defs(inst) {
@@ -390,7 +393,9 @@ impl RegisterAllocator {
             | Instruction::LoadSlice {
                 dest_ptr, dest_len, ..
             } => vec![*dest_ptr, *dest_len],
-            Instruction::Call { dest: Some(d), .. } => vec![*d],
+            Instruction::Call { dest: Some(d), .. }
+            | Instruction::CallIndirect { dest: Some(d), .. } => vec![*d],
+            Instruction::VtableAddr { dest, .. } => vec![*dest],
             _ => vec![],
         }
     }
@@ -401,6 +406,13 @@ impl RegisterAllocator {
             Instruction::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
             Instruction::Unary { operand, .. } => vec![*operand],
             Instruction::Call { args, .. } => args.clone(),
+            Instruction::CallIndirect {
+                callee_ptr, args, ..
+            } => {
+                let mut u = vec![*callee_ptr];
+                u.extend_from_slice(args);
+                u
+            }
             Instruction::IndexAddr { index, .. } => vec![*index],
             Instruction::IndexPtrAddr {
                 base_ptr, index, ..

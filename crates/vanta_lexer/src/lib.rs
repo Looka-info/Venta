@@ -191,6 +191,7 @@ impl<'a> Lexer<'a> {
                 "trait" => TokenKind::Trait,
                 "for" => TokenKind::For,
                 "in" => TokenKind::In,
+                "dyn" => TokenKind::Dyn,
                 "_" => TokenKind::Underscore,
                 "true" => TokenKind::BoolLiteral(true),
                 "false" => TokenKind::BoolLiteral(false),

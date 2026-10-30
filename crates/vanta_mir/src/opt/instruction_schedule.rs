@@ -309,6 +309,23 @@ impl InstructionScheduler {
                     uses.push(*a);
                 }
             }
+            Instruction::CallIndirect {
+                dest,
+                callee_ptr,
+                args,
+                ..
+            } => {
+                if let Some(d) = dest {
+                    defs.push(*d);
+                }
+                uses.push(*callee_ptr);
+                for a in args {
+                    uses.push(*a);
+                }
+            }
+            Instruction::VtableAddr { dest, .. } => {
+                defs.push(*dest);
+            }
             Instruction::IndexAddr { dest, index, .. } => {
                 defs.push(*dest);
                 uses.push(*index);
@@ -378,7 +395,7 @@ impl InstructionScheduler {
             Instruction::StoreIndirect { .. } | Instruction::StoreIndirect32 { .. } => {
                 MemEffect::WriteIndirect
             }
-            Instruction::Call { .. } => MemEffect::Barrier,
+            Instruction::Call { .. } | Instruction::CallIndirect { .. } => MemEffect::Barrier,
             _ => MemEffect::None,
         }
     }
@@ -391,7 +408,7 @@ impl InstructionScheduler {
                 MirBinaryOp::Mul => 3,
                 _ => 1,
             },
-            Instruction::Call { .. } => 15,
+            Instruction::Call { .. } | Instruction::CallIndirect { .. } => 15,
             Instruction::LoadIndirect { .. }
             | Instruction::LoadSlice { .. }
             | Instruction::Load { .. } => 4,
@@ -403,7 +420,7 @@ impl InstructionScheduler {
     fn is_potentially_trapping(inst: &Instruction) -> bool {
         match inst {
             Instruction::Binary { op, .. } => matches!(op, MirBinaryOp::Div | MirBinaryOp::Rem),
-            Instruction::Call { .. } => true,
+            Instruction::Call { .. } | Instruction::CallIndirect { .. } => true,
             _ => false,
         }
     }

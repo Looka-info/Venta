@@ -191,6 +191,33 @@ impl MirVerifier {
                             defined_values.insert(*d);
                         }
                     }
+                    Instruction::CallIndirect {
+                        dest,
+                        callee_ptr,
+                        args,
+                        ..
+                    } => {
+                        if !defined_values.contains(callee_ptr) {
+                            diags.emit(mir_error(format!(
+                                "Value {:?} used before definition in call indirect callee_ptr in '{}'",
+                                callee_ptr, func.name
+                            )));
+                        }
+                        for arg in args {
+                            if !defined_values.contains(arg) {
+                                diags.emit(mir_error(format!(
+                                    "Value {:?} used before definition in call arg in '{}'",
+                                    arg, func.name
+                                )));
+                            }
+                        }
+                        if let Some(d) = dest {
+                            defined_values.insert(*d);
+                        }
+                    }
+                    Instruction::VtableAddr { dest, .. } => {
+                        defined_values.insert(*dest);
+                    }
                     Instruction::IndexAddr {
                         dest, slot, index, ..
                     } => {

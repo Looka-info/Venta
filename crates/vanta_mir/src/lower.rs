@@ -34,6 +34,7 @@ pub struct MirLowerer<'a> {
     val_spans: HashMap<ValueId, Span>,
     terminator_spans: HashMap<BlockId, Span>,
     current_span: Span,
+    vtables: Vec<VtableDef>,
 }
 
 impl<'a> MirLowerer<'a> {
@@ -58,6 +59,7 @@ impl<'a> MirLowerer<'a> {
             val_spans: HashMap::new(),
             terminator_spans: HashMap::new(),
             current_span: Span::dummy(),
+            vtables: Vec::new(),
         }
     }
 
@@ -304,6 +306,7 @@ impl<'a> MirLowerer<'a> {
         }
 
         mir_prog.string_literals = std::mem::take(&mut self.string_literals);
+        mir_prog.vtables = std::mem::take(&mut self.vtables);
         mir_prog
     }
 
@@ -927,13 +930,24 @@ impl<'a> MirLowerer<'a> {
                     .clone();
 
                 if let Type::Ref { is_mut: _, inner } = &slot_ty {
-                    let ptr = self.new_value();
-                    self.emit(Instruction::Load {
-                        dest: ptr,
-                        slot,
-                        ty: slot_ty.clone(),
-                    });
-                    (ptr, (**inner).clone())
+                    if inner.is_trait_object() {
+                        let dest_ptr = self.new_value();
+                        let dest_vtable = self.new_value();
+                        self.emit(Instruction::LoadSlice {
+                            dest_ptr,
+                            dest_len: dest_vtable,
+                            slot,
+                        });
+                        (dest_ptr, (**inner).clone())
+                    } else {
+                        let ptr = self.new_value();
+                        self.emit(Instruction::Load {
+                            dest: ptr,
+                            slot,
+                            ty: slot_ty.clone(),
+                        });
+                        (ptr, (**inner).clone())
+                    }
                 } else {
                     let ptr = self.new_value();
                     self.emit(Instruction::SlotAddr { dest: ptr, slot });
@@ -1187,6 +1201,14 @@ impl<'a> MirLowerer<'a> {
                             args: vec![base_ptr, arg_ptr, arg_len],
                             ret_type: Type::Unit,
                         });
+                    } else if ty.is_trait_object() {
+                        let trait_name = ty.trait_object_name().unwrap();
+                        let (ptr_v, vtable_v) = self.lower_trait_object_expr(init_expr, trait_name);
+                        self.emit(Instruction::StoreSlice {
+                            slot,
+                            ptr: ptr_v,
+                            len: vtable_v,
+                        });
                     } else if ty.is_str_slice() || ty.is_slice() {
                         let (ptr_v, len_v) = self.lower_slice_expr(init_expr);
                         self.emit(Instruction::StoreSlice {
@@ -1306,6 +1328,17 @@ impl<'a> MirLowerer<'a> {
                             .find(|s| s.id == slot)
                             .map(|s| s.ty.clone());
                         if let Some(ty) = slot_ty {
+                            if ty.is_trait_object() && *op == AssignOp::Eq {
+                                let trait_name = ty.trait_object_name().unwrap();
+                                let (ptr_v, vtable_v) =
+                                    self.lower_trait_object_expr(value, trait_name);
+                                self.emit(Instruction::StoreSlice {
+                                    slot,
+                                    ptr: ptr_v,
+                                    len: vtable_v,
+                                });
+                                return;
+                            }
                             if (ty.is_str_slice() || ty.is_slice()) && *op == AssignOp::Eq {
                                 let (ptr_v, len_v) = self.lower_slice_expr(value);
                                 self.emit(Instruction::StoreSlice {
@@ -3307,6 +3340,74 @@ impl<'a> MirLowerer<'a> {
                         }
                         _ => panic!("Unknown method on Result: {}", method.name),
                     }
+                } else if target_ty.is_trait_object() {
+                    let trait_name = target_ty.trait_object_name().unwrap();
+                    let (data_ptr, vtable_ptr) = self.lower_slice_expr(target);
+                    let trait_def = self
+                        .sema
+                        .traits
+                        .get(trait_name)
+                        .or_else(|| {
+                            self.sema
+                                .traits
+                                .iter()
+                                .find(|(k, _)| k.ends_with(&format!("::{}", trait_name)))
+                                .map(|(_, v)| v)
+                        })
+                        .unwrap_or_else(|| panic!("Trait '{}' not found", trait_name))
+                        .clone();
+                    let slot_idx = trait_def
+                        .ast_methods
+                        .iter()
+                        .position(|m| m.name.name == method.name)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Method '{}' not found in trait '{}'",
+                                method.name, trait_name
+                            )
+                        });
+
+                    let fn_ptr_addr = self.new_value();
+                    self.emit(Instruction::FieldAddr {
+                        dest: fn_ptr_addr,
+                        base_ptr: vtable_ptr,
+                        offset: slot_idx * 8,
+                    });
+                    let fn_ptr = self.new_value();
+                    self.emit(Instruction::LoadIndirect {
+                        dest: fn_ptr,
+                        addr: fn_ptr_addr,
+                        ty: Type::I64,
+                    });
+
+                    let mut arg_vals = vec![data_ptr];
+                    for arg in args {
+                        arg_vals.push(self.lower_expr(arg));
+                    }
+
+                    let sig = trait_def.methods.get(&method.name).unwrap();
+                    let dest = if sig.ret_type == Type::Unit {
+                        None
+                    } else {
+                        Some(self.new_value())
+                    };
+
+                    self.emit(Instruction::CallIndirect {
+                        dest,
+                        callee_ptr: fn_ptr,
+                        args: arg_vals,
+                        ret_type: sig.ret_type.clone(),
+                    });
+
+                    dest.unwrap_or_else(|| {
+                        let unit = self.new_value();
+                        self.emit(Instruction::ConstInt {
+                            dest: unit,
+                            val: 0,
+                            ty: Type::I64,
+                        });
+                        unit
+                    })
                 } else {
                     let type_name = match &target_ty {
                         Type::Struct(s) => s.clone(),
@@ -3356,15 +3457,20 @@ impl<'a> MirLowerer<'a> {
 
                     // Other args
                     for (idx, arg) in args.iter().enumerate() {
-                        let param_is_slice = sig
-                            .params
-                            .get(idx + 1)
-                            .map(|p| p.1.is_str_slice() || p.1.is_slice())
-                            .unwrap_or(false);
-                        if param_is_slice {
-                            let (ptr_v, len_v) = self.lower_slice_expr(arg);
-                            arg_vals.push(ptr_v);
-                            arg_vals.push(len_v);
+                        let param_ty = sig.params.get(idx + 1).map(|p| &p.1);
+                        if let Some(pty) = param_ty {
+                            if pty.is_trait_object() {
+                                let tr_name = pty.trait_object_name().unwrap();
+                                let (ptr_v, vtable_v) = self.lower_trait_object_expr(arg, tr_name);
+                                arg_vals.push(ptr_v);
+                                arg_vals.push(vtable_v);
+                            } else if pty.is_str_slice() || pty.is_slice() {
+                                let (ptr_v, len_v) = self.lower_slice_expr(arg);
+                                arg_vals.push(ptr_v);
+                                arg_vals.push(len_v);
+                            } else {
+                                arg_vals.push(self.lower_expr(arg));
+                            }
                         } else {
                             arg_vals.push(self.lower_expr(arg));
                         }
@@ -3397,6 +3503,130 @@ impl<'a> MirLowerer<'a> {
         };
         self.current_span = prev_span;
         res
+    }
+
+    fn get_or_create_vtable(&mut self, trait_name: &str, concrete_name: &str) -> String {
+        let clean_trait = trait_name.replace("::", "_");
+        let vtable_symbol = format!("_vtable_{}_{}", clean_trait, concrete_name);
+        if !self.vtables.iter().any(|v| v.symbol == vtable_symbol) {
+            let mut methods = Vec::new();
+            let trait_def = self
+                .sema
+                .traits
+                .get(trait_name)
+                .or_else(|| {
+                    self.sema
+                        .traits
+                        .iter()
+                        .find(|(k, _)| k.ends_with(&format!("::{}", trait_name)))
+                        .map(|(_, v)| v)
+                })
+                .cloned();
+
+            fn extract_base(s: &str) -> &str {
+                s.rsplit("__")
+                    .next()
+                    .unwrap_or(s)
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(s)
+            }
+            let clean_tr_target = extract_base(trait_name);
+            let clean_tgt_target = extract_base(concrete_name);
+
+            if let Some(td) = trait_def {
+                for m in &td.ast_methods {
+                    let m_name = &m.name.name;
+                    let mangled = self
+                        .sema
+                        .trait_impls
+                        .iter()
+                        .find(|((tr, tgt), _)| {
+                            extract_base(tr) == clean_tr_target
+                                && extract_base(tgt) == clean_tgt_target
+                        })
+                        .and_then(|(_, impl_def)| impl_def.methods.get(m_name).cloned())
+                        .or_else(|| {
+                            self.sema
+                                .trait_methods
+                                .iter()
+                                .find(|((tgt, tr, mth), _)| {
+                                    extract_base(tgt) == clean_tgt_target
+                                        && extract_base(tr) == clean_tr_target
+                                        && mth == m_name
+                                })
+                                .map(|(_, mangled)| mangled.clone())
+                        })
+                        .unwrap_or_else(|| {
+                            format!("{}__{}_{}", concrete_name, clean_trait, m_name)
+                        });
+                    methods.push(mangled);
+                }
+            }
+            self.vtables.push(VtableDef {
+                symbol: vtable_symbol.clone(),
+                methods,
+            });
+        }
+        vtable_symbol
+    }
+
+    fn lower_trait_object_expr(&mut self, expr: &Expr, trait_name: &str) -> (ValueId, ValueId) {
+        // If expr is an identifier that already holds a trait object:
+        if let ExprKind::Ident(name) = &expr.kind {
+            if let Some(slot) = self.lookup_slot(name) {
+                if let Some(s) = self.current_slots.iter().find(|s| s.id == slot) {
+                    if s.ty.is_trait_object() {
+                        let dest_ptr = self.new_value();
+                        let dest_vtable = self.new_value();
+                        self.emit(Instruction::LoadSlice {
+                            dest_ptr,
+                            dest_len: dest_vtable,
+                            slot,
+                        });
+                        return (dest_ptr, dest_vtable);
+                    }
+                }
+            }
+        }
+
+        // Otherwise, expr is a concrete reference or place to be coerced to &dyn Trait:
+        let (data_ptr, concrete_ty) = match &expr.kind {
+            ExprKind::Ref { expr: inner, .. } => self.lower_place_addr(inner),
+            _ => {
+                let ty = self
+                    .sema
+                    .expr_types
+                    .get(&(expr as *const Expr))
+                    .cloned()
+                    .unwrap_or(Type::I64);
+                if matches!(ty, Type::Ref { .. }) {
+                    let val = self.lower_expr(expr);
+                    let inner_ty = match ty {
+                        Type::Ref { inner, .. } => *inner,
+                        other => other,
+                    };
+                    (val, inner_ty)
+                } else {
+                    self.lower_place_addr(expr)
+                }
+            }
+        };
+
+        let concrete_name = match &concrete_ty {
+            Type::Struct(s) => s.clone(),
+            Type::Enum(e) => e.clone(),
+            _ => format!("{}", concrete_ty),
+        };
+
+        let vtable_symbol = self.get_or_create_vtable(trait_name, &concrete_name);
+        let vtable_ptr = self.new_value();
+        self.emit(Instruction::VtableAddr {
+            dest: vtable_ptr,
+            symbol: vtable_symbol,
+        });
+
+        (data_ptr, vtable_ptr)
     }
 
     fn lower_slice_expr(&mut self, expr: &Expr) -> (ValueId, ValueId) {
@@ -3479,6 +3709,28 @@ impl<'a> MirLowerer<'a> {
                 } else {
                     self.lower_slice_expr(target)
                 }
+            }
+            ExprKind::Deref(inner) => {
+                let base_ptr = self.lower_expr(inner);
+                let dest_ptr = self.new_value();
+                self.emit(Instruction::LoadIndirect {
+                    dest: dest_ptr,
+                    addr: base_ptr,
+                    ty: Type::I64,
+                });
+                let len_addr = self.new_value();
+                self.emit(Instruction::FieldAddr {
+                    dest: len_addr,
+                    base_ptr,
+                    offset: 8,
+                });
+                let dest_len = self.new_value();
+                self.emit(Instruction::LoadIndirect {
+                    dest: dest_len,
+                    addr: len_addr,
+                    ty: Type::I64,
+                });
+                (dest_ptr, dest_len)
             }
             _ => {
                 let dest_ptr = self.new_value();
@@ -3614,6 +3866,23 @@ impl<'a> MirLowerer<'a> {
                     let (src_ptr, _) = self.lower_place_addr(arg);
                     self.copy_enum_bytes(src_ptr, field_ptr, nested_ename);
                 }
+            } else if f_ty.is_trait_object() {
+                let tr_name = f_ty.trait_object_name().unwrap();
+                let (ptr_v, vtable_v) = self.lower_trait_object_expr(arg, tr_name);
+                self.emit(Instruction::StoreIndirect {
+                    addr: field_ptr,
+                    val: ptr_v,
+                });
+                let len_ptr = self.new_value();
+                self.emit(Instruction::FieldAddr {
+                    dest: len_ptr,
+                    base_ptr,
+                    offset: f_offset + 8,
+                });
+                self.emit(Instruction::StoreIndirect {
+                    addr: len_ptr,
+                    val: vtable_v,
+                });
             } else if f_ty.is_str_slice() || f_ty.is_slice() {
                 let (ptr_v, len_v) = self.lower_slice_expr(arg);
                 self.emit(Instruction::StoreIndirect {
@@ -3702,6 +3971,23 @@ impl<'a> MirLowerer<'a> {
                     let (src_ptr, _) = self.lower_place_addr(f_expr);
                     self.copy_enum_bytes(src_ptr, field_ptr, nested_ename);
                 }
+            } else if f_def.ty.is_trait_object() {
+                let tr_name = f_def.ty.trait_object_name().unwrap();
+                let (ptr_v, vtable_v) = self.lower_trait_object_expr(f_expr, tr_name);
+                self.emit(Instruction::StoreIndirect {
+                    addr: field_ptr,
+                    val: ptr_v,
+                });
+                let len_ptr = self.new_value();
+                self.emit(Instruction::FieldAddr {
+                    dest: len_ptr,
+                    base_ptr,
+                    offset: f_def.offset + 8,
+                });
+                self.emit(Instruction::StoreIndirect {
+                    addr: len_ptr,
+                    val: vtable_v,
+                });
             } else if f_def.ty.is_str_slice() || f_def.ty.is_slice() {
                 let (ptr_v, len_v) = self.lower_slice_expr(f_expr);
                 self.emit(Instruction::StoreIndirect {
@@ -3761,10 +4047,13 @@ impl<'a> MirLowerer<'a> {
         let mut arg_vals = Vec::new();
         for (idx, arg) in args.iter().enumerate() {
             let mut is_slice = false;
+            let mut trait_target_name = None;
             let mut is_by_value_aggregate = false;
             if let Some(sig) = &sig_opt {
                 if let Some((_, pty, _)) = sig.params.get(idx) {
-                    if pty.is_str_slice() || pty.is_slice() {
+                    if pty.is_trait_object() {
+                        trait_target_name = pty.trait_object_name().map(|s| s.to_string());
+                    } else if pty.is_str_slice() || pty.is_slice() {
                         is_slice = true;
                     }
                     if matches!(pty, Type::Struct(_) | Type::Enum(_)) {
@@ -3779,13 +4068,15 @@ impl<'a> MirLowerer<'a> {
                     }
                 }
             }
-            if !is_slice && !is_by_value_aggregate {
+            if !is_slice && !is_by_value_aggregate && trait_target_name.is_none() {
                 if let ExprKind::String(_) = &arg.kind {
                     is_slice = true;
                 } else if let ExprKind::Ident(name) = &arg.kind {
                     if let Some(slot) = self.lookup_slot(name) {
                         if let Some(s) = self.current_slots.iter().find(|s| s.id == slot) {
-                            if s.ty.is_str_slice() || s.ty.is_slice() {
+                            if s.ty.is_trait_object() {
+                                trait_target_name = s.ty.trait_object_name().map(|s| s.to_string());
+                            } else if s.ty.is_str_slice() || s.ty.is_slice() {
                                 is_slice = true;
                             } else if matches!(&s.ty, Type::Struct(_) | Type::Enum(_)) {
                                 is_by_value_aggregate = true;
@@ -3795,7 +4086,11 @@ impl<'a> MirLowerer<'a> {
                 }
             }
 
-            if is_slice {
+            if let Some(tr_name) = trait_target_name {
+                let (ptr_v, vtable_v) = self.lower_trait_object_expr(arg, &tr_name);
+                arg_vals.push(ptr_v);
+                arg_vals.push(vtable_v);
+            } else if is_slice {
                 let (ptr_v, len_v) = self.lower_slice_expr(arg);
                 arg_vals.push(ptr_v);
                 arg_vals.push(len_v);
@@ -4202,7 +4497,10 @@ impl<'a> MirLowerer<'a> {
                                             &self.sema.enums,
                                         ),
                                     );
-                                } else if f_ty.is_str_slice() || f_ty.is_slice() {
+                                } else if f_ty.is_str_slice()
+                                    || f_ty.is_slice()
+                                    || f_ty.is_trait_object()
+                                {
                                     let ptr_v = self.new_value();
                                     self.emit(Instruction::LoadIndirect {
                                         dest: ptr_v,

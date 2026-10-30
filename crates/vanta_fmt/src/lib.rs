@@ -788,6 +788,7 @@ impl<'a> Formatter<'a> {
             TokenKind::Trait => "trait".into(),
             TokenKind::For => "for".into(),
             TokenKind::In => "in".into(),
+            TokenKind::Dyn => "dyn".into(),
             TokenKind::As => "as".into(),
             TokenKind::Const => "const".into(),
             TokenKind::Unsafe => "unsafe".into(),

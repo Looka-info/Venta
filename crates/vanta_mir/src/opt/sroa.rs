@@ -321,6 +321,23 @@ impl Sroa {
                             }
                         }
                     }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        if base_ptrs.contains(callee_ptr) {
+                            return false;
+                        }
+                        for a in args {
+                            if base_ptrs.contains(a) {
+                                return false;
+                            }
+                        }
+                    }
+                    Instruction::StoreSlice { ptr, len, .. } => {
+                        if base_ptrs.contains(ptr) || base_ptrs.contains(len) {
+                            return false; // escapes via slice / trait object
+                        }
+                    }
                     Instruction::Store { val, .. } => {
                         if base_ptrs.contains(val) {
                             return false;
@@ -381,6 +398,23 @@ impl Sroa {
                             if field_ptrs.contains(a) {
                                 return false; // escapes to call
                             }
+                        }
+                    }
+                    Instruction::CallIndirect {
+                        callee_ptr, args, ..
+                    } => {
+                        if field_ptrs.contains(callee_ptr) {
+                            return false;
+                        }
+                        for a in args {
+                            if field_ptrs.contains(a) {
+                                return false;
+                            }
+                        }
+                    }
+                    Instruction::StoreSlice { ptr, len, .. } => {
+                        if field_ptrs.contains(ptr) || field_ptrs.contains(len) {
+                            return false;
                         }
                     }
                     Instruction::Copy { src, .. } => {
