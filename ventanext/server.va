@@ -37,6 +37,8 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_page_route("/about", layout_root(), 104);
     m.add_page_route("/blog/[slug]", layout_root(), 105);
     m.add_page_route("/docs/[...path]", layout_root_and_docs(), 106);
+    m.add_page_route("/foo/[...rest]", layout_root(), 110);
+    m.add_page_route("/[id]/bar", layout_root(), 111);
 
     // 2. Typed API Routes
     m.add_api_route("GET", "/api/status", 200);
@@ -167,6 +169,12 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 } else if m_res.page_id == 106 {
                     title = "Documentation";
                     active_nav = "docs";
+                } else if m_res.page_id == 110 {
+                    title = "Foo Catch-All";
+                    active_nav = "home";
+                } else if m_res.page_id == 111 {
+                    title = "Dynamic ID Bar";
+                    active_nav = "home";
                 }
 
                 let ctx = make_render_context(
@@ -194,6 +202,24 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     page_markup = render_blog_slug_page(&ctx);
                 } else if m_res.page_id == 106 {
                     page_markup = render_docs_path_page(&ctx);
+                } else if m_res.page_id == 110 {
+                    let mut s = String::from_str("<h1>Route: /foo/[...rest]</h1><p>rest = ");
+                    let rest_opt = req.params.get("rest");
+                    match rest_opt {
+                        Option::Some(r) => { s.push_str(r.as_str()); }
+                        Option::None => {}
+                    }
+                    s.push_str("</p>");
+                    page_markup = s;
+                } else if m_res.page_id == 111 {
+                    let mut s = String::from_str("<h1>Route: /[id]/bar</h1><p>id = ");
+                    let id_opt = req.params.get("id");
+                    match id_opt {
+                        Option::Some(id_val) => { s.push_str(id_val.as_str()); }
+                        Option::None => {}
+                    }
+                    s.push_str("</p>");
+                    page_markup = s;
                 }
 
                 let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());

@@ -1,28 +1,10 @@
 {
   "schema_version": "1.0.0",
   "app_id": "ventanext-app",
-  "route_count": 9,
+  "route_count": 11,
   "routes": [
     {
       "id": 0,
-      "canonical_pattern": "/",
-      "normalized_url": "/",
-      "route_kind": "Page",
-      "render_mode": "Static",
-      "revalidate_seconds": null,
-      "source_file": "app/page.va",
-      "segments": [],
-      "layout_chain": [
-        "app/layout.va"
-      ],
-      "methods": [
-        "GET",
-        "HEAD"
-      ],
-      "specificity": 10000
-    },
-    {
-      "id": 1,
       "canonical_pattern": "/api/health",
       "normalized_url": "/api/health",
       "route_kind": "Api",
@@ -56,7 +38,7 @@
       "specificity": 2002
     },
     {
-      "id": 2,
+      "id": 1,
       "canonical_pattern": "/api/users",
       "normalized_url": "/api/users",
       "route_kind": "Api",
@@ -90,7 +72,7 @@
       "specificity": 2002
     },
     {
-      "id": 3,
+      "id": 2,
       "canonical_pattern": "/blog/[slug]",
       "normalized_url": "/blog/[slug]",
       "route_kind": "Page",
@@ -119,7 +101,7 @@
       "specificity": 1102
     },
     {
-      "id": 4,
+      "id": 3,
       "canonical_pattern": "/docs/[...path]",
       "normalized_url": "/docs/[...path]",
       "route_kind": "Page",
@@ -148,7 +130,114 @@
       "specificity": 1012
     },
     {
+      "id": 4,
+      "canonical_pattern": "/foo/[...rest]",
+      "normalized_url": "/foo/[...rest]",
+      "route_kind": "Page",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
+      "source_file": "app/foo/[...rest]/page.va",
+      "segments": [
+        {
+          "raw": "foo",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "[...rest]",
+          "kind": "CatchAll",
+          "param_name": "rest"
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1012
+    },
+    {
       "id": 5,
+      "canonical_pattern": "/about",
+      "normalized_url": "/about",
+      "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
+      "source_file": "app/about/page.va",
+      "segments": [
+        {
+          "raw": "about",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    },
+    {
+      "id": 6,
+      "canonical_pattern": "/dashboard",
+      "normalized_url": "/dashboard",
+      "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
+      "source_file": "app/dashboard/page.va",
+      "segments": [
+        {
+          "raw": "dashboard",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va",
+        "app/dashboard/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    },
+    {
+      "id": 7,
+      "canonical_pattern": "/pricing",
+      "normalized_url": "/pricing",
+      "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
+      "source_file": "app/(marketing)/pricing/page.va",
+      "segments": [
+        {
+          "raw": "(marketing)",
+          "kind": "Group",
+          "param_name": "marketing"
+        },
+        {
+          "raw": "pricing",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    },
+    {
+      "id": 8,
       "canonical_pattern": "/shop/[[...filter]]",
       "normalized_url": "/shop/[[...filter]]",
       "route_kind": "Page",
@@ -177,70 +266,21 @@
       "specificity": 1003
     },
     {
-      "id": 6,
-      "canonical_pattern": "/about",
-      "normalized_url": "/about",
+      "id": 9,
+      "canonical_pattern": "/[id]/bar",
+      "normalized_url": "/[id]/bar",
       "route_kind": "Page",
-      "render_mode": "Static",
+      "render_mode": "Dynamic",
       "revalidate_seconds": null,
-      "source_file": "app/about/page.va",
+      "source_file": "app/[id]/bar/page.va",
       "segments": [
         {
-          "raw": "about",
-          "kind": "Static",
-          "param_name": null
-        }
-      ],
-      "layout_chain": [
-        "app/layout.va"
-      ],
-      "methods": [
-        "GET",
-        "HEAD"
-      ],
-      "specificity": 1001
-    },
-    {
-      "id": 7,
-      "canonical_pattern": "/dashboard",
-      "normalized_url": "/dashboard",
-      "route_kind": "Page",
-      "render_mode": "Static",
-      "revalidate_seconds": null,
-      "source_file": "app/dashboard/page.va",
-      "segments": [
-        {
-          "raw": "dashboard",
-          "kind": "Static",
-          "param_name": null
-        }
-      ],
-      "layout_chain": [
-        "app/layout.va",
-        "app/dashboard/layout.va"
-      ],
-      "methods": [
-        "GET",
-        "HEAD"
-      ],
-      "specificity": 1001
-    },
-    {
-      "id": 8,
-      "canonical_pattern": "/pricing",
-      "normalized_url": "/pricing",
-      "route_kind": "Page",
-      "render_mode": "Static",
-      "revalidate_seconds": null,
-      "source_file": "app/(marketing)/pricing/page.va",
-      "segments": [
-        {
-          "raw": "(marketing)",
-          "kind": "Group",
-          "param_name": "marketing"
+          "raw": "[id]",
+          "kind": "Dynamic",
+          "param_name": "id"
         },
         {
-          "raw": "pricing",
+          "raw": "bar",
           "kind": "Static",
           "param_name": null
         }
@@ -252,7 +292,25 @@
         "GET",
         "HEAD"
       ],
-      "specificity": 1001
+      "specificity": 1102
+    },
+    {
+      "id": 10,
+      "canonical_pattern": "/",
+      "normalized_url": "/",
+      "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
+      "source_file": "app/page.va",
+      "segments": [],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 10000
     }
   ],
   "special_files": {

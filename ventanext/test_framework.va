@@ -588,6 +588,217 @@ fn test_render_mode_classification_and_matching() {
     print_str("OK\n");
 }
 
+fn test_phase1_1_route_resolution_correctness_gate() {
+    print_str("[21/21] Testing Phase 1.1 Route Resolution Correctness Gate (A-K)... ");
+
+    // Case A & C: Static versus Dynamic and Declaration Order Reversal
+    let mut m_ac1 = make_route_manifest();
+    m_ac1.add_page_route("/users/[id]", layout_root(), 501);
+    m_ac1.add_page_route("/users/new", layout_root(), 502);
+    let res_ac1 = match_route(&m_ac1, "/users/new", "GET");
+    match res_ac1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 502, "Case A: /users/new must resolve to static route (id 502)");
+        }
+        Option::None => { assert(false, "Case A: /users/new failed to match"); }
+    }
+
+    let mut m_ac2 = make_route_manifest();
+    m_ac2.add_page_route("/users/new", layout_root(), 502);
+    m_ac2.add_page_route("/users/[id]", layout_root(), 501);
+    let res_ac2 = match_route(&m_ac2, "/users/new", "GET");
+    match res_ac2 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 502, "Case C: Reversing order in Case A must preserve static winner");
+        }
+        Option::None => { assert(false, "Case C: /users/new failed to match in reversed order"); }
+    }
+
+    // Case B & C: Earlier Static vs Later Static (/foo/[...rest] vs /[id]/bar)
+    let mut m_bc1 = make_route_manifest();
+    m_bc1.add_page_route("/foo/[...rest]", layout_root(), 601);
+    m_bc1.add_page_route("/[id]/bar", layout_root(), 602);
+    let res_bc1 = match_route(&m_bc1, "/foo/bar", "GET");
+    match res_bc1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 601, "Case B: /foo/[...rest] must defeat /[id]/bar for /foo/bar");
+            let rest_param = matched.params.get("rest");
+            match rest_param {
+                Option::Some(r) => { assert(r.as_str().equals("bar"), "Case B: rest param must be 'bar'"); }
+                Option::None => { assert(false, "Case B: rest param missing"); }
+            }
+        }
+        Option::None => { assert(false, "Case B: /foo/bar failed to match"); }
+    }
+
+    // Case C: Reversal of B
+    let mut m_bc2 = make_route_manifest();
+    m_bc2.add_page_route("/[id]/bar", layout_root(), 602);
+    m_bc2.add_page_route("/foo/[...rest]", layout_root(), 601);
+    let res_bc2 = match_route(&m_bc2, "/foo/bar", "GET");
+    match res_bc2 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 601, "Case C: Reversing order in Case B must preserve /foo/[...rest] winner");
+            let rest_param = matched.params.get("rest");
+            match rest_param {
+                Option::Some(r) => { assert(r.as_str().equals("bar"), "Case C: rest param must be 'bar'"); }
+                Option::None => { assert(false, "Case C: rest param missing in reversed order"); }
+            }
+        }
+        Option::None => { assert(false, "Case C: /foo/bar failed to match in reversed order"); }
+    }
+
+    // Verify non-foo requests route to /[id]/bar
+    let res_bc3 = match_route(&m_bc2, "/alpha/bar", "GET");
+    match res_bc3 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 602, "Non-foo request /alpha/bar must resolve to /[id]/bar");
+            let id_param = matched.params.get("id");
+            match id_param {
+                Option::Some(id_val) => { assert(id_val.as_str().equals("alpha"), "Param 'id' must be 'alpha'"); }
+                Option::None => { assert(false, "Param 'id' missing for /alpha/bar"); }
+            }
+        }
+        Option::None => { assert(false, "Failed to match /alpha/bar"); }
+    }
+
+    // Case D: Dynamic vs Catch-All (/posts/[id] vs /posts/[...slug])
+    let mut m_d1 = make_route_manifest();
+    m_d1.add_page_route("/posts/[...slug]", layout_root(), 702);
+    m_d1.add_page_route("/posts/[id]", layout_root(), 701);
+    let res_d1 = match_route(&m_d1, "/posts/123", "GET");
+    match res_d1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 701, "Case D: /posts/[id] must defeat /posts/[...slug] for /posts/123");
+            let id_param = matched.params.get("id");
+            match id_param {
+                Option::Some(id_val) => { assert(id_val.as_str().equals("123"), "Param 'id' must be '123'"); }
+                Option::None => { assert(false, "Param 'id' missing for /posts/123"); }
+            }
+        }
+        Option::None => { assert(false, "Case D: /posts/123 failed to match"); }
+    }
+
+    // Case E: Required Catch-All
+    let mut m_e = make_route_manifest();
+    m_e.add_page_route("/docs/[...path]", layout_root(), 801);
+    let res_e1 = match_route(&m_e, "/docs/a/b/c", "GET");
+    match res_e1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 801, "Case E: /docs/[...path] matches /docs/a/b/c");
+            let p_param = matched.params.get("path");
+            match p_param {
+                Option::Some(p) => { assert(p.as_str().equals("a/b/c"), "Param 'path' must be 'a/b/c'"); }
+                Option::None => { assert(false, "Param 'path' missing for /docs/a/b/c"); }
+            }
+        }
+        Option::None => { assert(false, "Case E: /docs/a/b/c failed to match"); }
+    }
+    let res_e2 = match_route(&m_e, "/docs", "GET");
+    assert(res_e2.is_none(), "Case E: /docs must NOT match required catch-all /docs/[...path]");
+
+    // Case F: Optional Catch-All
+    let mut m_f = make_route_manifest();
+    m_f.add_page_route("/store/[[...filter]]", layout_root(), 901);
+    let res_f1 = match_route(&m_f, "/store/shoes/nike", "GET");
+    match res_f1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 901, "Case F: /store/[[...filter]] matches /store/shoes/nike");
+            let f_param = matched.params.get("filter");
+            match f_param {
+                Option::Some(f) => { assert(f.as_str().equals("shoes/nike"), "Param 'filter' must be 'shoes/nike'"); }
+                Option::None => { assert(false, "Param 'filter' missing"); }
+            }
+        }
+        Option::None => { assert(false, "Case F: /store/shoes/nike failed to match"); }
+    }
+    let res_f2 = match_route(&m_f, "/store", "GET");
+    match res_f2 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 901, "Case F: /store/[[...filter]] matches /store with 0 segments");
+            let f_param = matched.params.get("filter");
+            match f_param {
+                Option::Some(f) => { assert(f.as_str().equals(""), "Param 'filter' must be empty string"); }
+                Option::None => { assert(false, "Param 'filter' missing for empty match"); }
+            }
+        }
+        Option::None => { assert(false, "Case F: /store failed to match optional catch-all"); }
+    }
+
+    // Case G: Exact route vs Optional Catch-All
+    let mut m_g1 = make_route_manifest();
+    m_g1.add_page_route("/store/[[...filter]]", layout_root(), 901);
+    m_g1.add_page_route("/store", layout_root(), 900);
+    let res_g1 = match_route(&m_g1, "/store", "GET");
+    match res_g1 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 900, "Case G: Exact route /store must defeat /store/[[...filter]]");
+        }
+        Option::None => { assert(false, "Case G: /store failed to match"); }
+    }
+
+    let mut m_g2 = make_route_manifest();
+    m_g2.add_page_route("/store", layout_root(), 900);
+    m_g2.add_page_route("/store/[[...filter]]", layout_root(), 901);
+    let res_g2 = match_route(&m_g2, "/store", "GET");
+    match res_g2 {
+        Option::Some(matched) => {
+            assert(matched.page_id == 900, "Case G (reversed): Exact route /store must defeat /store/[[...filter]]");
+        }
+        Option::None => { assert(false, "Case G (reversed): /store failed to match"); }
+    }
+
+    // Case H & I: Backtracking & Parameter Extraction
+    let mut m_hi = make_route_manifest();
+    m_hi.add_page_route("/items/special/review", layout_root(), 1001);
+    m_hi.add_page_route("/items/[category]/[action]", layout_root(), 1002);
+    let res_hi = match_route(&m_hi, "/items/special/delete", "GET");
+    match res_hi {
+        Option::Some(matched) => {
+            assert(matched.page_id == 1002, "Case H: /items/special/delete must backtrack to /items/[category]/[action]");
+            let cat_param = matched.params.get("category");
+            match cat_param {
+                Option::Some(cat) => { assert(cat.as_str().equals("special"), "Case I: category param must be 'special'"); }
+                Option::None => { assert(false, "Case I: category param missing"); }
+            }
+            let act_param = matched.params.get("action");
+            match act_param {
+                Option::Some(act) => { assert(act.as_str().equals("delete"), "Case I: action param must be 'delete'"); }
+                Option::None => { assert(false, "Case I: action param missing"); }
+            }
+        }
+        Option::None => { assert(false, "Case H: /items/special/delete unexpectedly returned 404 (backtracking failure)"); }
+    }
+
+    // Case J: Conflict Detection
+    let mut m_j_conf = make_route_manifest();
+    m_j_conf.add_page_route("/blog/[slug]", layout_root(), 1101);
+    m_j_conf.add_page_route("/blog/[id]", layout_root(), 1102);
+    let val_j_conf = m_j_conf.validate();
+    assert(val_j_conf.is_err(), "Case J: /blog/[slug] and /blog/[id] must be rejected as conflicting");
+
+    let mut m_j_valid = make_route_manifest();
+    m_j_valid.add_page_route("/blog/new", layout_root(), 1103);
+    m_j_valid.add_page_route("/blog/[id]", layout_root(), 1104);
+    let val_j_valid = m_j_valid.validate();
+    assert(val_j_valid.is_ok(), "Case J: /blog/new and /blog/[id] must be allowed under precedence rules");
+
+    // Case K: Repeatability (100 iterations of matching produce identical results)
+    let mut k_iter = 0;
+    while k_iter < 100 {
+        let res_k = match_route(&m_bc1, "/foo/bar", "GET");
+        match res_k {
+            Option::Some(matched) => {
+                assert(matched.page_id == 601, "Case K: Repeatability check failed at iteration");
+            }
+            Option::None => { assert(false, "Case K: Match failed during repeatability loop"); }
+        }
+        k_iter = k_iter + 1;
+    }
+
+    print_str("OK\n");
+}
+
 fn main() -> i64 {
     print_str("\n============================================================\n");
     print_str("   ⚡ VentaNext Framework — Phase 1 & 2 Automated Test Suite \n");
@@ -613,9 +824,10 @@ fn main() -> i64 {
     test_conditional_if_none_match_304();
     test_cache_control_headers_by_render_mode();
     test_render_mode_classification_and_matching();
+    test_phase1_1_route_resolution_correctness_gate();
 
     print_str("============================================================\n");
-    print_str("   ALL 20 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 21 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }

@@ -480,10 +480,69 @@ fn try_match_segments(req_segs: &Vec<String>, pat_segs: &Vec<String>, kind: i64)
     MatchResult { matched: false, params: make_param_map() }
 }
 
+pub fn segment_precedence_rank(kind: i64) -> i64 {
+    if kind == seg_static() {
+        return 4;
+    }
+    if kind == seg_dynamic() {
+        return 3;
+    }
+    if kind == seg_catch_all() {
+        return 2;
+    }
+    if kind == seg_optional_catch_all() {
+        return 1;
+    }
+    0
+}
+
+pub fn compare_route_precedence(r1: &RouteEntry, r2: &RouteEntry) -> i64 {
+    let segs1 = split_segments(r1.canonical_pattern.as_str());
+    let segs2 = split_segments(r2.canonical_pattern.as_str());
+
+    let mut min_len = segs1.len();
+    if segs2.len() < min_len {
+        min_len = segs2.len();
+    }
+
+    let mut i = 0;
+    while i < min_len {
+        let p1 = parse_segment(segs1[i].as_str());
+        let p2 = parse_segment(segs2[i].as_str());
+
+        let rank1 = segment_precedence_rank(p1.kind);
+        let rank2 = segment_precedence_rank(p2.kind);
+
+        if rank1 > rank2 {
+            return 1;
+        }
+        if rank1 < rank2 {
+            return -1;
+        }
+        i = i + 1;
+    }
+
+    if segs1.len() < segs2.len() {
+        let p2_extra = parse_segment(segs2[min_len].as_str());
+        if p2_extra.kind == seg_optional_catch_all() {
+            return 1;
+        }
+        return -1;
+    }
+    if segs1.len() > segs2.len() {
+        let p1_extra = parse_segment(segs1[min_len].as_str());
+        if p1_extra.kind == seg_optional_catch_all() {
+            return -1;
+        }
+        return 1;
+    }
+
+    0
+}
+
 pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option<RouteMatch> {
     let req_segs = split_segments(path);
     let mut best_match_idx = -1;
-    let mut best_specificity = -1;
     let mut best_params = make_param_map();
 
     let mut i = 0;
@@ -501,10 +560,16 @@ pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option
             let pat_segs = split_segments(route.canonical_pattern.as_str());
             let m_res = try_match_segments(&req_segs, &pat_segs, route.kind);
             if m_res.matched {
-                if route.specificity > best_specificity {
-                    best_specificity = route.specificity;
+                if best_match_idx < 0 {
                     best_match_idx = i;
                     best_params = clone_param_map(&m_res.params);
+                } else {
+                    let best_route = &manifest.routes[best_match_idx];
+                    let cmp = compare_route_precedence(route, best_route);
+                    if cmp > 0 {
+                        best_match_idx = i;
+                        best_params = clone_param_map(&m_res.params);
+                    }
                 }
             }
         }

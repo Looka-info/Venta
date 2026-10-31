@@ -348,3 +348,126 @@ fn test_15_static_export_pipeline() {
         "Must export export_manifest.json"
     );
 }
+
+#[test]
+fn test_16_phase1_1_earlier_static_vs_later_static_sorting() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("foo/[...rest]")).unwrap();
+    fs::create_dir_all(tmp.path().join("[id]/bar")).unwrap();
+    fs::write(tmp.path().join("foo/[...rest]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("[id]/bar/page.va"), "").unwrap();
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    assert_eq!(app.routes.len(), 2);
+
+    let idx_foo = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/foo/[...rest]")
+        .unwrap();
+    let idx_bar = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/[id]/bar")
+        .unwrap();
+
+    assert!(
+        idx_foo < idx_bar,
+        "Segment-level precedence: /foo/[...rest] (rank 4 at segment 0) must sort before /[id]/bar (rank 3 at segment 0)"
+    );
+}
+
+#[test]
+fn test_17_phase1_1_precedence_ordering() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("users/new")).unwrap();
+    fs::create_dir_all(tmp.path().join("users/[id]")).unwrap();
+    fs::create_dir_all(tmp.path().join("posts/[id]")).unwrap();
+    fs::create_dir_all(tmp.path().join("posts/[...slug]")).unwrap();
+    fs::create_dir_all(tmp.path().join("shop")).unwrap();
+    fs::create_dir_all(tmp.path().join("shop/[[...filter]]")).unwrap();
+
+    fs::write(tmp.path().join("users/new/page.va"), "").unwrap();
+    fs::write(tmp.path().join("users/[id]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("posts/[id]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("shop/page.va"), "").unwrap();
+    fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+
+    // 1. Static vs Dynamic (/users/new vs /users/[id])
+    let idx_users_new = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/users/new")
+        .unwrap();
+    let idx_users_id = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/users/[id]")
+        .unwrap();
+    assert!(
+        idx_users_new < idx_users_id,
+        "Static /users/new must sort before dynamic /users/[id]"
+    );
+
+    // 2. Dynamic vs Catch-All (/posts/[id] vs /posts/[...slug])
+    let idx_posts_id = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/posts/[id]")
+        .unwrap();
+    let idx_posts_slug = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/posts/[...slug]")
+        .unwrap();
+    assert!(
+        idx_posts_id < idx_posts_slug,
+        "Dynamic /posts/[id] must sort before catch-all /posts/[...slug]"
+    );
+
+    // 3. Exact route vs Optional Catch-All (/shop vs /shop/[[...filter]])
+    let idx_shop = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/shop")
+        .unwrap();
+    let idx_shop_filter = app
+        .routes
+        .iter()
+        .position(|r| r.canonical_pattern == "/shop/[[...filter]]")
+        .unwrap();
+    assert!(
+        idx_shop < idx_shop_filter,
+        "Exact route /shop must sort before optional catch-all /shop/[[...filter]]"
+    );
+}
+
+#[test]
+fn test_18_phase1_1_conflict_detection() {
+    // Ambiguous dynamic parameters at same segment position -> conflict
+    let tmp_conf = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp_conf.path().join("blog/[slug]")).unwrap();
+    fs::create_dir_all(tmp_conf.path().join("blog/[id]")).unwrap();
+    fs::write(tmp_conf.path().join("blog/[slug]/page.va"), "").unwrap();
+    fs::write(tmp_conf.path().join("blog/[id]/page.va"), "").unwrap();
+    let res_conf = scan_app_directory(tmp_conf.path());
+    assert!(
+        res_conf.is_err(),
+        "/blog/[slug] and /blog/[id] must be detected as conflict"
+    );
+
+    // Static route alongside dynamic parameter -> permitted under precedence rules
+    let tmp_ok = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp_ok.path().join("blog/new")).unwrap();
+    fs::create_dir_all(tmp_ok.path().join("blog/[id]")).unwrap();
+    fs::write(tmp_ok.path().join("blog/new/page.va"), "").unwrap();
+    fs::write(tmp_ok.path().join("blog/[id]/page.va"), "").unwrap();
+    let res_ok = scan_app_directory(tmp_ok.path());
+    assert!(
+        res_ok.is_ok(),
+        "/blog/new and /blog/[id] must be permitted without conflict"
+    );
+}

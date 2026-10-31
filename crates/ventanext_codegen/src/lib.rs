@@ -242,6 +242,53 @@ fn is_valid_identifier(name: &str) -> bool {
 // 3. App Directory Scanner
 // ----------------------------------------------------------------------------
 
+pub fn segment_precedence_rank(kind: SegmentKind) -> u8 {
+    match kind {
+        SegmentKind::Static => 4,
+        SegmentKind::Dynamic => 3,
+        SegmentKind::CatchAll => 2,
+        SegmentKind::OptionalCatchAll => 1,
+        SegmentKind::Group => 0,
+    }
+}
+
+pub fn compare_route_precedence(a: &RouteMetadata, b: &RouteMetadata) -> std::cmp::Ordering {
+    let clean_a: Vec<&Segment> = a
+        .segments
+        .iter()
+        .filter(|s| s.kind != SegmentKind::Group)
+        .collect();
+    let clean_b: Vec<&Segment> = b
+        .segments
+        .iter()
+        .filter(|s| s.kind != SegmentKind::Group)
+        .collect();
+
+    let min_len = clean_a.len().min(clean_b.len());
+    for i in 0..min_len {
+        let rank_a = segment_precedence_rank(clean_a[i].kind);
+        let rank_b = segment_precedence_rank(clean_b[i].kind);
+        if rank_a != rank_b {
+            return rank_a.cmp(&rank_b);
+        }
+    }
+
+    if clean_a.len() < clean_b.len() {
+        if clean_b[min_len].kind == SegmentKind::OptionalCatchAll {
+            return std::cmp::Ordering::Greater;
+        }
+        return std::cmp::Ordering::Less;
+    }
+    if clean_a.len() > clean_b.len() {
+        if clean_a[min_len].kind == SegmentKind::OptionalCatchAll {
+            return std::cmp::Ordering::Less;
+        }
+        return std::cmp::Ordering::Greater;
+    }
+
+    std::cmp::Ordering::Equal
+}
+
 #[derive(Debug, Clone)]
 pub struct DiscoveredApp {
     pub routes: Vec<RouteMetadata>,
@@ -321,11 +368,9 @@ pub fn scan_app_directory(app_dir: &Path) -> Result<DiscoveredApp, RouteConflict
     // Validate for collisions and conflicts
     validate_conflicts(&raw_routes)?;
 
-    // Sort routes deterministically by specificity descending, then canonical_pattern ascending
+    // Sort routes deterministically by segment-level precedence descending, then canonical_pattern ascending
     raw_routes.sort_by(|a, b| {
-        b.specificity
-            .cmp(&a.specificity)
-            .then_with(|| a.canonical_pattern.cmp(&b.canonical_pattern))
+        compare_route_precedence(b, a).then_with(|| a.canonical_pattern.cmp(&b.canonical_pattern))
     });
 
     // Assign final sequential deterministic IDs

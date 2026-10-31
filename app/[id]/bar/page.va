@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Route: /[id]/bar</h1><p>Dynamic id with static bar.</p>")
+}

@@ -14,27 +14,29 @@ import std::string::String;
 
 pub fn build_generated_manifest() -> RouteManifest {
     let mut m = make_route_manifest();
-    m.add_page_route_with_mode("/", 1, 0, 1);
-    m.add_api_route("GET", "/api/health", 1);
-    m.add_api_route("POST", "/api/health", 1);
-    m.add_api_route("PUT", "/api/health", 1);
-    m.add_api_route("DELETE", "/api/health", 1);
-    m.add_api_route("PATCH", "/api/health", 1);
-    m.add_api_route("HEAD", "/api/health", 1);
-    m.add_api_route("OPTIONS", "/api/health", 1);
-    m.add_api_route("GET", "/api/users", 2);
-    m.add_api_route("POST", "/api/users", 2);
-    m.add_api_route("PUT", "/api/users", 2);
-    m.add_api_route("DELETE", "/api/users", 2);
-    m.add_api_route("PATCH", "/api/users", 2);
-    m.add_api_route("HEAD", "/api/users", 2);
-    m.add_api_route("OPTIONS", "/api/users", 2);
-    m.add_page_route_with_mode("/blog/[slug]", 1, 3, 2);
-    m.add_page_route_with_mode("/docs/[...path]", 1, 4, 2);
-    m.add_page_route_with_mode("/shop/[[...filter]]", 1, 5, 2);
-    m.add_page_route_with_mode("/about", 1, 6, 1);
-    m.add_page_route_with_mode("/dashboard", 2, 7, 1);
-    m.add_page_route_with_mode("/pricing", 1, 8, 1);
+    m.add_api_route("GET", "/api/health", 0);
+    m.add_api_route("POST", "/api/health", 0);
+    m.add_api_route("PUT", "/api/health", 0);
+    m.add_api_route("DELETE", "/api/health", 0);
+    m.add_api_route("PATCH", "/api/health", 0);
+    m.add_api_route("HEAD", "/api/health", 0);
+    m.add_api_route("OPTIONS", "/api/health", 0);
+    m.add_api_route("GET", "/api/users", 1);
+    m.add_api_route("POST", "/api/users", 1);
+    m.add_api_route("PUT", "/api/users", 1);
+    m.add_api_route("DELETE", "/api/users", 1);
+    m.add_api_route("PATCH", "/api/users", 1);
+    m.add_api_route("HEAD", "/api/users", 1);
+    m.add_api_route("OPTIONS", "/api/users", 1);
+    m.add_page_route_with_mode("/blog/[slug]", 1, 2, 2);
+    m.add_page_route_with_mode("/docs/[...path]", 1, 3, 2);
+    m.add_page_route_with_mode("/foo/[...rest]", 1, 4, 2);
+    m.add_page_route_with_mode("/about", 1, 5, 1);
+    m.add_page_route_with_mode("/dashboard", 2, 6, 1);
+    m.add_page_route_with_mode("/pricing", 1, 7, 1);
+    m.add_page_route_with_mode("/shop/[[...filter]]", 1, 8, 2);
+    m.add_page_route_with_mode("/[id]/bar", 1, 9, 2);
+    m.add_page_route_with_mode("/", 1, 10, 1);
     m
 }
 
@@ -43,35 +45,41 @@ pub fn build_generated_manifest() -> RouteManifest {
 // ----------------------------------------------------------------------------
 
 pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
-    if route_id == 0 {
-        return response_html("<h1>Page 0</h1><p>Pattern: /</p>");
+    if route_id == 2 {
+        return response_html("<h1>Page 2</h1><p>Pattern: /blog/[slug]</p>");
     }
     if route_id == 3 {
-        return response_html("<h1>Page 3</h1><p>Pattern: /blog/[slug]</p>");
+        return response_html("<h1>Page 3</h1><p>Pattern: /docs/[...path]</p>");
     }
     if route_id == 4 {
-        return response_html("<h1>Page 4</h1><p>Pattern: /docs/[...path]</p>");
+        return response_html("<h1>Page 4</h1><p>Pattern: /foo/[...rest]</p>");
     }
     if route_id == 5 {
-        return response_html("<h1>Page 5</h1><p>Pattern: /shop/[[...filter]]</p>");
+        return response_html("<h1>Page 5</h1><p>Pattern: /about</p>");
     }
     if route_id == 6 {
-        return response_html("<h1>Page 6</h1><p>Pattern: /about</p>");
+        return response_html("<h1>Page 6</h1><p>Pattern: /dashboard</p>");
     }
     if route_id == 7 {
-        return response_html("<h1>Page 7</h1><p>Pattern: /dashboard</p>");
+        return response_html("<h1>Page 7</h1><p>Pattern: /pricing</p>");
     }
     if route_id == 8 {
-        return response_html("<h1>Page 8</h1><p>Pattern: /pricing</p>");
+        return response_html("<h1>Page 8</h1><p>Pattern: /shop/[[...filter]]</p>");
+    }
+    if route_id == 9 {
+        return response_html("<h1>Page 9</h1><p>Pattern: /[id]/bar</p>");
+    }
+    if route_id == 10 {
+        return response_html("<h1>Page 10</h1><p>Pattern: /</p>");
     }
     response_not_found("<h1>404 — Page Not Found</h1>")
 }
 
 pub fn dispatch_api(handler_id: i64, req: &mut Request) -> Response {
-    if handler_id == 1 {
+    if handler_id == 0 {
         return response_json("{\"status\":\"ok\",\"endpoint\":\"/api/health\"}");
     }
-    if handler_id == 2 {
+    if handler_id == 1 {
         return response_json("{\"status\":\"ok\",\"endpoint\":\"/api/users\"}");
     }
     response_not_found("{\"error\":\"API endpoint not found\"}")

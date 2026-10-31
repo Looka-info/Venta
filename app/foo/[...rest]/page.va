@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Route: /foo/[...rest]</h1><p>Catch-all rest parameter.</p>")
+}
