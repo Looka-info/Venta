@@ -8,6 +8,8 @@
       "canonical_pattern": "/",
       "normalized_url": "/",
       "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
       "source_file": "app/page.va",
       "segments": [],
       "layout_chain": [
@@ -24,6 +26,8 @@
       "canonical_pattern": "/api/health",
       "normalized_url": "/api/health",
       "route_kind": "Api",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
       "source_file": "app/api/health/route.va",
       "segments": [
         {
@@ -56,6 +60,8 @@
       "canonical_pattern": "/api/users",
       "normalized_url": "/api/users",
       "route_kind": "Api",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
       "source_file": "app/api/users/route.va",
       "segments": [
         {
@@ -88,6 +94,8 @@
       "canonical_pattern": "/blog/[slug]",
       "normalized_url": "/blog/[slug]",
       "route_kind": "Page",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
       "source_file": "app/blog/[slug]/page.va",
       "segments": [
         {
@@ -115,6 +123,8 @@
       "canonical_pattern": "/docs/[...path]",
       "normalized_url": "/docs/[...path]",
       "route_kind": "Page",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
       "source_file": "app/docs/[...path]/page.va",
       "segments": [
         {
@@ -142,6 +152,8 @@
       "canonical_pattern": "/shop/[[...filter]]",
       "normalized_url": "/shop/[[...filter]]",
       "route_kind": "Page",
+      "render_mode": "Dynamic",
+      "revalidate_seconds": null,
       "source_file": "app/shop/[[...filter]]/page.va",
       "segments": [
         {
@@ -169,6 +181,8 @@
       "canonical_pattern": "/about",
       "normalized_url": "/about",
       "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
       "source_file": "app/about/page.va",
       "segments": [
         {
@@ -191,6 +205,8 @@
       "canonical_pattern": "/dashboard",
       "normalized_url": "/dashboard",
       "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
       "source_file": "app/dashboard/page.va",
       "segments": [
         {
@@ -214,6 +230,8 @@
       "canonical_pattern": "/pricing",
       "normalized_url": "/pricing",
       "route_kind": "Page",
+      "render_mode": "Static",
+      "revalidate_seconds": null,
       "source_file": "app/(marketing)/pricing/page.va",
       "segments": [
         {

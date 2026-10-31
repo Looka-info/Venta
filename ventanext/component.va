@@ -1,0 +1,148 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Native Component Model & Declarative HTML Engine
+// Type-safe, XSS-defended component builders for pure Venta UI components
+// ============================================================================
+
+import std::string::String;
+import std::option::Option;
+
+// ----------------------------------------------------------------------------
+// 1. Safe HTML Escaping (XSS Prevention)
+// ----------------------------------------------------------------------------
+
+pub fn escape_html(input: &str) -> String {
+    let mut out = String::new();
+    let len = input.len();
+    let mut i = 0;
+    while i < len {
+        let b: i64 = input[i];
+        if b == 38 { // '&'
+            out.push_str("&amp;");
+        } else if b == 60 { // '<'
+            out.push_str("&lt;");
+        } else if b == 62 { // '>'
+            out.push_str("&gt;");
+        } else if b == 34 { // '"'
+            out.push_str("&quot;");
+        } else if b == 39 { // '\''
+            out.push_str("&#39;");
+        } else {
+            let slice_opt = input.slice_bytes(i, i + 1);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                }
+                Option::None => {}
+            }
+        }
+        i = i + 1;
+    }
+    out
+}
+
+// ----------------------------------------------------------------------------
+// 2. Generic Element Builders
+// ----------------------------------------------------------------------------
+
+pub fn tag(tag_name: &str, attrs: &str, content: &str) -> String {
+    let mut s = String::from_str("<");
+    s.push_str(tag_name);
+    if attrs.len() > 0 {
+        s.push_str(" ");
+        s.push_str(attrs);
+    }
+    s.push_str(">");
+    s.push_str(content);
+    s.push_str("</");
+    s.push_str(tag_name);
+    s.push_str(">");
+    s
+}
+
+pub fn self_closing_tag(tag_name: &str, attrs: &str) -> String {
+    let mut s = String::from_str("<");
+    s.push_str(tag_name);
+    if attrs.len() > 0 {
+        s.push_str(" ");
+        s.push_str(attrs);
+    }
+    s.push_str(" />");
+    s
+}
+
+// ----------------------------------------------------------------------------
+// 3. Common Semantic HTML Components
+// ----------------------------------------------------------------------------
+
+pub fn div(attrs: &str, content: &str) -> String {
+    tag("div", attrs, content)
+}
+
+pub fn span(attrs: &str, content: &str) -> String {
+    tag("span", attrs, content)
+}
+
+pub fn p(attrs: &str, content: &str) -> String {
+    tag("p", attrs, content)
+}
+
+pub fn h1(attrs: &str, text: &str) -> String {
+    tag("h1", attrs, text)
+}
+
+pub fn h2(attrs: &str, text: &str) -> String {
+    tag("h2", attrs, text)
+}
+
+pub fn h3(attrs: &str, text: &str) -> String {
+    tag("h3", attrs, text)
+}
+
+pub fn a(href: &str, attrs: &str, text: &str) -> String {
+    let mut combined = String::from_str("href=\"");
+    combined.push_str(href);
+    combined.push_str("\"");
+    if attrs.len() > 0 {
+        combined.push_str(" ");
+        combined.push_str(attrs);
+    }
+    tag("a", combined.as_str(), text)
+}
+
+pub fn button(attrs: &str, text: &str) -> String {
+    tag("button", attrs, text)
+}
+
+pub fn code(attrs: &str, text: &str) -> String {
+    tag("code", attrs, text)
+}
+
+pub fn pre(attrs: &str, text: &str) -> String {
+    tag("pre", attrs, text)
+}
+
+// ----------------------------------------------------------------------------
+// 4. Reusable High-Level UI Components
+// ----------------------------------------------------------------------------
+
+pub fn card_bento(title: &str, desc: &str, icon: &str) -> String {
+    let mut body = String::new();
+    body.push_str(div("class=\"card-icon\"", icon).as_str());
+    body.push_str("\n");
+    body.push_str(h3("", title).as_str());
+    body.push_str("\n");
+    body.push_str(p("", desc).as_str());
+    div("class=\"card-bento\"", body.as_str())
+}
+
+pub fn status_pill(label: &str, is_gold: bool) -> String {
+    let cls = if is_gold {
+        "status-pill pill-gold"
+    } else {
+        "status-pill pill-green"
+    };
+    let mut attrs = String::from_str("class=\"");
+    attrs.push_str(cls);
+    attrs.push_str("\"");
+    span(attrs.as_str(), label)
+}

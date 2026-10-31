@@ -6,8 +6,8 @@
 use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
-    generate_manifest_json, generate_venta_code, parse_segment, scan_app_directory, RouteKind,
-    SegmentKind,
+    export_static_site, generate_manifest_json, generate_venta_code, parse_segment,
+    scan_app_directory, RenderMode, RouteKind, SegmentKind,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -258,5 +258,93 @@ fn test_13_deterministic_manifest_output() {
     assert_eq!(
         code1, code2,
         "Generated Venta source must be 100% deterministic and byte-identical"
+    );
+}
+
+#[test]
+fn test_14_render_mode_classification() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).unwrap();
+
+    // Static pages without dynamic parameters -> RenderMode::Static
+    let home = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/")
+        .unwrap();
+    assert_eq!(home.render_mode, RenderMode::Static);
+
+    let about = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/about")
+        .unwrap();
+    assert_eq!(about.render_mode, RenderMode::Static);
+
+    let pricing = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/pricing")
+        .unwrap();
+    assert_eq!(pricing.render_mode, RenderMode::Static);
+
+    // Dynamic pages -> RenderMode::Dynamic
+    let blog = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/blog/[slug]")
+        .unwrap();
+    assert_eq!(blog.render_mode, RenderMode::Dynamic);
+
+    let docs = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/docs/[...path]")
+        .unwrap();
+    assert_eq!(docs.render_mode, RenderMode::Dynamic);
+
+    // API routes -> RenderMode::Dynamic
+    let api = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/api/health")
+        .unwrap();
+    assert_eq!(api.render_mode, RenderMode::Dynamic);
+}
+
+#[test]
+fn test_15_static_export_pipeline() {
+    let tmp_app = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp_app.path());
+    let tmp_out = tempfile::tempdir().unwrap();
+
+    let app = scan_app_directory(tmp_app.path()).unwrap();
+    let export_res = export_static_site(tmp_app.path(), tmp_out.path(), &app).unwrap();
+
+    assert!(
+        export_res.files.len() >= 4,
+        "Must export static HTML files and 404"
+    );
+    assert!(
+        tmp_out.path().join("index.html").exists(),
+        "Must export index.html"
+    );
+    assert!(
+        tmp_out.path().join("about/index.html").exists(),
+        "Must export about/index.html"
+    );
+    assert!(
+        tmp_out.path().join("pricing/index.html").exists(),
+        "Must export pricing/index.html"
+    );
+    assert!(
+        tmp_out.path().join("404.html").exists(),
+        "Must export 404.html"
+    );
+    assert!(
+        tmp_out.path().join("export_manifest.json").exists(),
+        "Must export export_manifest.json"
     );
 }

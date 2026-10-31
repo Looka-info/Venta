@@ -6,10 +6,12 @@
 import http::{
     Request, Response, parse_http_request, response_html, response_json,
     response_not_found, response_bad_request, response_method_not_allowed,
-    response_error, to_wire_format, to_wire_format_ex, clone_param_map
+    response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
+    to_wire_format, to_wire_format_ex, clone_param_map
 };
 import router::{
-    RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path
+    RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
+    render_mode_static, render_mode_dynamic, render_mode_isr
 };
 import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
 import ssr::{
@@ -103,19 +105,16 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
         Option::Some(m_res) => {
             req.params = clone_param_map(&m_res.params);
 
-            // Handle API Routes
+            // Route Response Processing (API or Page Component)
+            let mut resp = response_error("Unhandled route");
             if m_res.is_api {
                 if m_res.page_id == 200 {
                     let json = "{\"framework\":\"VentaNext\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"status\":\"operational\",\"memory_safety\":\"guaranteed\",\"features\":[\"App Router Manifest\",\"Nested Layouts\",\"Dynamic Params ([slug])\",\"Catch-All ([...path])\",\"Typed API Routes\",\"Middleware Pipeline\"]}\n";
-                    return response_json(json);
-                }
-
-                if m_res.page_id == 201 {
+                    resp = response_json(json);
+                } else if m_res.page_id == 201 {
                     let json = "{\"posts\":[{\"id\":\"1\",\"title\":\"Introducing VentaNext\",\"author\":\"Antigravity\"},{\"id\":\"2\",\"title\":\"Server-Side Rendering at 60 MB/s\",\"author\":\"Looka\"},{\"id\":\"3\",\"title\":\"Affine Borrowing in Web Backends\",\"author\":\"Venta Team\"}]}\n";
-                    return response_json(json);
-                }
-
-                if m_res.page_id == 202 {
+                    resp = response_json(json);
+                } else if m_res.page_id == 202 {
                     let id_opt = req.params.get("id");
                     let mut id_str = String::from_str("1");
                     match id_opt {
@@ -127,10 +126,8 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     json.push_str("\",\"title\":\"Dynamic Post #");
                     json.push_str(id_str.as_str());
                     json.push_str("\",\"body\":\"Fetched dynamically via VentaNext App Router dynamic parameter.\",\"framework\":\"VentaNext\"}\n");
-                    return response_json(json.as_str());
-                }
-
-                if m_res.page_id == 203 {
+                    resp = response_json(json.as_str());
+                } else if m_res.page_id == 203 {
                     let mut json = String::from_str("{\"status\":\"received\",\"method\":\"POST\",\"echo_payload\":");
                     if req.body.is_empty() {
                         json.push_str("null");
@@ -140,72 +137,102 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                         json.push_str("\"");
                     }
                     json.push_str("}\n");
-                    return response_json(json.as_str());
-                }
-
-                if m_res.page_id == 204 {
+                    resp = response_json(json.as_str());
+                } else if m_res.page_id == 204 {
                     let json = "{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}\n";
-                    return response_json(json);
+                    resp = response_json(json);
+                }
+            } else {
+                // Handle Page Routes (with Nested Layout Resolution)
+                let mut title = "Venta";
+                let mut active_nav = "none";
+                if m_res.page_id == 100 {
+                    title = "Home";
+                    active_nav = "home";
+                } else if m_res.page_id == 101 {
+                    title = "Dashboard";
+                    active_nav = "dashboard";
+                } else if m_res.page_id == 102 {
+                    title = "Docs";
+                    active_nav = "docs";
+                } else if m_res.page_id == 103 {
+                    title = "Post Detail";
+                    active_nav = "dashboard";
+                } else if m_res.page_id == 104 {
+                    title = "About";
+                    active_nav = "home";
+                } else if m_res.page_id == 105 {
+                    title = "Blog Post";
+                    active_nav = "home";
+                } else if m_res.page_id == 106 {
+                    title = "Documentation";
+                    active_nav = "docs";
                 }
 
-                return response_error("Unknown API handler identifier");
+                let ctx = make_render_context(
+                    path,
+                    title,
+                    active_nav,
+                    clone_param_map(&req.params),
+                    http::make_query_map(),
+                    http::make_header_map(),
+                    http::make_cookie_map(),
+                );
+
+                let mut page_markup = String::new();
+                if m_res.page_id == 100 {
+                    page_markup = render_home_page(&ctx);
+                } else if m_res.page_id == 101 {
+                    page_markup = render_dashboard_page(&ctx);
+                } else if m_res.page_id == 102 {
+                    page_markup = render_docs_page(&ctx);
+                } else if m_res.page_id == 103 {
+                    page_markup = render_post_detail_page(&ctx);
+                } else if m_res.page_id == 104 {
+                    page_markup = render_about_page(&ctx);
+                } else if m_res.page_id == 105 {
+                    page_markup = render_blog_slug_page(&ctx);
+                } else if m_res.page_id == 106 {
+                    page_markup = render_docs_path_page(&ctx);
+                }
+
+                let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
+                resp = response_html(final_html.as_str());
             }
 
-            // Handle Page Routes (with Nested Layout Resolution)
-            let mut title = "Venta";
-            let mut active_nav = "none";
-            if m_res.page_id == 100 {
-                title = "Home";
-                active_nav = "home";
-            } else if m_res.page_id == 101 {
-                title = "Dashboard";
-                active_nav = "dashboard";
-            } else if m_res.page_id == 102 {
-                title = "Docs";
-                active_nav = "docs";
-            } else if m_res.page_id == 103 {
-                title = "Post Detail";
-                active_nav = "dashboard";
-            } else if m_res.page_id == 104 {
-                title = "About";
-                active_nav = "home";
-            } else if m_res.page_id == 105 {
-                title = "Blog Post";
-                active_nav = "home";
-            } else if m_res.page_id == 106 {
-                title = "Documentation";
-                active_nav = "docs";
+            // Cache-Control Policy based on RenderMode
+            if m_res.render_mode == render_mode_static() {
+                add_cache_control(&mut resp, "public, max-age=0, must-revalidate");
+            } else if m_res.render_mode == render_mode_isr() {
+                add_cache_control(&mut resp, "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400");
+            } else {
+                add_cache_control(&mut resp, "private, no-cache, no-store, must-revalidate");
             }
 
-            let ctx = make_render_context(
-                path,
-                title,
-                active_nav,
-                clone_param_map(&req.params),
-                http::make_query_map(),
-                http::make_header_map(),
-                http::make_cookie_map(),
-            );
+            // ETag & Conditional Request (If-None-Match -> 304 Not Modified)
+            if resp.status == 200 {
+                let etag = compute_etag(resp.body.as_str());
+                add_etag(&mut resp, etag.as_str());
 
-            let mut page_markup = String::new();
-            if m_res.page_id == 100 {
-                page_markup = render_home_page(&ctx);
-            } else if m_res.page_id == 101 {
-                page_markup = render_dashboard_page(&ctx);
-            } else if m_res.page_id == 102 {
-                page_markup = render_docs_page(&ctx);
-            } else if m_res.page_id == 103 {
-                page_markup = render_post_detail_page(&ctx);
-            } else if m_res.page_id == 104 {
-                page_markup = render_about_page(&ctx);
-            } else if m_res.page_id == 105 {
-                page_markup = render_blog_slug_page(&ctx);
-            } else if m_res.page_id == 106 {
-                page_markup = render_docs_path_page(&ctx);
+                let inm_opt = req.headers.get("if-none-match");
+                match inm_opt {
+                    Option::Some(inm) => {
+                        if etag_matches(inm.as_str(), etag.as_str()) {
+                            let mut not_mod = response_not_modified();
+                            add_etag(&mut not_mod, etag.as_str());
+                            let cc_opt = resp.headers.get("cache-control");
+                            match cc_opt {
+                                Option::Some(cc) => { add_cache_control(&mut not_mod, cc.as_str()); }
+                                Option::None => {}
+                            }
+                            return not_mod;
+                        }
+                    }
+                    Option::None => {}
+                }
             }
 
-            let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
-            return response_html(final_html.as_str());
+            return resp;
         }
         Option::None => {}
     }

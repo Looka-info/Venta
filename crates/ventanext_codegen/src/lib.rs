@@ -27,6 +27,13 @@ pub enum RouteKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum RenderMode {
+    Static = 1,
+    Dynamic = 2,
+    ISR = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SegmentKind {
     Static = 1,
     Dynamic = 2,
@@ -48,6 +55,8 @@ pub struct RouteMetadata {
     pub canonical_pattern: String,
     pub normalized_url: String,
     pub route_kind: RouteKind,
+    pub render_mode: RenderMode,
+    pub revalidate_seconds: Option<u64>,
     pub source_file: String,
     pub segments: Vec<Segment>,
     pub layout_chain: Vec<String>,
@@ -70,6 +79,22 @@ pub struct RouteManifestJson {
     pub route_count: usize,
     pub routes: Vec<RouteMetadata>,
     pub special_files: SpecialFilesMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedFile {
+    pub url_path: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+    pub content_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportManifest {
+    pub schema_version: String,
+    pub exported_at: u64,
+    pub route_count: usize,
+    pub files: Vec<ExportedFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,11 +494,27 @@ fn parse_route_file(
         ]
     };
 
+    let has_dynamic_segments = segments.iter().any(|s| {
+        s.kind == SegmentKind::Dynamic
+            || s.kind == SegmentKind::CatchAll
+            || s.kind == SegmentKind::OptionalCatchAll
+    });
+
+    let render_mode = if kind == RouteKind::Api {
+        RenderMode::Dynamic
+    } else if has_dynamic_segments {
+        RenderMode::Dynamic
+    } else {
+        RenderMode::Static
+    };
+
     Ok(RouteMetadata {
         id: 0, // Assigned after sorting
         canonical_pattern,
         normalized_url,
         route_kind: kind,
+        render_mode,
+        revalidate_seconds: None,
         source_file: full_path.to_string_lossy().to_string(),
         segments,
         layout_chain,
@@ -612,11 +653,17 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
 
     for r in &app.routes {
         if r.route_kind == RouteKind::Page {
+            let mode_code = match r.render_mode {
+                RenderMode::Static => 1,
+                RenderMode::Dynamic => 2,
+                RenderMode::ISR => 3,
+            };
             out.push_str(&format!(
-                "    m.add_page_route(\"{}\", {}, {});\n",
+                "    m.add_page_route_with_mode(\"{}\", {}, {}, {});\n",
                 r.canonical_pattern,
                 r.layout_chain.len(),
-                r.id
+                r.id,
+                mode_code
             ));
         } else if r.route_kind == RouteKind::Api {
             for m in &r.methods {
@@ -667,4 +714,151 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out.push_str("}\n");
 
     out
+}
+
+// ----------------------------------------------------------------------------
+// 6. Static Site Generation (SSG) & Static Export Pipeline
+// ----------------------------------------------------------------------------
+
+pub fn compute_content_digest(content: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in content.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn export_static_site(
+    app_dir: &Path,
+    out_dir: &Path,
+    discovered: &DiscoveredApp,
+) -> Result<ExportManifest, Box<dyn std::error::Error>> {
+    fs::create_dir_all(out_dir)?;
+
+    let mut exported_files = Vec::new();
+
+    // 1. Copy public/ directory if it exists
+    let public_dir = if let Some(parent) = app_dir.parent() {
+        parent.join("public")
+    } else {
+        PathBuf::from("public")
+    };
+    if public_dir.is_dir() {
+        copy_dir_recursive(&public_dir, out_dir)?;
+    }
+
+    // 2. Export each Static Page route to out_dir
+    for route in &discovered.routes {
+        if route.route_kind == RouteKind::Page && route.render_mode == RenderMode::Static {
+            let target_file = if route.canonical_pattern == "/" {
+                out_dir.join("index.html")
+            } else {
+                let rel = route.canonical_pattern.trim_start_matches('/');
+                let page_dir = out_dir.join(rel);
+                fs::create_dir_all(&page_dir)?;
+                page_dir.join("index.html")
+            };
+
+            let title = if route.canonical_pattern == "/" {
+                "Home".to_string()
+            } else {
+                let seg = route.canonical_pattern.trim_start_matches('/');
+                format!("{}{}", seg[..1].to_uppercase(), &seg[1..])
+            };
+
+            let html_content = format!(
+                r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{} | ⚡ Venta</title>
+    <link rel="icon" type="image/svg+xml" href="/vanta-file-icon.svg">
+</head>
+<body>
+    <header>
+        <nav><a href="/">⚡ VentaNext Static Export</a></nav>
+    </header>
+    <main>
+        <h1>{}</h1>
+        <p>Prerendered via VentaNext SSG (Static Site Generation).</p>
+        <p>Canonical Route: <code>{}</code></p>
+    </main>
+    <footer>
+        <p>Powered by ⚡ VentaNext SSG • Native Static Export</p>
+    </footer>
+</body>
+</html>
+"#,
+                title, title, route.canonical_pattern
+            );
+
+            fs::write(&target_file, &html_content)?;
+            let meta = fs::metadata(&target_file)?;
+            let digest = compute_content_digest(&html_content);
+            let rel_target = target_file.strip_prefix(out_dir).unwrap_or(&target_file);
+
+            exported_files.push(ExportedFile {
+                url_path: route.canonical_pattern.clone(),
+                file_path: rel_target.to_string_lossy().to_string(),
+                size_bytes: meta.len(),
+                content_digest: digest,
+            });
+        }
+    }
+
+    // 3. Export 404.html
+    let not_found_file = out_dir.join("404.html");
+    let not_found_html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>404 Not Found | ⚡ Venta</title>
+</head>
+<body>
+    <h1>404 — Page Not Found</h1>
+    <p>This static route does not exist.</p>
+    <a href="/">Return Home</a>
+</body>
+</html>
+"#;
+    fs::write(&not_found_file, not_found_html)?;
+    let nf_meta = fs::metadata(&not_found_file)?;
+    exported_files.push(ExportedFile {
+        url_path: "/404".to_string(),
+        file_path: "404.html".to_string(),
+        size_bytes: nf_meta.len(),
+        content_digest: compute_content_digest(not_found_html),
+    });
+
+    let manifest = ExportManifest {
+        schema_version: MANIFEST_SCHEMA_VERSION.to_string(),
+        exported_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        route_count: exported_files.len(),
+        files: exported_files,
+    };
+
+    let manifest_json = serde_json::to_string_pretty(&manifest)?;
+    fs::write(out_dir.join("export_manifest.json"), manifest_json)?;
+
+    Ok(manifest)
 }

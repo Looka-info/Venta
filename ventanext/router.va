@@ -223,6 +223,10 @@ pub fn build_canonical_pattern(raw_pattern: &str) -> String {
     res
 }
 
+pub fn render_mode_static() -> i64 { 1 }
+pub fn render_mode_dynamic() -> i64 { 2 }
+pub fn render_mode_isr() -> i64 { 3 }
+
 pub struct RouteEntry {
     pub pattern: String,
     pub canonical_pattern: String,
@@ -232,6 +236,7 @@ pub struct RouteEntry {
     pub layout_id: i64,
     pub page_id: i64,
     pub is_api: bool,
+    pub render_mode: i64,
 }
 
 // ----------------------------------------------------------------------------
@@ -251,6 +256,7 @@ impl RouteManifest {
     pub fn add_page_route(self: &mut Self, pattern: &str, layout_id: i64, page_id: i64) {
         let canonical = build_canonical_pattern(pattern);
         let spec = calculate_route_kind_and_specificity(canonical.as_str());
+        let mode = if spec.kind == seg_static() { render_mode_static() } else { render_mode_dynamic() };
         self.routes.push(RouteEntry {
             pattern: String::from_str(pattern),
             canonical_pattern: canonical,
@@ -260,6 +266,23 @@ impl RouteManifest {
             layout_id: layout_id,
             page_id: page_id,
             is_api: false,
+            render_mode: mode,
+        });
+    }
+
+    pub fn add_page_route_with_mode(self: &mut Self, pattern: &str, layout_id: i64, page_id: i64, mode: i64) {
+        let canonical = build_canonical_pattern(pattern);
+        let spec = calculate_route_kind_and_specificity(canonical.as_str());
+        self.routes.push(RouteEntry {
+            pattern: String::from_str(pattern),
+            canonical_pattern: canonical,
+            http_method: String::from_str("GET"),
+            kind: spec.kind,
+            specificity: spec.specificity,
+            layout_id: layout_id,
+            page_id: page_id,
+            is_api: false,
+            render_mode: mode,
         });
     }
 
@@ -275,6 +298,7 @@ impl RouteManifest {
             layout_id: 0,
             page_id: handler_id,
             is_api: true,
+            render_mode: render_mode_dynamic(),
         });
     }
 
@@ -340,6 +364,7 @@ pub struct RouteMatch {
     pub layout_id: i64,
     pub page_id: i64,
     pub is_api: bool,
+    pub render_mode: i64,
     pub params: ParamMap,
 }
 
@@ -492,6 +517,7 @@ pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option
             layout_id: r.layout_id,
             page_id: r.page_id,
             is_api: r.is_api,
+            render_mode: r.render_mode,
             params: clone_param_map(&best_params),
         });
     }

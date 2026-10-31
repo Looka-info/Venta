@@ -6,6 +6,7 @@
 
 mod http;
 mod router;
+mod component;
 mod ssr;
 mod middleware;
 mod server;
@@ -14,12 +15,14 @@ import http::{
     Request, Response, HeaderMap, QueryMap, ParamMap, CookieMap,
     make_request, parse_http_request, make_response, response_html, response_json,
     response_redirect, response_not_found, response_bad_request, response_method_not_allowed,
-    response_no_content, response_internal_server_error, response_error, set_cookie, add_header,
+    response_no_content, response_not_modified, response_internal_server_error, response_error,
+    compute_etag, add_etag, add_cache_control, set_cookie, add_header,
     to_wire_format, to_wire_format_ex, make_header_map, make_query_map, make_param_map, make_cookie_map,
     clone_param_map
 };
 import router::{
     RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
+    render_mode_static, render_mode_dynamic, render_mode_isr,
     seg_static, seg_dynamic, seg_catch_all, seg_optional_catch_all, seg_group,
     split_segments, parse_segment, build_canonical_pattern, calculate_route_kind_and_specificity
 };
@@ -431,7 +434,7 @@ fn test_repeated_query_and_header_preservation() {
 }
 
 fn test_method_not_allowed_405_lifecycle() {
-    print_str("[15/15] Testing 405 Method Not Allowed Lifecycle... ");
+    print_str("[15/20] Testing 405 Method Not Allowed Lifecycle... ");
     let mut m = make_route_manifest();
     m.add_page_route("/about", layout_root(), 10);
 
@@ -449,9 +452,145 @@ fn test_method_not_allowed_405_lifecycle() {
     print_str("OK\n");
 }
 
+fn test_component_builder_and_xss_escaping() {
+    print_str("[16/20] Testing Component Builder & XSS Escaping... ");
+    let dangerous = "<script>alert('xss & attack')</script>\"";
+    let safe = component::escape_html(dangerous);
+    assert(safe.as_str().equals("&lt;script&gt;alert(&#39;xss &amp; attack&#39;)&lt;/script&gt;&quot;"), "XSS characters must be escaped");
+
+    let button_html = component::tag("button", "class=\"btn-gold\"", "Click Me");
+    assert(button_html.as_str().equals("<button class=\"btn-gold\">Click Me</button>"), "Tag builder must construct valid element");
+
+    let link_html = component::a("/docs", "class=\"active\"", "Documentation");
+    assert(link_html.as_str().equals("<a href=\"/docs\" class=\"active\">Documentation</a>"), "Link component must format href and attrs");
+    print_str("OK\n");
+}
+
+fn test_etag_computation_and_determinism() {
+    print_str("[17/20] Testing ETag Computation & Determinism... ");
+    let body1 = "<html><body><h1>Hello VentaNext</h1></body></html>";
+    let body2 = "<html><body><h1>Hello VentaNext</h1></body></html>";
+    let etag1 = compute_etag(body1);
+    let etag2 = compute_etag(body2);
+
+    assert(etag1.as_str().equals(etag2.as_str()), "Identical body content must produce identical ETag");
+    assert(etag1.len_bytes() > 6, "ETag must be non-empty");
+
+    // ETag starts with W/"
+    let prefix_opt = etag1.slice_bytes(0, 3);
+    match prefix_opt {
+        Option::Some(p) => {
+            assert(p.equals("W/\""), "ETag must use RFC-standard weak validator W/ prefix");
+        }
+        Option::None => {
+            assert(false, "ETag slice failed");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_conditional_if_none_match_304() {
+    print_str("[18/20] Testing Conditional Request (If-None-Match -> 304)... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/about", layout_root(), 104);
+
+    // Initial request: 200 OK with ETag
+    let mut req1 = make_request("GET", "/about", "", make_header_map(), "");
+    let resp1 = server::dispatch_request_with_manifest(&m, &mut req1);
+    assert(resp1.status == 200, "Initial request must return 200 OK");
+    let etag_opt = resp1.headers.get("etag");
+    assert(etag_opt.is_some(), "Response must contain ETag header");
+
+    let mut etag_val = String::new();
+    match etag_opt {
+        Option::Some(s) => { etag_val = s; }
+        Option::None => {}
+    }
+
+    // Second conditional request with matching If-None-Match header
+    let mut req2 = make_request("GET", "/about", "", make_header_map(), "");
+    req2.headers.add("if-none-match", etag_val.as_str());
+    let resp2 = server::dispatch_request_with_manifest(&m, &mut req2);
+
+    assert(resp2.status == 304, "Matching If-None-Match must return 304 Not Modified");
+    assert(resp2.body.is_empty(), "304 response body must be completely empty");
+    let wire_304 = to_wire_format(&resp2);
+    assert(wire_304.len_bytes() < 500, "304 wire response must be minimal without body");
+    print_str("OK\n");
+}
+
+fn test_cache_control_headers_by_render_mode() {
+    print_str("[19/20] Testing Cache-Control Policies by Render Mode... ");
+    let mut m = make_route_manifest();
+    m.add_page_route_with_mode("/static-page", layout_root(), 100, render_mode_static());
+    m.add_page_route_with_mode("/dynamic-page", layout_root(), 105, render_mode_dynamic());
+    m.add_api_route("GET", "/api/data", 200);
+
+    // Static route -> public, max-age=0, must-revalidate
+    let mut req_static = make_request("GET", "/static-page", "", make_header_map(), "");
+    let resp_static = server::dispatch_request_with_manifest(&m, &mut req_static);
+    let cc_static = resp_static.headers.get("cache-control");
+    assert(cc_static.is_some(), "Static route must emit Cache-Control header");
+    match cc_static {
+        Option::Some(cc) => {
+            assert(cc.as_str().equals("public, max-age=0, must-revalidate"), "Static route must require revalidation");
+        }
+        Option::None => {}
+    }
+
+    // Dynamic API route -> private, no-cache, no-store
+    let mut req_dyn = make_request("GET", "/api/data", "", make_header_map(), "");
+    let resp_dyn = server::dispatch_request_with_manifest(&m, &mut req_dyn);
+    let cc_dyn = resp_dyn.headers.get("cache-control");
+    assert(cc_dyn.is_some(), "Dynamic route must emit Cache-Control header");
+    match cc_dyn {
+        Option::Some(cc) => {
+            assert(cc.as_str().equals("private, no-cache, no-store, must-revalidate"), "Dynamic route must prevent caching");
+        }
+        Option::None => {}
+    }
+    print_str("OK\n");
+}
+
+fn test_render_mode_classification_and_matching() {
+    print_str("[20/20] Testing Render Mode Manifest Classification... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/", layout_root(), 100);
+    m.add_page_route("/blog/[slug]", layout_root(), 105);
+    m.add_page_route_with_mode("/cached", layout_root(), 106, render_mode_isr());
+
+    let match_root = match_route(&m, "/", "GET");
+    assert(match_root.is_some(), "Root route must match");
+    match match_root {
+        Option::Some(mr) => {
+            assert(mr.render_mode == render_mode_static(), "Root route default mode must be Static");
+        }
+        Option::None => {}
+    }
+
+    let match_blog = match_route(&m, "/blog/hello", "GET");
+    assert(match_blog.is_some(), "Dynamic route must match");
+    match match_blog {
+        Option::Some(mr) => {
+            assert(mr.render_mode == render_mode_dynamic(), "Dynamic route default mode must be Dynamic");
+        }
+        Option::None => {}
+    }
+
+    let match_isr = match_route(&m, "/cached", "GET");
+    assert(match_isr.is_some(), "ISR route must match");
+    match match_isr {
+        Option::Some(mr) => {
+            assert(mr.render_mode == render_mode_isr(), "ISR route must preserve explicit ISR mode");
+        }
+        Option::None => {}
+    }
+    print_str("OK\n");
+}
+
 fn main() -> i64 {
     print_str("\n============================================================\n");
-    print_str("   ⚡ VentaNext Framework — Phase 1 Automated Test Suite     \n");
+    print_str("   ⚡ VentaNext Framework — Phase 1 & 2 Automated Test Suite \n");
     print_str("============================================================\n");
 
     test_route_manifest_registration_and_validation();
@@ -469,9 +608,14 @@ fn main() -> i64 {
     test_header_crlf_injection_rejection();
     test_repeated_query_and_header_preservation();
     test_method_not_allowed_405_lifecycle();
+    test_component_builder_and_xss_escaping();
+    test_etag_computation_and_determinism();
+    test_conditional_if_none_match_304();
+    test_cache_control_headers_by_render_mode();
+    test_render_mode_classification_and_matching();
 
     print_str("============================================================\n");
-    print_str("   ALL 15 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 20 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }

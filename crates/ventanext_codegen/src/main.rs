@@ -7,17 +7,20 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
-use ventanext_codegen::{generate_manifest_json, generate_venta_code, scan_app_directory};
+use ventanext_codegen::{
+    export_static_site, generate_manifest_json, generate_venta_code, scan_app_directory,
+};
 
 fn print_usage() {
     eprintln!(
-        r#"VentaNext Route Generator v1.0.0-rc.2
+        r#"VentaNext Route Generator & Static Site Exporter v1.0.0-rc.2
 USAGE:
     ventanext-gen <APP_DIR> [OPTIONS]
 
 OPTIONS:
     -o <FILE>                Output path for generated pure Venta code (default: stdout)
     --manifest-json <FILE>   Output path for JSON manifest
+    --export <OUT_DIR>       Prerender and export static site (SSG) to target directory
     -h, --help               Print help information
 "#
     );
@@ -38,6 +41,7 @@ fn main() {
     let app_dir = PathBuf::from(&args[1]);
     let mut out_va_path: Option<PathBuf> = None;
     let mut out_json_path: Option<PathBuf> = None;
+    let mut export_dir: Option<PathBuf> = None;
 
     let mut i = 2;
     while i < args.len() {
@@ -46,6 +50,9 @@ fn main() {
             i += 2;
         } else if args[i] == "--manifest-json" && i + 1 < args.len() {
             out_json_path = Some(PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else if args[i] == "--export" && i + 1 < args.len() {
+            export_dir = Some(PathBuf::from(&args[i + 1]));
             i += 2;
         } else {
             eprintln!("Unknown argument: {}", args[i]);
@@ -89,6 +96,26 @@ fn main() {
                     process::exit(1);
                 }
                 println!("[ventanext] Wrote JSON route manifest to: {:?}", json_path);
+            }
+
+            if let Some(ref out_dir) = export_dir {
+                println!(
+                    "[ventanext] Starting static site export (SSG) to: {:?}",
+                    out_dir
+                );
+                match export_static_site(&app_dir, out_dir, &discovered) {
+                    Ok(exp) => {
+                        println!(
+                            "[ventanext] SSG Export succeeded: {} files generated in {:?}",
+                            exp.files.len(),
+                            out_dir
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[ventanext ERROR] Failed during static export: {}", e);
+                        process::exit(1);
+                    }
+                }
             }
         }
         Err(err) => {
