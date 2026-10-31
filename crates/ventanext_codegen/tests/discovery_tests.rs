@@ -471,3 +471,142 @@ fn test_18_phase1_1_conflict_detection() {
         "/blog/new and /blog/[id] must be permitted without conflict"
     );
 }
+
+// ----------------------------------------------------------------------------
+// Phase 1.1 Follow-up: Route Conflict Consistency Regression Tests (1-9)
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_19_conflict_duplicate_dynamic_different_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("blog/[id]")).unwrap();
+    fs::create_dir_all(tmp.path().join("blog/[slug]")).unwrap();
+    fs::write(tmp.path().join("blog/[id]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("blog/[slug]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "/blog/[id] and /blog/[slug] must be rejected as conflicting"
+    );
+}
+
+#[test]
+fn test_20_conflict_duplicate_required_catch_all_different_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[...path]")).unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[...rest]")).unwrap();
+    fs::write(tmp.path().join("docs/[...path]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("docs/[...rest]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "/docs/[...path] and /docs/[...rest] must be rejected as conflicting"
+    );
+}
+
+#[test]
+fn test_21_conflict_duplicate_optional_catch_all_different_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("store/[[...filter]]")).unwrap();
+    fs::create_dir_all(tmp.path().join("store/[[...category]]")).unwrap();
+    fs::write(tmp.path().join("store/[[...filter]]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("store/[[...category]]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "/store/[[...filter]] and /store/[[...category]] must be rejected as conflicting"
+    );
+}
+
+#[test]
+fn test_22_conflict_mixed_dynamic_prefix_plus_required_catch_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[id]/[...path]")).unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[slug]/[...rest]")).unwrap();
+    fs::write(tmp.path().join("docs/[id]/[...path]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("docs/[slug]/[...rest]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "/docs/[id]/[...path] and /docs/[slug]/[...rest] must be rejected as conflicting"
+    );
+}
+
+#[test]
+fn test_23_conflict_route_groups_normalize_to_equivalent() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("(marketing)/docs/[...path]")).unwrap();
+    fs::create_dir_all(tmp.path().join("(docs_group)/docs/[...rest]")).unwrap();
+    fs::write(tmp.path().join("(marketing)/docs/[...path]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("(docs_group)/docs/[...rest]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "Route groups normalizing to /docs/[...path] and /docs/[...rest] must be rejected as conflicting"
+    );
+}
+
+#[test]
+fn test_24_valid_static_vs_dynamic() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("blog/new")).unwrap();
+    fs::create_dir_all(tmp.path().join("blog/[id]")).unwrap();
+    fs::write(tmp.path().join("blog/new/page.va"), "").unwrap();
+    fs::write(tmp.path().join("blog/[id]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_ok(),
+        "/blog/new and /blog/[id] have distinct precedence and must remain valid"
+    );
+}
+
+#[test]
+fn test_25_valid_dynamic_vs_required_catch_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("posts/[id]")).unwrap();
+    fs::create_dir_all(tmp.path().join("posts/[...slug]")).unwrap();
+    fs::write(tmp.path().join("posts/[id]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_ok(),
+        "/posts/[id] and /posts/[...slug] have distinct precedence and must remain valid"
+    );
+}
+
+#[test]
+fn test_26_valid_required_vs_optional_catch_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[...path]")).unwrap();
+    fs::create_dir_all(tmp.path().join("docs/[[...filter]]")).unwrap();
+    fs::write(tmp.path().join("docs/[...path]/page.va"), "").unwrap();
+    fs::write(tmp.path().join("docs/[[...filter]]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_ok(),
+        "/docs/[...path] and /docs/[[...filter]] have distinct precedence and must remain valid"
+    );
+}
+
+#[test]
+fn test_27_valid_exact_route_vs_optional_catch_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("shop")).unwrap();
+    fs::create_dir_all(tmp.path().join("shop/[[...filter]]")).unwrap();
+    fs::write(tmp.path().join("shop/page.va"), "").unwrap();
+    fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_ok(),
+        "/shop and /shop/[[...filter]] have distinct precedence and must remain valid"
+    );
+}

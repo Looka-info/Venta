@@ -311,7 +311,8 @@ impl RouteManifest {
                 let r2 = &self.routes[j];
 
                 let method_match = r1.http_method.as_str().equals(r2.http_method.as_str()) || r1.http_method.as_str().equals("*") || r2.http_method.as_str().equals("*");
-                if method_match {
+                let conflict_candidate = (r1.is_api != r2.is_api) || method_match;
+                if conflict_candidate {
                     let segs1 = split_segments(r1.canonical_pattern.as_str());
                     let segs2 = split_segments(r2.canonical_pattern.as_str());
 

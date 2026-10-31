@@ -572,63 +572,14 @@ fn parse_route_file(
 // 4. Collision & Conflict Detection
 // ----------------------------------------------------------------------------
 
-pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictError> {
-    for i in 0..routes.len() {
-        for j in (i + 1)..routes.len() {
-            let r1 = &routes[i];
-            let r2 = &routes[j];
-
-            // 1. Identical canonical pattern conflict (e.g. duplicate page or route group collision)
-            if r1.canonical_pattern == r2.canonical_pattern {
-                // If both are pages, or both have overlapping HTTP methods
-                if r1.route_kind == RouteKind::Page && r2.route_kind == RouteKind::Page {
-                    return Err(RouteConflictError {
-                        message: format!(
-                            "Route collision detected: '{}' defined in both files",
-                            r1.canonical_pattern
-                        ),
-                        first_source: Some(PathBuf::from(&r1.source_file)),
-                        second_source: Some(PathBuf::from(&r2.source_file)),
-                    });
-                }
-                if r1.route_kind == RouteKind::Api && r2.route_kind == RouteKind::Api {
-                    for m1 in &r1.methods {
-                        if r2.methods.contains(m1) {
-                            return Err(RouteConflictError {
-                                message: format!(
-                                    "Duplicate API route definition for method '{}' at pattern '{}'",
-                                    m1, r1.canonical_pattern
-                                ),
-                                first_source: Some(PathBuf::from(&r1.source_file)),
-                                second_source: Some(PathBuf::from(&r2.source_file)),
-                            });
-                        }
-                    }
-                }
-            }
-
-            // 2. Conflicting dynamic route parameters at same segment position (e.g. /posts/[id] vs /posts/[slug])
-            if check_dynamic_collision(&r1.segments, &r2.segments) {
-                return Err(RouteConflictError {
-                    message: format!(
-                        "Conflicting dynamic route patterns detected between '{}' and '{}'",
-                        r1.canonical_pattern, r2.canonical_pattern
-                    ),
-                    first_source: Some(PathBuf::from(&r1.source_file)),
-                    second_source: Some(PathBuf::from(&r2.source_file)),
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn check_dynamic_collision(segs1: &[Segment], segs2: &[Segment]) -> bool {
-    let clean1: Vec<&Segment> = segs1
+pub fn routes_have_identical_shape(r1: &RouteMetadata, r2: &RouteMetadata) -> bool {
+    let clean1: Vec<&Segment> = r1
+        .segments
         .iter()
         .filter(|s| s.kind != SegmentKind::Group)
         .collect();
-    let clean2: Vec<&Segment> = segs2
+    let clean2: Vec<&Segment> = r2
+        .segments
         .iter()
         .filter(|s| s.kind != SegmentKind::Group)
         .collect();
@@ -637,23 +588,58 @@ fn check_dynamic_collision(segs1: &[Segment], segs2: &[Segment]) -> bool {
         return false;
     }
 
-    let mut has_dynamic_divergence = false;
     for (s1, s2) in clean1.iter().zip(clean2.iter()) {
-        if s1.kind == SegmentKind::Static && s2.kind == SegmentKind::Static {
-            if s1.raw != s2.raw {
-                return false; // Diverged on static segments, safe
-            }
-        } else if s1.kind == SegmentKind::Dynamic && s2.kind == SegmentKind::Dynamic {
-            if s1.raw != s2.raw {
-                has_dynamic_divergence = true; // [id] vs [slug]
-            }
-        } else {
-            // One is static and other dynamic => allowed under specificity precedence
+        if s1.kind != s2.kind {
+            return false;
+        }
+        if s1.kind == SegmentKind::Static && s1.raw != s2.raw {
             return false;
         }
     }
 
-    has_dynamic_divergence
+    true
+}
+
+pub fn routes_have_conflicting_methods(r1: &RouteMetadata, r2: &RouteMetadata) -> bool {
+    if r1.route_kind == RouteKind::Page && r2.route_kind == RouteKind::Page {
+        return true;
+    }
+    if r1.route_kind != r2.route_kind {
+        // Page and API route cannot occupy identical route structure
+        return true;
+    }
+    // Both are API routes: conflict if any HTTP method overlaps
+    r1.methods.iter().any(|m| r2.methods.contains(m))
+}
+
+pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictError> {
+    for i in 0..routes.len() {
+        for j in (i + 1)..routes.len() {
+            let r1 = &routes[i];
+            let r2 = &routes[j];
+
+            if routes_have_identical_shape(r1, r2) && routes_have_conflicting_methods(r1, r2) {
+                let message = if r1.canonical_pattern == r2.canonical_pattern {
+                    format!(
+                        "Route collision detected: '{}' defined in both files",
+                        r1.canonical_pattern
+                    )
+                } else {
+                    format!(
+                        "Conflicting route patterns detected between '{}' and '{}'",
+                        r1.canonical_pattern, r2.canonical_pattern
+                    )
+                };
+
+                return Err(RouteConflictError {
+                    message,
+                    first_source: Some(PathBuf::from(&r1.source_file)),
+                    second_source: Some(PathBuf::from(&r2.source_file)),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 // ----------------------------------------------------------------------------

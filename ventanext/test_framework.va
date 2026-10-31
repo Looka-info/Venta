@@ -770,18 +770,53 @@ fn test_phase1_1_route_resolution_correctness_gate() {
         Option::None => { assert(false, "Case H: /items/special/delete unexpectedly returned 404 (backtracking failure)"); }
     }
 
-    // Case J: Conflict Detection
+    // Case J: Conflict Detection & Structural Shape Consistency
     let mut m_j_conf = make_route_manifest();
     m_j_conf.add_page_route("/blog/[slug]", layout_root(), 1101);
     m_j_conf.add_page_route("/blog/[id]", layout_root(), 1102);
     let val_j_conf = m_j_conf.validate();
     assert(val_j_conf.is_err(), "Case J: /blog/[slug] and /blog/[id] must be rejected as conflicting");
 
+    let mut m_j_catch = make_route_manifest();
+    m_j_catch.add_page_route("/docs/[...path]", layout_root(), 1103);
+    m_j_catch.add_page_route("/docs/[...rest]", layout_root(), 1104);
+    assert(m_j_catch.validate().is_err(), "Case J: /docs/[...path] and /docs/[...rest] must be rejected as conflicting");
+
+    let mut m_j_opt = make_route_manifest();
+    m_j_opt.add_page_route("/store/[[...filter]]", layout_root(), 1105);
+    m_j_opt.add_page_route("/store/[[...category]]", layout_root(), 1106);
+    assert(m_j_opt.validate().is_err(), "Case J: /store/[[...filter]] and /store/[[...category]] must be rejected as conflicting");
+
+    let mut m_j_mixed = make_route_manifest();
+    m_j_mixed.add_page_route("/docs/[id]/[...path]", layout_root(), 1107);
+    m_j_mixed.add_page_route("/docs/[slug]/[...rest]", layout_root(), 1108);
+    assert(m_j_mixed.validate().is_err(), "Case J: /docs/[id]/[...path] and /docs/[slug]/[...rest] must be rejected as conflicting");
+
+    let mut m_j_grp = make_route_manifest();
+    m_j_grp.add_page_route("/(marketing)/docs/[...path]", layout_root(), 1109);
+    m_j_grp.add_page_route("/(docs_group)/docs/[...rest]", layout_root(), 1110);
+    assert(m_j_grp.validate().is_err(), "Case J: Route groups normalizing to /docs/[...path] and /docs/[...rest] must conflict");
+
     let mut m_j_valid = make_route_manifest();
-    m_j_valid.add_page_route("/blog/new", layout_root(), 1103);
-    m_j_valid.add_page_route("/blog/[id]", layout_root(), 1104);
+    m_j_valid.add_page_route("/blog/new", layout_root(), 1111);
+    m_j_valid.add_page_route("/blog/[id]", layout_root(), 1112);
     let val_j_valid = m_j_valid.validate();
     assert(val_j_valid.is_ok(), "Case J: /blog/new and /blog/[id] must be allowed under precedence rules");
+
+    let mut m_j_dyn_catch = make_route_manifest();
+    m_j_dyn_catch.add_page_route("/posts/[id]", layout_root(), 1113);
+    m_j_dyn_catch.add_page_route("/posts/[...slug]", layout_root(), 1114);
+    assert(m_j_dyn_catch.validate().is_ok(), "Case J: /posts/[id] and /posts/[...slug] must remain valid");
+
+    let mut m_j_req_opt = make_route_manifest();
+    m_j_req_opt.add_page_route("/docs/[...path]", layout_root(), 1115);
+    m_j_req_opt.add_page_route("/docs/[[...filter]]", layout_root(), 1116);
+    assert(m_j_req_opt.validate().is_ok(), "Case J: /docs/[...path] and /docs/[[...filter]] must remain valid");
+
+    let mut m_j_exact_opt = make_route_manifest();
+    m_j_exact_opt.add_page_route("/shop", layout_root(), 1117);
+    m_j_exact_opt.add_page_route("/shop/[[...filter]]", layout_root(), 1118);
+    assert(m_j_exact_opt.validate().is_ok(), "Case J: /shop and /shop/[[...filter]] must remain valid");
 
     // Case K: Repeatability (100 iterations of matching produce identical results)
     let mut k_iter = 0;
