@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Welcome to VentaNext</h1><p>Next.js-Class Full-Stack Framework for the Venta Language.</p>")
+}

@@ -15,6 +15,7 @@ members = [
     "crates/vanta_driver",
     "crates/vanta_fmt",
     "crates/vanta_lsp",
+    "crates/ventanext_codegen",
 ]
 
 [workspace.package]

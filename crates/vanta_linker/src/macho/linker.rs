@@ -168,7 +168,9 @@ pub fn link_macho_executable(config: &LinkerConfig) -> LinkResult<MachOLinkOutpu
     if !const_merged.contributions.is_empty() && !const_merged.data.is_empty() {
         merged_sections.push(const_merged);
     }
-    if !data_merged.contributions.is_empty() && (!data_merged.data.is_empty() || data_merged.size > 0) {
+    if !data_merged.contributions.is_empty()
+        && (!data_merged.data.is_empty() || data_merged.size > 0)
+    {
         merged_sections.push(data_merged);
     }
     if !bss_merged.contributions.is_empty() && bss_merged.size > 0 {

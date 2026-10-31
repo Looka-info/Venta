@@ -59,6 +59,26 @@ pub fn split_segments(path: &str) -> Vec<String> {
     segs
 }
 
+pub fn normalize_request_path(path: &str) -> Result<String, String> {
+    let segs = split_segments(path);
+    if segs.len() == 0 {
+        return Result::Ok(String::from_str("/"));
+    }
+
+    let mut res = String::new();
+    let mut i = 0;
+    while i < segs.len() {
+        let seg_s = segs[i].as_str();
+        if seg_s.equals(".") || seg_s.equals("..") {
+            return Result::Err(String::from_str("Path traversal dot-segment rejected"));
+        }
+        res.push_str("/");
+        res.push_str(seg_s);
+        i = i + 1;
+    }
+    Result::Ok(res)
+}
+
 pub struct SegmentInfo {
     pub raw: String,
     pub kind: i64,
@@ -444,7 +464,14 @@ pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option
     let mut i = 0;
     while i < manifest.routes.len() {
         let route = &manifest.routes[i];
-        let method_matches = route.http_method.as_str().equals(method) || route.http_method.as_str().equals("*");
+        let mut method_matches = false;
+        if route.http_method.as_str().equals(method) {
+            method_matches = true;
+        } else if route.http_method.as_str().equals("*") {
+            method_matches = true;
+        } else if method.equals("*") {
+            method_matches = true;
+        }
         if method_matches {
             let pat_segs = split_segments(route.canonical_pattern.as_str());
             let m_res = try_match_segments(&req_segs, &pat_segs, route.kind);

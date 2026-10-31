@@ -1,0 +1,246 @@
+{
+  "schema_version": "1.0.0",
+  "app_id": "ventanext-app",
+  "route_count": 9,
+  "routes": [
+    {
+      "id": 0,
+      "canonical_pattern": "/",
+      "normalized_url": "/",
+      "route_kind": "Page",
+      "source_file": "app/page.va",
+      "segments": [],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 10000
+    },
+    {
+      "id": 1,
+      "canonical_pattern": "/api/health",
+      "normalized_url": "/api/health",
+      "route_kind": "Api",
+      "source_file": "app/api/health/route.va",
+      "segments": [
+        {
+          "raw": "api",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "health",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "specificity": 2002
+    },
+    {
+      "id": 2,
+      "canonical_pattern": "/api/users",
+      "normalized_url": "/api/users",
+      "route_kind": "Api",
+      "source_file": "app/api/users/route.va",
+      "segments": [
+        {
+          "raw": "api",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "users",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "specificity": 2002
+    },
+    {
+      "id": 3,
+      "canonical_pattern": "/blog/[slug]",
+      "normalized_url": "/blog/[slug]",
+      "route_kind": "Page",
+      "source_file": "app/blog/[slug]/page.va",
+      "segments": [
+        {
+          "raw": "blog",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "[slug]",
+          "kind": "Dynamic",
+          "param_name": "slug"
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1102
+    },
+    {
+      "id": 4,
+      "canonical_pattern": "/docs/[...path]",
+      "normalized_url": "/docs/[...path]",
+      "route_kind": "Page",
+      "source_file": "app/docs/[...path]/page.va",
+      "segments": [
+        {
+          "raw": "docs",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "[...path]",
+          "kind": "CatchAll",
+          "param_name": "path"
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1012
+    },
+    {
+      "id": 5,
+      "canonical_pattern": "/shop/[[...filter]]",
+      "normalized_url": "/shop/[[...filter]]",
+      "route_kind": "Page",
+      "source_file": "app/shop/[[...filter]]/page.va",
+      "segments": [
+        {
+          "raw": "shop",
+          "kind": "Static",
+          "param_name": null
+        },
+        {
+          "raw": "[[...filter]]",
+          "kind": "OptionalCatchAll",
+          "param_name": "filter"
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1003
+    },
+    {
+      "id": 6,
+      "canonical_pattern": "/about",
+      "normalized_url": "/about",
+      "route_kind": "Page",
+      "source_file": "app/about/page.va",
+      "segments": [
+        {
+          "raw": "about",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    },
+    {
+      "id": 7,
+      "canonical_pattern": "/dashboard",
+      "normalized_url": "/dashboard",
+      "route_kind": "Page",
+      "source_file": "app/dashboard/page.va",
+      "segments": [
+        {
+          "raw": "dashboard",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va",
+        "app/dashboard/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    },
+    {
+      "id": 8,
+      "canonical_pattern": "/pricing",
+      "normalized_url": "/pricing",
+      "route_kind": "Page",
+      "source_file": "app/(marketing)/pricing/page.va",
+      "segments": [
+        {
+          "raw": "(marketing)",
+          "kind": "Group",
+          "param_name": "marketing"
+        },
+        {
+          "raw": "pricing",
+          "kind": "Static",
+          "param_name": null
+        }
+      ],
+      "layout_chain": [
+        "app/layout.va"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "specificity": 1001
+    }
+  ],
+  "special_files": {
+    "root_layout": "app/layout.va",
+    "loading": "app/loading.va",
+    "error": "app/error.va",
+    "not_found": "app/not-found.va"
+  }
+}

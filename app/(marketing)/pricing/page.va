@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Pricing Plans</h1><p>Tier 1: Community (Free) | Tier 2: Pro | Tier 3: Enterprise</p>")
+}

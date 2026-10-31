@@ -13,12 +13,13 @@ mod server;
 import http::{
     Request, Response, HeaderMap, QueryMap, ParamMap, CookieMap,
     make_request, parse_http_request, make_response, response_html, response_json,
-    response_redirect, response_not_found, response_error, set_cookie, add_header,
-    to_wire_format, make_header_map, make_query_map, make_param_map, make_cookie_map,
+    response_redirect, response_not_found, response_bad_request, response_method_not_allowed,
+    response_no_content, response_internal_server_error, response_error, set_cookie, add_header,
+    to_wire_format, to_wire_format_ex, make_header_map, make_query_map, make_param_map, make_cookie_map,
     clone_param_map
 };
 import router::{
-    RouteManifest, RouteMatch, make_route_manifest, match_route,
+    RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
     seg_static, seg_dynamic, seg_catch_all, seg_optional_catch_all, seg_group,
     split_segments, parse_segment, build_canonical_pattern, calculate_route_kind_and_specificity
 };
@@ -343,6 +344,111 @@ fn test_http_response_and_wire_formatting() {
     print_str("OK\n");
 }
 
+fn test_path_normalization_and_traversal_rejection() {
+    print_str("[11/15] Testing Path Normalization & Traversal Rejection... ");
+    let norm1 = normalize_request_path("//about///team");
+    match norm1 {
+        Result::Ok(p) => { assert(p.as_str().equals("/about/team"), "Repeated slashes not collapsed"); }
+        Result::Err(_) => { assert(false, "Valid path unexpectedly rejected"); }
+    }
+
+    let norm2 = normalize_request_path("/blog/");
+    match norm2 {
+        Result::Ok(p) => { assert(p.as_str().equals("/blog"), "Trailing slash not stripped"); }
+        Result::Err(_) => { assert(false, "Valid path unexpectedly rejected"); }
+    }
+
+    let trav1 = normalize_request_path("/../secret");
+    match trav1 {
+        Result::Ok(_) => { assert(false, "Path traversal /../ was not rejected"); }
+        Result::Err(_) => {}
+    }
+
+    let trav2 = normalize_request_path("/docs/./intro");
+    match trav2 {
+        Result::Ok(_) => { assert(false, "Dot segment /./ was not rejected"); }
+        Result::Err(_) => {}
+    }
+    print_str("OK\n");
+}
+
+fn test_response_status_helpers_and_head() {
+    print_str("[12/15] Testing Response Status Helpers & HEAD Body Suppression... ");
+    let bad = response_bad_request("Bad Request");
+    assert(bad.status == 400, "Expected status 400");
+
+    let mna = response_method_not_allowed("GET, HEAD");
+    assert(mna.status == 405, "Expected status 405");
+    let allow = mna.headers.get("allow");
+    match allow {
+        Option::Some(al) => { assert(al.as_str().equals("GET, HEAD"), "Allow header mismatch"); }
+        Option::None => { assert(false, "Allow header missing in 405 response"); }
+    }
+
+    let noc = response_no_content();
+    assert(noc.status == 204, "Expected status 204");
+
+    let ise = response_internal_server_error("Fatal Error");
+    assert(ise.status == 500, "Expected status 500");
+
+    // HEAD Body Suppression test
+    let test_resp = response_html("<h1>Big Document Body</h1>");
+    let full_wire = to_wire_format_ex(&test_resp, false);
+    let head_wire = to_wire_format_ex(&test_resp, true);
+
+    assert(full_wire.len_bytes() > head_wire.len_bytes(), "HEAD response must suppress body content");
+    print_str("OK\n");
+}
+
+fn test_header_crlf_injection_rejection() {
+    print_str("[13/15] Testing CRLF Injection Prevention in Headers... ");
+    let mut resp = response_json("{}");
+    add_header(&mut resp, "X-Auth\r\nInjected", "Secret\r\nCookie");
+
+    let val_opt = resp.headers.get("x-authinjected");
+    match val_opt {
+        Option::Some(val) => {
+            assert(val.as_str().equals("SecretCookie"), "CRLF characters must be sanitized from header values");
+        }
+        Option::None => {
+            assert(false, "Sanitized header was not stored");
+        }
+    }
+    print_str("OK\n");
+}
+
+fn test_repeated_query_and_header_preservation() {
+    print_str("[14/15] Testing Repeated Query Parameters & Header Preservation... ");
+    let raw = "GET /search?tag=venta&tag=compiler&tag=systems HTTP/1.1\r\nHost: localhost\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n";
+    let req = parse_http_request(raw);
+
+    let tags = req.query.get_all("tag");
+    assert(tags.len() == 3, "Expected 3 repeated query parameter entries");
+
+    let cookies = req.headers.get_all("set-cookie");
+    assert(cookies.len() == 2, "Expected 2 repeated Set-Cookie headers");
+    print_str("OK\n");
+}
+
+fn test_method_not_allowed_405_lifecycle() {
+    print_str("[15/15] Testing 405 Method Not Allowed Lifecycle... ");
+    let mut m = make_route_manifest();
+    m.add_page_route("/about", layout_root(), 10);
+
+    // GET /about matches
+    let mut req_get = make_request("GET", "/about", "", make_header_map(), "");
+    let resp_get = server::dispatch_request_with_manifest(&m, &mut req_get);
+    assert(resp_get.status == 200, "Expected 200 OK for GET /about");
+
+    // POST /about fails with 405 Method Not Allowed
+    let mut req_post = make_request("POST", "/about", "", make_header_map(), "");
+    let resp_post = server::dispatch_request_with_manifest(&m, &mut req_post);
+    assert(resp_post.status == 405, "Expected 405 Method Not Allowed for POST /about");
+    let allow = resp_post.headers.get("allow");
+    assert(allow.is_some(), "Expected Allow header in 405 response");
+    print_str("OK\n");
+}
+
 fn main() -> i64 {
     print_str("\n============================================================\n");
     print_str("   ⚡ VentaNext Framework — Phase 1 Automated Test Suite     \n");
@@ -358,9 +464,14 @@ fn main() -> i64 {
     test_nested_layout_resolution();
     test_http_request_parsing_lifecycle();
     test_http_response_and_wire_formatting();
+    test_path_normalization_and_traversal_rejection();
+    test_response_status_helpers_and_head();
+    test_header_crlf_injection_rejection();
+    test_repeated_query_and_header_preservation();
+    test_method_not_allowed_405_lifecycle();
 
     print_str("============================================================\n");
-    print_str("   ALL 10 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 15 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }

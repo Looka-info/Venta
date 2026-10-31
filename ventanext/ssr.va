@@ -358,6 +358,45 @@ pub fn render_docs_page(ctx: &RenderContext) -> String {
     c
 }
 
+pub fn render_about_page(ctx: &RenderContext) -> String {
+    let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; margin-bottom: 12px;\">About VentaNext</h1>\n");
+    c.push_str("<p style=\"color: var(--text-muted); margin-bottom: 24px;\">Next.js-class full-stack framework engineered specifically for the Venta language.</p>\n");
+    c.push_str("<div class=\"card-bento\">\n    <h3>Native Architecture</h3>\n    <p>Zero dependencies on Node.js, V8, React, or Python runtimes. Direct native machine execution with sub-millisecond SSR latency.</p>\n</div>\n");
+    c
+}
+
+pub fn render_blog_slug_page(ctx: &RenderContext) -> String {
+    let slug_opt = ctx.params.get("slug");
+    let mut slug = String::from_str("hello");
+    match slug_opt {
+        Option::Some(val) => { slug = val; }
+        Option::None => {}
+    }
+
+    let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; margin-bottom: 12px;\">Blog Post: ");
+    c.push_str(slug.as_str());
+    c.push_str("</h1>\n<p style=\"color: var(--text-muted); margin-bottom: 24px;\">Dynamic parameter <code>slug = ");
+    c.push_str(slug.as_str());
+    c.push_str("</code> resolved server-side via VentaNext App Router.</p>\n");
+    c
+}
+
+pub fn render_docs_path_page(ctx: &RenderContext) -> String {
+    let path_opt = ctx.params.get("path");
+    let mut p_val = String::from_str("getting-started");
+    match path_opt {
+        Option::Some(val) => { p_val = val; }
+        Option::None => {}
+    }
+
+    let mut c = String::from_str("<h1 style=\"font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; margin-bottom: 12px;\">Docs: ");
+    c.push_str(p_val.as_str());
+    c.push_str("</h1>\n<p style=\"color: var(--text-muted); margin-bottom: 24px;\">Catch-all parameter <code>path = ");
+    c.push_str(p_val.as_str());
+    c.push_str("</code> resolved server-side via VentaNext App Router.</p>\n");
+    c
+}
+
 pub fn render_post_detail_page(ctx: &RenderContext) -> String {
     let id_opt = ctx.params.get("id");
     let mut post_id = String::from_str("1");

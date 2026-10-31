@@ -1,0 +1,12 @@
+import std::string::String;
+
+pub fn render_page(filter_param: &str) -> String {
+    let mut html = String::from_str("<h1>Shop Catalog</h1><p>Active Filter: ");
+    if filter_param.is_empty() {
+        html.push_str("All Products (No Filter)");
+    } else {
+        html.push_str(filter_param);
+    }
+    html.push_str("</p>");
+    html
+}

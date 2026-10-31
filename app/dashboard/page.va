@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h2>Dashboard Overview</h2><p>Server Status: Operational | Active Routes: 8 | Memory Footprint: 86 KB</p>")
+}

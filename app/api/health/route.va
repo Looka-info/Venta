@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn handle_api() -> String {
+    String::from_str("{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}")
+}

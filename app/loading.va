@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_loading() -> String {
+    String::from_str("<div class=\"loading-state\">Loading application data...</div>")
+}

@@ -1,0 +1,11 @@
+import std::string::String;
+
+pub fn render_layout(child_content: &str) -> String {
+    let mut html = String::from_str("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>VentaNext Sample App</title></head><body>");
+    html.push_str("<header><nav><a href=\"/\">Home</a> | <a href=\"/about\">About</a> | <a href=\"/dashboard\">Dashboard</a> | <a href=\"/pricing\">Pricing</a></nav></header>");
+    html.push_str("<main id=\"content\">");
+    html.push_str(child_content);
+    html.push_str("</main>");
+    html.push_str("<footer><p>Powered by VentaNext (100% Pure Venta)</p></footer></body></html>");
+    html
+}

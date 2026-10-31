@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn handle_api() -> String {
+    String::from_str("{\"users\":[{\"id\":101,\"name\":\"Ada Lovelace\"},{\"id\":102,\"name\":\"Alan Turing\"}]}")
+}

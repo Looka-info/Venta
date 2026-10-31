@@ -1,0 +1,8 @@
+import std::string::String;
+
+pub fn render_error(err_msg: &str) -> String {
+    let mut html = String::from_str("<div class=\"error-boundary\"><h1>Application Error</h1><p>");
+    html.push_str(err_msg);
+    html.push_str("</p></div>");
+    html
+}

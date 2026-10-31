@@ -1,0 +1,262 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Automated Route Discovery & Generator Tests
+// Tests covering all 13 discovery, conflict, and manifest generation scenarios
+// ============================================================================
+
+use std::fs;
+use std::path::Path;
+use ventanext_codegen::{
+    generate_manifest_json, generate_venta_code, parse_segment, scan_app_directory, RouteKind,
+    SegmentKind,
+};
+
+fn create_temp_app_tree(base: &Path) {
+    fs::create_dir_all(base.join("about")).unwrap();
+    fs::create_dir_all(base.join("dashboard")).unwrap();
+    fs::create_dir_all(base.join("blog/[slug]")).unwrap();
+    fs::create_dir_all(base.join("docs/[...path]")).unwrap();
+    fs::create_dir_all(base.join("shop/[[...filter]]")).unwrap();
+    fs::create_dir_all(base.join("(marketing)/pricing")).unwrap();
+    fs::create_dir_all(base.join("api/health")).unwrap();
+    fs::create_dir_all(base.join("api/users")).unwrap();
+
+    fs::write(base.join("layout.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("page.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("loading.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("error.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("not-found.va"), "pub fn render() {}").unwrap();
+
+    fs::write(base.join("about/page.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("dashboard/layout.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("dashboard/page.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("blog/[slug]/page.va"), "pub fn render() {}").unwrap();
+    fs::write(base.join("docs/[...path]/page.va"), "pub fn render() {}").unwrap();
+    fs::write(
+        base.join("shop/[[...filter]]/page.va"),
+        "pub fn render() {}",
+    )
+    .unwrap();
+    fs::write(
+        base.join("(marketing)/pricing/page.va"),
+        "pub fn render() {}",
+    )
+    .unwrap();
+
+    fs::write(base.join("api/health/route.va"), "pub fn handle() {}").unwrap();
+    fs::write(base.join("api/users/route.va"), "pub fn handle() {}").unwrap();
+}
+
+#[test]
+fn test_01_root_page_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let root = app.routes.iter().find(|r| r.canonical_pattern == "/");
+    assert!(root.is_some(), "Root page must be discovered");
+    let root = root.unwrap();
+    assert_eq!(root.route_kind, RouteKind::Page);
+    assert_eq!(
+        root.layout_chain.len(),
+        1,
+        "Root page must have root layout in chain"
+    );
+}
+
+#[test]
+fn test_02_nested_page_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let about = app.routes.iter().find(|r| r.canonical_pattern == "/about");
+    assert!(about.is_some(), "Nested /about page must be discovered");
+}
+
+#[test]
+fn test_03_static_route_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let dash = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/dashboard");
+    assert!(dash.is_some());
+    let dash = dash.unwrap();
+    assert_eq!(
+        dash.layout_chain.len(),
+        2,
+        "Dashboard must have root and dashboard layout in chain"
+    );
+}
+
+#[test]
+fn test_04_dynamic_route_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let blog = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/blog/[slug]");
+    assert!(blog.is_some());
+    let blog = blog.unwrap();
+    assert_eq!(blog.segments.len(), 2);
+    assert_eq!(blog.segments[1].kind, SegmentKind::Dynamic);
+    assert_eq!(blog.segments[1].param_name.as_deref(), Some("slug"));
+}
+
+#[test]
+fn test_05_catch_all_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let docs = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/docs/[...path]");
+    assert!(docs.is_some());
+    let docs = docs.unwrap();
+    assert_eq!(docs.segments.last().unwrap().kind, SegmentKind::CatchAll);
+    assert_eq!(
+        docs.segments.last().unwrap().param_name.as_deref(),
+        Some("path")
+    );
+}
+
+#[test]
+fn test_06_optional_catch_all_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let shop = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/shop/[[...filter]]");
+    assert!(shop.is_some());
+    let shop = shop.unwrap();
+    assert_eq!(
+        shop.segments.last().unwrap().kind,
+        SegmentKind::OptionalCatchAll
+    );
+    assert_eq!(
+        shop.segments.last().unwrap().param_name.as_deref(),
+        Some("filter")
+    );
+}
+
+#[test]
+fn test_07_route_group_normalization() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    // (marketing)/pricing must be normalized to /pricing in the URL
+    let pricing = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/pricing");
+    assert!(
+        pricing.is_some(),
+        "(marketing) route group must be stripped from public URL pattern"
+    );
+    let pricing = pricing.unwrap();
+    assert!(
+        pricing.source_file.contains("(marketing)"),
+        "Source path must retain route group"
+    );
+}
+
+#[test]
+fn test_08_api_route_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let health = app
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/api/health");
+    assert!(health.is_some());
+    assert_eq!(health.unwrap().route_kind, RouteKind::Api);
+}
+
+#[test]
+fn test_09_special_files_recognition() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    assert!(app.special_files.root_layout.is_some());
+    assert!(app.special_files.loading.is_some());
+    assert!(app.special_files.error.is_some());
+    assert!(app.special_files.not_found.is_some());
+}
+
+#[test]
+fn test_10_duplicate_route_conflict() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("pricing")).unwrap();
+    fs::create_dir_all(tmp.path().join("(marketing)/pricing")).unwrap();
+    fs::write(tmp.path().join("pricing/page.va"), "").unwrap();
+    fs::write(tmp.path().join("(marketing)/pricing/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(res.is_err(), "Must reject duplicate route collision");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Route collision detected"));
+}
+
+#[test]
+fn test_11_invalid_segment_syntax() {
+    assert!(parse_segment("").is_err());
+    assert!(parse_segment("[]").is_err());
+    assert!(parse_segment("[123bad]").is_err());
+    assert!(parse_segment("[...123]").is_err());
+    assert!(parse_segment("[[...123]]").is_err());
+    assert!(parse_segment("(bad name)").is_err());
+    assert!(parse_segment("unclosed[").is_err());
+}
+
+#[test]
+fn test_12_route_group_collision() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("(team_a)/billing")).unwrap();
+    fs::create_dir_all(tmp.path().join("(team_b)/billing")).unwrap();
+    fs::write(tmp.path().join("(team_a)/billing/page.va"), "").unwrap();
+    fs::write(tmp.path().join("(team_b)/billing/page.va"), "").unwrap();
+
+    let res = scan_app_directory(tmp.path());
+    assert!(
+        res.is_err(),
+        "Must reject two route groups mapping to identical canonical URL"
+    );
+}
+
+#[test]
+fn test_13_deterministic_manifest_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_temp_app_tree(tmp.path());
+
+    let app1 = scan_app_directory(tmp.path()).unwrap();
+    let app2 = scan_app_directory(tmp.path()).unwrap();
+
+    let json1 = generate_manifest_json(&app1, "test-app");
+    let json2 = generate_manifest_json(&app2, "test-app");
+    assert_eq!(
+        json1, json2,
+        "Manifest JSON must be 100% deterministic and byte-identical"
+    );
+
+    let code1 = generate_venta_code(&app1);
+    let code2 = generate_venta_code(&app2);
+    assert_eq!(
+        code1, code2,
+        "Generated Venta source must be 100% deterministic and byte-identical"
+    );
+}

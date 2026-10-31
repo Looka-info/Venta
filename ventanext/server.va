@@ -5,16 +5,18 @@
 
 import http::{
     Request, Response, parse_http_request, response_html, response_json,
-    response_not_found, response_error, to_wire_format, clone_param_map
+    response_not_found, response_bad_request, response_method_not_allowed,
+    response_error, to_wire_format, to_wire_format_ex, clone_param_map
 };
 import router::{
-    RouteManifest, RouteMatch, make_route_manifest, match_route
+    RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path
 };
 import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
 import ssr::{
     RenderContext, make_render_context, resolve_layout,
     layout_root, layout_root_and_dashboard, layout_root_and_docs,
-    render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page, render_404_page
+    render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page,
+    render_about_page, render_blog_slug_page, render_docs_path_page, render_404_page
 };
 
 import std::net;
@@ -30,12 +32,16 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_page_route("/dashboard", layout_root_and_dashboard(), 101);
     m.add_page_route("/docs", layout_root_and_docs(), 102);
     m.add_page_route("/posts/[id]", layout_root(), 103);
+    m.add_page_route("/about", layout_root(), 104);
+    m.add_page_route("/blog/[slug]", layout_root(), 105);
+    m.add_page_route("/docs/[...path]", layout_root_and_docs(), 106);
 
     // 2. Typed API Routes
     m.add_api_route("GET", "/api/status", 200);
     m.add_api_route("GET", "/api/posts", 201);
     m.add_api_route("GET", "/api/posts/[id]", 202);
     m.add_api_route("POST", "/api/echo", 203);
+    m.add_api_route("GET", "/api/health", 204);
 
     m
 }
@@ -69,6 +75,17 @@ pub fn print_server_banner(port: i64) {
 
 pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Request) -> Response {
     let method = req.method.as_str();
+
+    // 0. Path Normalization & Traversal Rejection
+    let norm_res = normalize_request_path(req.path.as_str());
+    match norm_res {
+        Result::Ok(norm_path) => {
+            req.path = norm_path;
+        }
+        Result::Err(err_msg) => {
+            return response_bad_request("<h1>400 Bad Request: Path traversal rejected</h1>");
+        }
+    }
     let path = req.path.as_str();
 
     // 1. Handle HTTP OPTIONS Preflight
@@ -77,7 +94,11 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
     }
 
     // 2. Resolve Route via App Router Engine
-    let match_opt = match_route(manifest, path, method);
+    let mut match_method = "GET";
+    if method.equals("POST") {
+        match_method = "POST";
+    }
+    let match_opt = match_route(manifest, path, match_method);
     match match_opt {
         Option::Some(m_res) => {
             req.params = clone_param_map(&m_res.params);
@@ -122,6 +143,11 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     return response_json(json.as_str());
                 }
 
+                if m_res.page_id == 204 {
+                    let json = "{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}\n";
+                    return response_json(json);
+                }
+
                 return response_error("Unknown API handler identifier");
             }
 
@@ -140,6 +166,15 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
             } else if m_res.page_id == 103 {
                 title = "Post Detail";
                 active_nav = "dashboard";
+            } else if m_res.page_id == 104 {
+                title = "About";
+                active_nav = "home";
+            } else if m_res.page_id == 105 {
+                title = "Blog Post";
+                active_nav = "home";
+            } else if m_res.page_id == 106 {
+                title = "Documentation";
+                active_nav = "docs";
             }
 
             let ctx = make_render_context(
@@ -161,10 +196,25 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 page_markup = render_docs_page(&ctx);
             } else if m_res.page_id == 103 {
                 page_markup = render_post_detail_page(&ctx);
+            } else if m_res.page_id == 104 {
+                page_markup = render_about_page(&ctx);
+            } else if m_res.page_id == 105 {
+                page_markup = render_blog_slug_page(&ctx);
+            } else if m_res.page_id == 106 {
+                page_markup = render_docs_path_page(&ctx);
             }
 
             let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
             return response_html(final_html.as_str());
+        }
+        Option::None => {}
+    }
+
+    // Check if route exists for other methods (405 Method Not Allowed)
+    let any_match = match_route(manifest, path, "*");
+    match any_match {
+        Option::Some(any_res) => {
+            return response_method_not_allowed("GET, HEAD, OPTIONS");
         }
         Option::None => {}
     }
@@ -225,13 +275,14 @@ pub fn run_server(port: i64, serve_once: bool) -> i64 {
 
             if bytes_read > 0 {
                 let mut req = parse_http_request(raw_buf.as_str());
+                let is_head = req.method.as_str().equals("HEAD");
                 let mut resp = dispatch_request_with_manifest(&manifest, &mut req);
 
                 // Execute Middleware Pipeline
                 apply_security_headers(&mut resp);
                 apply_cors_headers(&mut resp);
 
-                let wire = to_wire_format(&resp);
+                let wire = to_wire_format_ex(&resp, is_head);
                 net::write(client_fd, wire.as_str());
 
                 // Log request through middleware logger

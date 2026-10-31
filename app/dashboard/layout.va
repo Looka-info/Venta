@@ -1,0 +1,8 @@
+import std::string::String;
+
+pub fn render_dashboard_layout(child_content: &str) -> String {
+    let mut html = String::from_str("<div class=\"dashboard-shell\"><aside class=\"sidebar\"><h3>Dashboard Menu</h3><ul><li><a href=\"/dashboard\">Overview</a></li><li><a href=\"/dashboard/analytics\">Analytics</a></li></ul></aside><section class=\"main-panel\">");
+    html.push_str(child_content);
+    html.push_str("</section></div>");
+    html
+}

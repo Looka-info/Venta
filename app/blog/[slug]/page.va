@@ -1,0 +1,8 @@
+import std::string::String;
+
+pub fn render_page(slug: &str) -> String {
+    let mut html = String::from_str("<h1>Blog Post: ");
+    html.push_str(slug);
+    html.push_str("</h1><p>Dynamic route parameter successfully extracted and rendered server-side.</p>");
+    html
+}

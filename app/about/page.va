@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>About VentaNext</h1><p>High-performance, pure Venta full-stack web framework with zero virtual DOM overhead.</p>")
+}

@@ -1,0 +1,8 @@
+import std::string::String;
+
+pub fn render_page(doc_path: &str) -> String {
+    let mut html = String::from_str("<h1>Documentation: ");
+    html.push_str(doc_path);
+    html.push_str("</h1><p>Catch-all route pattern successfully resolved nested segments.</p>");
+    html
+}

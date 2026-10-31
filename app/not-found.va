@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn render_not_found() -> String {
+    String::from_str("<div class=\"not-found-boundary\"><h1>404 — Page Not Found</h1><p>The requested route does not exist.</p></div>")
+}

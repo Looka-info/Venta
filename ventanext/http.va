@@ -145,9 +145,40 @@ pub fn clone_header_map(src: &HeaderMap) -> HeaderMap {
 
 impl HeaderMap {
     pub fn add(self: &mut Self, key: &str, value: &str) {
+        // CRLF Injection prevention: sanitize carriage returns and newlines
+        let mut clean_key = String::new();
+        let mut i = 0;
+        let k_len = key.len();
+        while i < k_len {
+            let ch: i64 = key[i];
+            if ch != 13 && ch != 10 {
+                let slice_opt = key.slice_bytes(i, i + 1);
+                match slice_opt {
+                    Option::Some(s) => { clean_key.push_str(s); }
+                    Option::None => {}
+                }
+            }
+            i = i + 1;
+        }
+
+        let mut clean_val = String::new();
+        let mut j = 0;
+        let v_len = value.len();
+        while j < v_len {
+            let ch: i64 = value[j];
+            if ch != 13 && ch != 10 {
+                let slice_opt = value.slice_bytes(j, j + 1);
+                match slice_opt {
+                    Option::Some(s) => { clean_val.push_str(s); }
+                    Option::None => {}
+                }
+            }
+            j = j + 1;
+        }
+
         self.entries.push(KeyValue {
-            key: String::from_str(key),
-            value: String::from_str(value),
+            key: clean_key,
+            value: clean_val,
         });
     }
 
@@ -160,6 +191,18 @@ impl HeaderMap {
             i = i + 1;
         }
         Option::None
+    }
+
+    pub fn get_all(self: &Self, key: &str) -> Vec<String> {
+        let mut res: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < self.entries.len() {
+            if ascii_eq_ignore_case(self.entries[i].key.as_str(), key) {
+                res.push(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        res
     }
 
     pub fn has(self: &Self, key: &str) -> bool {
@@ -211,6 +254,18 @@ impl QueryMap {
         }
         Option::None
     }
+
+    pub fn get_all(self: &Self, key: &str) -> Vec<String> {
+        let mut res: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(key) {
+                res.push(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        res
+    }
 }
 
 pub struct ParamMap {
@@ -249,6 +304,18 @@ impl ParamMap {
             i = i + 1;
         }
         Option::None
+    }
+
+    pub fn get_all(self: &Self, key: &str) -> Vec<String> {
+        let mut res: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < self.entries.len() {
+            if self.entries[i].key.as_str().equals(key) {
+                res.push(self.entries[i].value.clone());
+            }
+            i = i + 1;
+        }
+        res
     }
 
     pub fn has(self: &Self, key: &str) -> bool {
@@ -707,6 +774,24 @@ pub fn response_not_found(body: &str) -> Response {
     make_response(404, "text/html; charset=utf-8", body)
 }
 
+pub fn response_bad_request(body: &str) -> Response {
+    make_response(400, "text/html; charset=utf-8", body)
+}
+
+pub fn response_method_not_allowed(allowed_methods: &str) -> Response {
+    let mut resp = make_response(405, "text/plain; charset=utf-8", "Method Not Allowed");
+    add_header(&mut resp, "Allow", allowed_methods);
+    resp
+}
+
+pub fn response_no_content() -> Response {
+    make_response(204, "text/plain; charset=utf-8", "")
+}
+
+pub fn response_internal_server_error(body: &str) -> Response {
+    make_response(500, "text/html; charset=utf-8", body)
+}
+
 pub fn response_error(body: &str) -> Response {
     make_response(500, "text/html; charset=utf-8", body)
 }
@@ -753,7 +838,7 @@ pub fn set_cookie(
     add_header(resp, "Set-Cookie", cookie_str.as_str());
 }
 
-pub fn to_wire_format(resp: &Response) -> String {
+pub fn to_wire_format_ex(resp: &Response, suppress_body: bool) -> String {
     let mut wire = String::from_str("HTTP/1.1 ");
     let st_str = i64_to_string(resp.status);
     wire.push_str(st_str.as_str());
@@ -785,9 +870,15 @@ pub fn to_wire_format(resp: &Response) -> String {
     }
 
     wire.push_str("\r\n");
-    if !resp.body.is_empty() {
-        wire.push_str(resp.body.as_str());
+    if suppress_body == false {
+        if !resp.body.is_empty() {
+            wire.push_str(resp.body.as_str());
+        }
     }
 
     wire
+}
+
+pub fn to_wire_format(resp: &Response) -> String {
+    to_wire_format_ex(resp, false)
 }
