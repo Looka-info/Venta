@@ -8,7 +8,7 @@ use std::path::Path;
 use ventanext_codegen::{
     discover_api_methods, export_static_site, generate_api_adapter_code, generate_manifest_json,
     generate_venta_code, parse_segment, scan_app_directory, validate_api_route_handlers,
-    write_generated_routes, RenderMode, RouteKind, SegmentKind,
+    write_generated_routes, RenderMode, RouteKind, RouteMetadata, SegmentKind,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -43,8 +43,16 @@ fn create_temp_app_tree(base: &Path) {
     )
     .unwrap();
 
-    fs::write(base.join("api/health/route.va"), "pub fn handle() {}").unwrap();
-    fs::write(base.join("api/users/route.va"), "pub fn handle() {}").unwrap();
+    fs::write(
+        base.join("api/health/route.va"),
+        "import std::string::String;\npub fn handle_api() -> String { String::from_str(\"{\\\"status\\\":\\\"ok\\\"}\") }",
+    )
+    .unwrap();
+    fs::write(
+        base.join("api/users/route.va"),
+        "import std::string::String;\npub fn GET() -> String { String::from_str(\"{\\\"users\\\":[]}\") }",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1065,5 +1073,385 @@ fn test_48_generation_determinism_across_runs() {
             adapter1_users, adapter2_users,
             "Adapter files must be 100% deterministic"
         );
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Phase 1.3A.1 Regression Test Suite: Fail-Closed API Handler Validation
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_49_valid_exported_get_handler_succeeds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        pub fn GET() -> String {
+            String::from_str("{\"users\":[]}")
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(res.is_ok(), "Valid exported GET handler must succeed");
+    let val = res.unwrap();
+    assert_eq!(val.explicit_methods, vec!["GET".to_string()]);
+    assert_eq!(val.methods, vec!["GET".to_string(), "HEAD".to_string()]);
+    assert!(!val.has_generic_handler);
+}
+
+#[test]
+fn test_50_valid_exported_generic_handle_api_succeeds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        pub fn handle_api() -> String {
+            String::from_str("{\"status\":\"ok\"}")
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_ok(),
+        "Valid exported generic handle_api must succeed"
+    );
+    let val = res.unwrap();
+    assert!(val.has_generic_handler);
+    assert!(val.explicit_methods.is_empty());
+    assert_eq!(
+        val.methods,
+        vec![
+            "GET".to_string(),
+            "POST".to_string(),
+            "PUT".to_string(),
+            "DELETE".to_string(),
+            "PATCH".to_string(),
+            "HEAD".to_string(),
+            "OPTIONS".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_51_private_get_alone_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        fn GET() -> String {
+            String::from_str("private")
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(res.is_err(), "Private GET alone must be rejected");
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("No valid API handler found"),
+        "Diagnostic must state no valid API handler was found: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_52_unrelated_public_helper_alone_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        pub fn calculate_tax() -> String {
+            String::from_str("10%")
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Unrelated public helper alone must be rejected"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("No valid API handler found"),
+        "Diagnostic must state no valid API handler was found: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_53_empty_route_file_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = "   \n\n  // just comments\n";
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(res.is_err(), "Empty route file must be rejected");
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("No valid API handler found"),
+        "Diagnostic must state no valid API handler was found: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_54_malformed_venta_source_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        pub fn GET( {
+            broken syntax
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(res.is_err(), "Malformed Venta source must be rejected");
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Parse error in API route file")
+            || err.message.contains("Lexer error in API route file"),
+        "Diagnostic must indicate parse or lexer error: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_55_parser_errors_cannot_trigger_compatibility_fallback() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        pub fn handle_api() -> String {
+            let x = ;
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Parser errors must reject route rather than triggering fallback"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Parse error in API route file"),
+        "Diagnostic must indicate parse error: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_56_mixed_handle_api_and_explicit_get_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        pub fn handle_api() -> String {
+            String::from_str("fallback")
+        }
+        pub fn GET() -> String {
+            String::from_str("explicit get")
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Mixed handle_api and explicit GET must be rejected"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Mixed API handler conventions"),
+        "Diagnostic must identify mixed API handler conventions: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains(
+            "route contains both generic 'pub fn handle_api()' and explicit HTTP handler(s)"
+        ),
+        "Diagnostic must detail both handler kinds: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_57_private_helper_alongside_valid_get_allowed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import std::string::String;
+        fn internal_fetch() -> String {
+            String::from_str("{\"result\":\"ok\"}")
+        }
+        pub fn GET() -> String {
+            internal_fetch()
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_ok(),
+        "Private helper alongside valid public GET must be allowed"
+    );
+    let val = res.unwrap();
+    assert_eq!(val.explicit_methods, vec!["GET".to_string()]);
+    assert_eq!(val.methods, vec!["GET".to_string(), "HEAD".to_string()]);
+}
+
+#[test]
+fn test_58_unsupported_parameters_and_return_types_fail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+
+    // 1. handle_api with parameter
+    let code1 = r#"
+        import std::string::String;
+        pub fn handle_api(flag: i64) -> String {
+            String::from_str("ok")
+        }
+    "#;
+    let res1 = validate_api_route_handlers(&file_path, code1);
+    assert!(res1.is_err());
+    assert!(res1.unwrap_err().message.contains("1 parameter(s)"));
+
+    // 2. handle_api with non-String return
+    let code2 = r#"
+        pub fn handle_api() -> i64 {
+            200
+        }
+    "#;
+    let res2 = validate_api_route_handlers(&file_path, code2);
+    assert!(res2.is_err());
+    assert!(res2
+        .unwrap_err()
+        .message
+        .contains("Unsupported return type"));
+
+    // 3. handle_api with unit return
+    let code3 = r#"
+        pub fn handle_api() {}
+    "#;
+    let res3 = validate_api_route_handlers(&file_path, code3);
+    assert!(res3.is_err());
+    assert!(res3
+        .unwrap_err()
+        .message
+        .contains("Unsupported return type"));
+
+    // 4. POST with parameter
+    let code4 = r#"
+        import std::string::String;
+        pub fn POST(body: String) -> String {
+            body
+        }
+    "#;
+    let res4 = validate_api_route_handlers(&file_path, code4);
+    assert!(res4.is_err());
+    assert!(res4.unwrap_err().message.contains("1 parameter(s)"));
+
+    // 5. POST with non-String return
+    let code5 = r#"
+        pub fn POST() -> bool {
+            true
+        }
+    "#;
+    let res5 = validate_api_route_handlers(&file_path, code5);
+    assert!(res5.is_err());
+    assert!(res5
+        .unwrap_err()
+        .message
+        .contains("Unsupported return type"));
+}
+
+#[test]
+fn test_59_generated_adapters_never_contain_fake_success_response() {
+    let route_users = RouteMetadata {
+        id: 1,
+        canonical_pattern: "/api/users".to_string(),
+        normalized_url: "/api/users".to_string(),
+        route_kind: RouteKind::Api,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/api/users/route.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec!["GET".to_string()],
+        adapter_module_name: "route_api_users".to_string(),
+        source_content: "pub fn GET() -> String { String::from_str(\"users\") }".to_string(),
+    };
+
+    let adapter_users = generate_api_adapter_code(&route_users, &route_users.source_content);
+    assert!(
+        !adapter_users.contains("pub fn invoke_handle_api() -> String {\n    String::from_str(\"{\\\"status\\\":\\\"ok\\\"}\")\n}"),
+        "Generated adapter for explicit route must NEVER contain fake success response"
+    );
+    assert!(adapter_users.contains("invoke_get"));
+    assert!(adapter_users.contains("invoke_head"));
+
+    let route_health = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/api/health".to_string(),
+        normalized_url: "/api/health".to_string(),
+        route_kind: RouteKind::Api,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/api/health/route.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec![
+            "GET".to_string(),
+            "POST".to_string(),
+            "PUT".to_string(),
+            "DELETE".to_string(),
+            "PATCH".to_string(),
+            "HEAD".to_string(),
+            "OPTIONS".to_string(),
+        ],
+        specificity: 1000,
+        has_generic_handler: true,
+        explicit_methods: vec![],
+        adapter_module_name: "route_api_health".to_string(),
+        source_content: "pub fn handle_api() -> String { String::from_str(\"health\") }"
+            .to_string(),
+    };
+
+    let adapter_health = generate_api_adapter_code(&route_health, &route_health.source_content);
+    assert!(
+        !adapter_health.contains("String::from_str(\"{\\\"status\\\":\\\"ok\\\"}\")"),
+        "Generated adapter for generic route must delegate to real handle_api(), not fake status:ok"
+    );
+    assert!(adapter_health.contains("handle_api()"));
+}
+
+#[test]
+fn test_60_valid_existing_routes_generate_and_execute_correctly() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Real app directory must scan successfully");
+
+        let users = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/users")
+            .expect("/api/users must exist");
+        assert_eq!(users.explicit_methods, vec!["GET".to_string()]);
+        assert_eq!(users.methods, vec!["GET".to_string(), "HEAD".to_string()]);
+        assert!(!users.has_generic_handler);
+
+        let health = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/health")
+            .expect("/api/health must exist");
+        assert!(health.has_generic_handler);
+        assert!(health.explicit_methods.is_empty());
+        assert_eq!(health.methods.len(), 7);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let out_va = tmp.path().join("generated_routes.va");
+        write_generated_routes(&app, &out_va).expect("write_generated_routes must succeed");
+
+        let code = fs::read_to_string(&out_va).unwrap();
+        assert!(code.contains("mod route_api_users;"));
+        assert!(code.contains("mod route_api_health;"));
+        assert!(code.contains("route_api_users::invoke_get()"));
+        assert!(code.contains("route_api_users::invoke_head()"));
+        assert!(code.contains("route_api_health::invoke_handle_api()"));
+        assert!(!code.contains("status\":\"ok\""));
     }
 }

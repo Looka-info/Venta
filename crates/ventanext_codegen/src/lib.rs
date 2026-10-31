@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use vanta_diagnostics::DiagnosticBag;
+use vanta_diagnostics::{DiagnosticBag, Severity};
 use vanta_lexer::{Lexer, TokenKind};
 use vanta_parser::ast::{Item, TypeExprKind};
 use vanta_parser::Parser;
@@ -625,15 +625,21 @@ pub const CANDIDATE_HTTP_METHODS: [&str; 7] =
 /// - Tolerates ordinary formatting variations, whitespace, and multiline signatures.
 /// - If `GET` is declared and `HEAD` is not explicitly declared, `HEAD` is automatically added.
 /// - If explicit `HEAD` is declared, it is recognized.
-/// - If no recognized HTTP method declarations are found, falls back to all 7 standard methods
-///   for backward compatibility with single-handler API files (e.g. `pub fn handle_api()`).
+/// - If `handle_api` is declared without explicit HTTP methods, recognizes all 7 standard methods
+///   for backward compatibility with generic API handler files (Configuration B).
+/// - If no valid handler is found or mixed conventions are used, returns an empty vector.
 pub fn discover_api_methods(content: &str) -> Vec<String> {
     let source_file = SourceFile::new(FileId(0), "route.va".to_string(), content.to_string());
     let mut diags = DiagnosticBag::new();
     let mut lexer = Lexer::new(&source_file);
     let tokens = lexer.tokenize(&mut diags);
 
+    if diags.has_errors() {
+        return Vec::new();
+    }
+
     let mut found = Vec::new();
+    let mut has_handle_api = false;
     let mut brace_depth: usize = 0;
 
     let mut i = 0;
@@ -663,9 +669,13 @@ pub fn discover_api_methods(content: &str) -> Vec<String> {
                                     TokenKind::LParen | TokenKind::Lt
                                 );
 
-                            if is_fn_sig && CANDIDATE_HTTP_METHODS.contains(&name.as_str()) {
-                                if !found.contains(name) {
-                                    found.push(name.clone());
+                            if is_fn_sig {
+                                if CANDIDATE_HTTP_METHODS.contains(&name.as_str()) {
+                                    if !found.contains(name) {
+                                        found.push(name.clone());
+                                    }
+                                } else if name == "handle_api" {
+                                    has_handle_api = true;
                                 }
                             }
                         }
@@ -679,15 +689,26 @@ pub fn discover_api_methods(content: &str) -> Vec<String> {
         }
     }
 
+    // Rejection on mixed or empty handlers
     if found.is_empty() {
-        // Compatibility fallback: if no recognized HTTP method declarations exist,
-        // retain all 7 methods for generic handler route files (e.g., `pub fn handle_api()`).
-        return CANDIDATE_HTTP_METHODS
-            .iter()
-            .map(|&s| s.to_string())
-            .collect();
+        if has_handle_api {
+            // Configuration B: Generic handler convention
+            return CANDIDATE_HTTP_METHODS
+                .iter()
+                .map(|&s| s.to_string())
+                .collect();
+        } else {
+            // No valid handler found -> empty
+            return Vec::new();
+        }
     }
 
+    if has_handle_api {
+        // Mixed configuration is invalid -> empty
+        return Vec::new();
+    }
+
+    // Configuration A: Explicit HTTP handlers
     // GET implies HEAD when HEAD is not explicitly declared
     let has_get = found.iter().any(|m| m == "GET");
     let has_head = found.iter().any(|m| m == "HEAD");
@@ -749,12 +770,14 @@ pub fn sanitize_module_name(canonical_pattern: &str) -> String {
 /// Validates API route handlers against the Phase 1.3A signature contract.
 ///
 /// Contract:
-/// - Supported functions: top-level exported candidate HTTP methods (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`)
-///   or the generic handler convention `handle_api`.
-/// - Parameter signature: MUST have zero parameters (`f.params.is_empty()`).
-/// - Return type: MUST return `String` (or `std::string::String`).
-/// - Rejects unsupported signatures (parameters > 0 or non-String return types) with detailed error diagnostics.
-/// - If no recognized handlers are found, retains 7-method compatibility fallback for generic or mock routes.
+/// - Configuration A (Explicit HTTP handlers): Top-level exported candidate HTTP methods
+///   (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`) with 0 parameters and `String` return type.
+///   GET automatically implies HEAD unless explicit HEAD is declared.
+/// - Configuration B (Generic handler): Top-level exported `pub fn handle_api() -> String` with 0 parameters
+///   and `String` return type. Retains 7-method compatibility dispatch.
+/// - Fail-closed: Lexer or parser errors immediately halt with diagnostics and reject generation.
+/// - Mixed configuration: Reject files declaring both `handle_api()` and explicit method handlers.
+/// - Empty / unrecognized: Reject files with no valid handlers. Private and unrelated helpers alone are rejected.
 pub fn validate_api_route_handlers(
     file_path: &Path,
     content: &str,
@@ -767,8 +790,59 @@ pub fn validate_api_route_handlers(
     let mut diags = DiagnosticBag::new();
     let mut lexer = Lexer::new(&source_file);
     let tokens = lexer.tokenize(&mut diags);
+
+    if diags.has_errors() {
+        let err_msgs: Vec<String> = diags
+            .diagnostics()
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| {
+                if let Some(span) = d.primary_span {
+                    let (line, col) = source_file.line_col(span.start);
+                    format!("{}:{}: {}", line, col, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .collect();
+        return Err(RouteConflictError {
+            message: format!(
+                "Lexer error in API route file {:?}: {}",
+                file_path,
+                err_msgs.join("; ")
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse_program(&mut diags);
+
+    if diags.has_errors() {
+        let err_msgs: Vec<String> = diags
+            .diagnostics()
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| {
+                if let Some(span) = d.primary_span {
+                    let (line, col) = source_file.line_col(span.start);
+                    format!("{}:{}: {}", line, col, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .collect();
+        return Err(RouteConflictError {
+            message: format!(
+                "Parse error in API route file {:?}: {}",
+                file_path,
+                err_msgs.join("; ")
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
 
     let mut explicit_methods = Vec::new();
     let mut has_generic_handler = false;
@@ -826,7 +900,37 @@ pub fn validate_api_route_handlers(
         }
     }
 
-    let methods = if !explicit_methods.is_empty() {
+    // Check mixed configuration: cannot combine handle_api and explicit HTTP method handlers
+    if has_generic_handler && !explicit_methods.is_empty() {
+        return Err(RouteConflictError {
+            message: format!(
+                "Mixed API handler conventions in {:?}: route contains both generic 'pub fn handle_api()' and explicit HTTP handler(s) ({}). An API route must use either explicit method handlers or the generic handler convention, not both.",
+                file_path,
+                explicit_methods.join(", ")
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    // Fail-closed validation: route MUST contain at least one valid handler (Configuration A or B)
+    if !has_generic_handler && explicit_methods.is_empty() {
+        return Err(RouteConflictError {
+            message: format!(
+                "No valid API handler found in {:?}. An API route must export either explicit HTTP method handlers (e.g. 'pub fn GET() -> String') or a generic handler ('pub fn handle_api() -> String'). Private functions and unrelated helpers are not HTTP handlers.",
+                file_path
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    let methods = if has_generic_handler {
+        CANDIDATE_HTTP_METHODS
+            .iter()
+            .map(|&s| s.to_string())
+            .collect()
+    } else {
         let mut m = explicit_methods.clone();
         if m.contains(&"GET".to_string()) && !m.contains(&"HEAD".to_string()) {
             m.push("HEAD".to_string());
@@ -838,11 +942,6 @@ pub fn validate_api_route_handlers(
             }
         }
         ordered
-    } else {
-        CANDIDATE_HTTP_METHODS
-            .iter()
-            .map(|&s| s.to_string())
-            .collect()
     };
 
     Ok(ValidatedApiHandlers {
@@ -891,7 +990,7 @@ pub fn generate_api_adapter_code(route: &RouteMetadata, content: &str) -> String
         out.push_str("pub fn invoke_handle_api() -> String {\n");
         out.push_str("    handle_api()\n");
         out.push_str("}\n\n");
-    } else if !route.explicit_methods.is_empty() {
+    } else {
         let has_explicit_head = route.explicit_methods.contains(&"HEAD".to_string());
         for m in &route.methods {
             let lower = m.to_lowercase();
@@ -909,11 +1008,6 @@ pub fn generate_api_adapter_code(route: &RouteMetadata, content: &str) -> String
                 out.push_str("}\n\n");
             }
         }
-    } else {
-        // Fallback for mock route files without declared handlers
-        out.push_str("pub fn invoke_handle_api() -> String {\n");
-        out.push_str("    String::from_str(\"{\\\"status\\\":\\\"ok\\\"}\")\n");
-        out.push_str("}\n\n");
     }
 
     out
@@ -1134,7 +1228,7 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
         };
 
         out.push_str(&format!("    if handler_id == {} {{\n", r.id));
-        if r.has_generic_handler || r.explicit_methods.is_empty() {
+        if r.has_generic_handler {
             out.push_str(&format!(
                 "        let content = {}::invoke_handle_api();\n",
                 mod_name
