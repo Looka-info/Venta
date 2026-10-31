@@ -23,12 +23,7 @@ pub fn build_generated_manifest() -> RouteManifest {
     m.add_api_route("HEAD", "/api/health", 0);
     m.add_api_route("OPTIONS", "/api/health", 0);
     m.add_api_route("GET", "/api/users", 1);
-    m.add_api_route("POST", "/api/users", 1);
-    m.add_api_route("PUT", "/api/users", 1);
-    m.add_api_route("DELETE", "/api/users", 1);
-    m.add_api_route("PATCH", "/api/users", 1);
     m.add_api_route("HEAD", "/api/users", 1);
-    m.add_api_route("OPTIONS", "/api/users", 1);
     m.add_page_route_with_mode("/blog/[slug]", 1, 2, 2);
     m.add_page_route_with_mode("/docs/[...path]", 1, 3, 2);
     m.add_page_route_with_mode("/foo/[...rest]", 1, 4, 2);
@@ -118,10 +113,16 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
 
 pub fn dispatch_api(handler_id: i64, req: &mut Request) -> Response {
     if handler_id == 0 {
-        return response_json("{\"status\":\"ok\",\"endpoint\":\"/api/health\"}");
+        let mut json = String::from_str("{\"status\":\"ok\",\"endpoint\":\"/api/health\",\"method\":\"");
+        json.push_str(req.method.as_str());
+        json.push_str("\"}");
+        return response_json(json.as_str());
     }
     if handler_id == 1 {
-        return response_json("{\"status\":\"ok\",\"endpoint\":\"/api/users\"}");
+        let mut json = String::from_str("{\"status\":\"ok\",\"endpoint\":\"/api/users\",\"method\":\"");
+        json.push_str(req.method.as_str());
+        json.push_str("\"}");
+        return response_json(json.as_str());
     }
     response_not_found("{\"error\":\"API endpoint not found\"}")
 }

@@ -7,11 +7,12 @@ import http::{
     Request, Response, parse_http_request, response_html, response_json,
     response_not_found, response_bad_request, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
+    add_header, i64_to_string,
     to_wire_format, to_wire_format_ex, clone_param_map
 };
 import router::{
     RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
-    render_mode_static, render_mode_dynamic, render_mode_isr
+    get_allowed_methods_for_path, render_mode_static, render_mode_dynamic, render_mode_isr
 };
 import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
 import generated_routes::{build_generated_manifest, dispatch_route, dispatch_api};
@@ -93,17 +94,21 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
     }
     let path = req.path.as_str();
 
-    // 1. Handle HTTP OPTIONS Preflight
-    if method.equals("OPTIONS") {
-        return handle_options_preflight();
+    // 1. Resolve Route via App Router Engine using actual request method
+    let mut match_opt = match_route(manifest, path, method);
+
+    // Fallback: A page or API route that supports GET should support HEAD where appropriate
+    if match_opt.is_none() && method.equals("HEAD") {
+        let get_match = match_route(manifest, path, "GET");
+        match get_match {
+            Option::Some(m) => {
+                match_opt = Option::Some(m);
+            }
+            Option::None => {}
+        }
     }
 
-    // 2. Resolve Route via App Router Engine
-    let mut match_method = "GET";
-    if method.equals("POST") {
-        match_method = "POST";
-    }
-    let match_opt = match_route(manifest, path, match_method);
+    // 2. Dispatch Matched Route
     match match_opt {
         Option::Some(m_res) => {
             req.params = clone_param_map(&m_res.params);
@@ -133,7 +138,9 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     json.push_str("\",\"body\":\"Fetched dynamically via VentaNext App Router dynamic parameter.\",\"framework\":\"VentaNext\"}\n");
                     resp = response_json(json.as_str());
                 } else if m_res.page_id == 203 {
-                    let mut json = String::from_str("{\"status\":\"received\",\"method\":\"POST\",\"echo_payload\":");
+                    let mut json = String::from_str("{\"status\":\"received\",\"method\":\"");
+                    json.push_str(req.method.as_str());
+                    json.push_str("\",\"echo_payload\":");
                     if req.body.is_empty() {
                         json.push_str("null");
                     } else {
@@ -146,6 +153,14 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 } else if m_res.page_id == 204 {
                     let json = "{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}\n";
                     resp = response_json(json);
+                } else {
+                    let id_str = i64_to_string(m_res.page_id);
+                    let mut msg = String::from_str("{\"status\":\"ok\",\"handler_id\":");
+                    msg.push_str(id_str.as_str());
+                    msg.push_str(",\"method\":\"");
+                    msg.push_str(req.method.as_str());
+                    msg.push_str("\"}");
+                    resp = response_json(msg.as_str());
                 }
             } else {
                 // Handle Page Routes (with Nested Layout Resolution)
@@ -226,6 +241,11 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     }
                     s.push_str("</p>");
                     page_markup = s;
+                } else {
+                    let mut s = String::from_str("<h1>Page ");
+                    s.push_str(i64_to_string(m_res.page_id).as_str());
+                    s.push_str("</h1>");
+                    page_markup = s;
                 }
 
                 let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
@@ -264,21 +284,43 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 }
             }
 
+            // HEAD responses must not contain a response body
+            if method.equals("HEAD") {
+                let orig_len = resp.body.len_bytes();
+                let len_str = i64_to_string(orig_len);
+                add_header(&mut resp, "Content-Length", len_str.as_str());
+                resp.body = String::new();
+            }
+
             return resp;
         }
         Option::None => {}
     }
 
-    // Check if route exists for other methods (405 Method Not Allowed)
-    let any_match = match_route(manifest, path, "*");
-    match any_match {
-        Option::Some(any_res) => {
-            return response_method_not_allowed("GET, HEAD, OPTIONS");
+    // 3. OPTIONS Preflight Handling (when no explicit OPTIONS route matched)
+    if method.equals("OPTIONS") {
+        let any_route = match_route(manifest, path, "*");
+        match any_route {
+            Option::Some(_) => {
+                return handle_options_preflight();
+            }
+            Option::None => {
+                let not_found_html = render_404_page(path);
+                return response_not_found(not_found_html.as_str());
+            }
+        }
+    }
+
+    // 4. Method Not Allowed (405) with dynamic Allow header
+    let allowed_opt = get_allowed_methods_for_path(manifest, path);
+    match allowed_opt {
+        Option::Some(allow_str) => {
+            return response_method_not_allowed(allow_str.as_str());
         }
         Option::None => {}
     }
 
-    // 3. Fallback: 404 Boundary
+    // 5. Fallback: 404 Boundary
     let not_found_html = render_404_page(path);
     response_not_found(not_found_html.as_str())
 }

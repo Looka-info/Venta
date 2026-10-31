@@ -591,6 +591,120 @@ pub fn match_route(manifest: &RouteManifest, path: &str, method: &str) -> Option
     Option::None
 }
 
+pub fn get_allowed_methods_for_path(manifest: &RouteManifest, path: &str) -> Option<String> {
+    let req_segs = split_segments(path);
+    let mut best_match_idx = -1;
+
+    let mut i = 0;
+    while i < manifest.routes.len() {
+        let route = &manifest.routes[i];
+        let pat_segs = split_segments(route.canonical_pattern.as_str());
+        let m_res = try_match_segments(&req_segs, &pat_segs, route.kind);
+        if m_res.matched {
+            if best_match_idx < 0 {
+                best_match_idx = i;
+            } else {
+                let best_route = &manifest.routes[best_match_idx];
+                let cmp = compare_route_precedence(route, best_route);
+                if cmp > 0 {
+                    best_match_idx = i;
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    if best_match_idx < 0 {
+        return Option::None;
+    }
+
+    let target_pattern = manifest.routes[best_match_idx].canonical_pattern.clone();
+
+    let mut has_get = false;
+    let mut has_post = false;
+    let mut has_put = false;
+    let mut has_delete = false;
+    let mut has_patch = false;
+    let mut has_head = false;
+    let mut has_options = false;
+
+    let mut j = 0;
+    while j < manifest.routes.len() {
+        let r = &manifest.routes[j];
+        if r.canonical_pattern.as_str().equals(target_pattern.as_str()) {
+            let m = r.http_method.as_str();
+            if m.equals("GET") {
+                has_get = true;
+                has_head = true;
+            } else if m.equals("POST") {
+                has_post = true;
+            } else if m.equals("PUT") {
+                has_put = true;
+            } else if m.equals("DELETE") {
+                has_delete = true;
+            } else if m.equals("PATCH") {
+                has_patch = true;
+            } else if m.equals("HEAD") {
+                has_head = true;
+            } else if m.equals("OPTIONS") {
+                has_options = true;
+            } else if m.equals("*") {
+                has_get = true;
+                has_post = true;
+                has_put = true;
+                has_delete = true;
+                has_patch = true;
+                has_head = true;
+                has_options = true;
+            }
+        }
+        j = j + 1;
+    }
+
+    // Always include OPTIONS for valid route endpoints (CORS preflight capability)
+    has_options = true;
+
+    let mut allow_hdr = String::new();
+    let mut count = 0;
+
+    if has_get {
+        allow_hdr.push_str("GET");
+        count = count + 1;
+    }
+    if has_post {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("POST");
+        count = count + 1;
+    }
+    if has_put {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("PUT");
+        count = count + 1;
+    }
+    if has_delete {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("DELETE");
+        count = count + 1;
+    }
+    if has_patch {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("PATCH");
+        count = count + 1;
+    }
+    if has_head {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("HEAD");
+        count = count + 1;
+    }
+    if has_options {
+        if count > 0 { allow_hdr.push_str(", "); }
+        allow_hdr.push_str("OPTIONS");
+        count = count + 1;
+    }
+
+    Option::Some(allow_hdr)
+}
+
 pub fn path_equals(path: &str, expected: &str) -> bool {
     path.equals(expected)
 }

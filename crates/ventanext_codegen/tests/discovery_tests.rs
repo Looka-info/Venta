@@ -610,3 +610,27 @@ fn test_27_valid_exact_route_vs_optional_catch_all() {
         "/shop and /shop/[[...filter]] have distinct precedence and must remain valid"
     );
 }
+
+#[test]
+fn test_28_method_discovery_from_route_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("api/items")).unwrap();
+    fs::write(
+        tmp.path().join("api/items/route.va"),
+        "pub fn GET() {}\npub fn POST() {}",
+    )
+    .unwrap();
+
+    let res = scan_app_directory(tmp.path()).expect("Scan must succeed");
+    let items = res
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/api/items")
+        .expect("/api/items must be found");
+
+    assert!(items.methods.contains(&"GET".to_string()));
+    assert!(items.methods.contains(&"POST".to_string()));
+    assert!(items.methods.contains(&"HEAD".to_string())); // GET implicitly supports HEAD
+    assert!(!items.methods.contains(&"DELETE".to_string()));
+    assert!(!items.methods.contains(&"PUT".to_string()));
+}

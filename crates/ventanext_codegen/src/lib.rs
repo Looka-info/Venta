@@ -528,15 +528,38 @@ fn parse_route_file(
     let methods = if kind == RouteKind::Page {
         vec!["GET".to_string(), "HEAD".to_string()]
     } else {
-        vec![
-            "GET".to_string(),
-            "POST".to_string(),
-            "PUT".to_string(),
-            "DELETE".to_string(),
-            "PATCH".to_string(),
-            "HEAD".to_string(),
-            "OPTIONS".to_string(),
-        ]
+        let content = fs::read_to_string(full_path).unwrap_or_default();
+        let candidate_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        let mut found = Vec::new();
+        for m in &candidate_methods {
+            let pat1 = format!("pub fn {}()", m);
+            let pat2 = format!("pub fn {}(", m);
+            let pat3 = format!("fn {}()", m);
+            let pat4 = format!("fn {}(", m);
+            if content.contains(&pat1)
+                || content.contains(&pat2)
+                || content.contains(&pat3)
+                || content.contains(&pat4)
+            {
+                found.push(m.to_string());
+            }
+        }
+        if !found.is_empty() {
+            if found.contains(&"GET".to_string()) && !found.contains(&"HEAD".to_string()) {
+                found.push("HEAD".to_string());
+            }
+            found
+        } else {
+            vec![
+                "GET".to_string(),
+                "POST".to_string(),
+                "PUT".to_string(),
+                "DELETE".to_string(),
+                "PATCH".to_string(),
+                "HEAD".to_string(),
+                "OPTIONS".to_string(),
+            ]
+        }
     };
 
     let has_dynamic_segments = segments.iter().any(|s| {
@@ -760,9 +783,12 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
         if r.route_kind == RouteKind::Api {
             out.push_str(&format!("    if handler_id == {} {{\n", r.id));
             out.push_str(&format!(
-                "        return response_json(\"{{\\\"status\\\":\\\"ok\\\",\\\"endpoint\\\":\\\"{}\\\"}}\");\n",
+                "        let mut json = String::from_str(\"{{\\\"status\\\":\\\"ok\\\",\\\"endpoint\\\":\\\"{}\\\",\\\"method\\\":\\\"\");\n",
                 r.canonical_pattern
             ));
+            out.push_str("        json.push_str(req.method.as_str());\n");
+            out.push_str("        json.push_str(\"\\\"}\");\n");
+            out.push_str("        return response_json(json.as_str());\n");
             out.push_str("    }\n");
         }
     }

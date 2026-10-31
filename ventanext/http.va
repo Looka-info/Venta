@@ -926,10 +926,20 @@ pub fn to_wire_format_ex(resp: &Response, suppress_body: bool) -> String {
         wire.push_str(resp.content_type.as_str());
         wire.push_str("\r\n");
 
-        wire.push_str("Content-Length: ");
-        let len_str = i64_to_string(resp.body.len_bytes());
-        wire.push_str(len_str.as_str());
-        wire.push_str("\r\n");
+        let cl_opt = resp.headers.get("content-length");
+        match cl_opt {
+            Option::Some(cl_val) => {
+                wire.push_str("Content-Length: ");
+                wire.push_str(cl_val.as_str());
+                wire.push_str("\r\n");
+            }
+            Option::None => {
+                wire.push_str("Content-Length: ");
+                let len_str = i64_to_string(resp.body.len_bytes());
+                wire.push_str(len_str.as_str());
+                wire.push_str("\r\n");
+            }
+        }
     }
 
     wire.push_str("Server: VentaNext/1.0 (Native)\r\n");
@@ -938,10 +948,12 @@ pub fn to_wire_format_ex(resp: &Response, suppress_body: bool) -> String {
     let mut i = 0;
     while i < resp.headers.entries.len() {
         let entry = &resp.headers.entries[i];
-        wire.push_str(entry.key.as_str());
-        wire.push_str(": ");
-        wire.push_str(entry.value.as_str());
-        wire.push_str("\r\n");
+        if ascii_eq_ignore_case(entry.key.as_str(), "content-length") == false {
+            wire.push_str(entry.key.as_str());
+            wire.push_str(": ");
+            wire.push_str(entry.value.as_str());
+            wire.push_str("\r\n");
+        }
         i = i + 1;
     }
 
