@@ -3,12 +3,14 @@
 // Tests covering all 13 discovery, conflict, and manifest generation scenarios
 // ============================================================================
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
     discover_api_methods, export_static_site, generate_api_adapter_code, generate_manifest_json,
-    generate_venta_code, parse_segment, scan_app_directory, validate_api_route_handlers,
-    write_generated_routes, RenderMode, RouteKind, RouteMetadata, SegmentKind,
+    generate_venta_code, parse_segment, sanitize_module_name, scan_app_directory,
+    validate_api_route_handlers, validate_conflicts, write_generated_routes, DiscoveredApp,
+    RenderMode, RouteKind, RouteMetadata, Segment, SegmentKind, SpecialFilesMetadata,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -876,11 +878,11 @@ fn test_42_generated_dispatcher_contains_no_generic_placeholder() {
         let code = generate_venta_code(&app);
 
         // Must invoke static adapter bridges
-        assert!(code.contains("mod route_api_users;"));
-        assert!(code.contains("mod route_api_health;"));
-        assert!(code.contains("route_api_users::invoke_get()"));
-        assert!(code.contains("route_api_users::invoke_head()"));
-        assert!(code.contains("route_api_health::invoke_handle_api()"));
+        assert!(code.contains("mod route_2f6170692f7573657273;"));
+        assert!(code.contains("mod route_2f6170692f6865616c7468;"));
+        assert!(code.contains("route_2f6170692f7573657273::invoke_get()"));
+        assert!(code.contains("route_2f6170692f7573657273::invoke_head()"));
+        assert!(code.contains("route_2f6170692f6865616c7468::invoke_handle_api()"));
 
         // Must NOT contain placeholder responses
         assert!(!code.contains("{\"status\":\"ok\",\"endpoint\":\"/api/users\""));
@@ -978,16 +980,16 @@ fn test_46_write_generated_routes_creates_adapters_and_manifest() {
             "generated_routes directory must be created"
         );
         assert!(
-            adapter_dir.join("route_api_users.va").exists(),
-            "route_api_users.va must be created"
+            adapter_dir.join("route_2f6170692f7573657273.va").exists(),
+            "route_2f6170692f7573657273.va must be created"
         );
         assert!(
-            adapter_dir.join("route_api_health.va").exists(),
-            "route_api_health.va must be created"
+            adapter_dir.join("route_2f6170692f6865616c7468.va").exists(),
+            "route_2f6170692f6865616c7468.va must be created"
         );
 
         let users_content =
-            std::fs::read_to_string(adapter_dir.join("route_api_users.va")).unwrap();
+            std::fs::read_to_string(adapter_dir.join("route_2f6170692f7573657273.va")).unwrap();
         assert!(users_content.contains("Ada Lovelace"));
         assert!(users_content.contains("invoke_get"));
     }
@@ -1017,7 +1019,7 @@ fn test_47_changing_handler_data_changes_generated_adapter() {
 
     let adapter_path = tmp
         .path()
-        .join("ventanext/generated_routes/route_api_data.va");
+        .join("ventanext/generated_routes/route_2f6170692f64617461.va");
     let content1 = fs::read_to_string(&adapter_path).unwrap();
     assert!(content1.contains("Ada Lovelace"));
 
@@ -1065,10 +1067,16 @@ fn test_48_generation_determinism_across_runs() {
         let code2 = fs::read_to_string(&out2).unwrap();
         assert_eq!(code1, code2, "Generated code must be 100% deterministic");
 
-        let adapter1_users =
-            fs::read_to_string(tmp1.path().join("generated_routes/route_api_users.va")).unwrap();
-        let adapter2_users =
-            fs::read_to_string(tmp2.path().join("generated_routes/route_api_users.va")).unwrap();
+        let adapter1_users = fs::read_to_string(
+            tmp1.path()
+                .join("generated_routes/route_2f6170692f7573657273.va"),
+        )
+        .unwrap();
+        let adapter2_users = fs::read_to_string(
+            tmp2.path()
+                .join("generated_routes/route_2f6170692f7573657273.va"),
+        )
+        .unwrap();
         assert_eq!(
             adapter1_users, adapter2_users,
             "Adapter files must be 100% deterministic"
@@ -1366,7 +1374,7 @@ fn test_59_generated_adapters_never_contain_fake_success_response() {
         specificity: 1000,
         has_generic_handler: false,
         explicit_methods: vec!["GET".to_string()],
-        adapter_module_name: "route_api_users".to_string(),
+        adapter_module_name: "route_2f6170692f7573657273".to_string(),
         source_content: "pub fn GET() -> String { String::from_str(\"users\") }".to_string(),
     };
 
@@ -1400,7 +1408,7 @@ fn test_59_generated_adapters_never_contain_fake_success_response() {
         specificity: 1000,
         has_generic_handler: true,
         explicit_methods: vec![],
-        adapter_module_name: "route_api_health".to_string(),
+        adapter_module_name: "route_2f6170692f6865616c7468".to_string(),
         source_content: "pub fn handle_api() -> String { String::from_str(\"health\") }"
             .to_string(),
     };
@@ -1447,11 +1455,309 @@ fn test_60_valid_existing_routes_generate_and_execute_correctly() {
         write_generated_routes(&app, &out_va).expect("write_generated_routes must succeed");
 
         let code = fs::read_to_string(&out_va).unwrap();
-        assert!(code.contains("mod route_api_users;"));
-        assert!(code.contains("mod route_api_health;"));
-        assert!(code.contains("route_api_users::invoke_get()"));
-        assert!(code.contains("route_api_users::invoke_head()"));
-        assert!(code.contains("route_api_health::invoke_handle_api()"));
+        assert!(code.contains("mod route_2f6170692f7573657273;"));
+        assert!(code.contains("mod route_2f6170692f6865616c7468;"));
+        assert!(code.contains("route_2f6170692f7573657273::invoke_get()"));
+        assert!(code.contains("route_2f6170692f7573657273::invoke_head()"));
+        assert!(code.contains("route_2f6170692f6865616c7468::invoke_handle_api()"));
         assert!(!code.contains("status\":\"ok\""));
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Phase 1.3A.2 Regression Test Suite: Collision-Resistant Adapter Module Names
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_61_api_users_and_api_dash_users_receive_different_module_identifiers() {
+    let mod_users = sanitize_module_name("/api/users");
+    let mod_dash = sanitize_module_name("/api-users");
+
+    assert_eq!(mod_users, "route_2f6170692f7573657273");
+    assert_eq!(mod_dash, "route_2f6170692d7573657273");
+    assert_ne!(
+        mod_users, mod_dash,
+        "Distinct routes '/api/users' and '/api-users' must receive different module identifiers"
+    );
+    assert!(mod_users.starts_with("route_"));
+    assert!(mod_dash.starts_with("route_"));
+}
+
+#[test]
+fn test_62_api_bracket_id_and_api_dash_id_receive_different_identifiers() {
+    let mod_param = sanitize_module_name("/api/[id]");
+    let mod_dash = sanitize_module_name("/api-id");
+
+    assert_eq!(mod_param, "route_2f6170692f5b69645d");
+    assert_eq!(mod_dash, "route_2f6170692d6964");
+    assert_ne!(
+        mod_param, mod_dash,
+        "'/api/[id]' and '/api-id' must receive different module identifiers"
+    );
+}
+
+#[test]
+fn test_63_underscores_and_hyphens_remain_distinct() {
+    let mod_underscore = sanitize_module_name("/api_users");
+    let mod_hyphen = sanitize_module_name("/api-users");
+    let mod_slash = sanitize_module_name("/api/users");
+
+    assert_eq!(mod_underscore, "route_2f6170695f7573657273");
+    assert_eq!(mod_hyphen, "route_2f6170692d7573657273");
+    assert_eq!(mod_slash, "route_2f6170692f7573657273");
+
+    assert_ne!(mod_underscore, mod_hyphen);
+    assert_ne!(mod_underscore, mod_slash);
+    assert_ne!(mod_hyphen, mod_slash);
+}
+
+#[test]
+fn test_64_multiple_separators_remain_distinct() {
+    let mod1 = sanitize_module_name("/a/b/c");
+    let mod2 = sanitize_module_name("/a_b_c");
+    let mod3 = sanitize_module_name("/a-b-c");
+    let mod4 = sanitize_module_name("/a//b/c");
+
+    let set: BTreeSet<String> = [mod1, mod2, mod3, mod4].into_iter().collect();
+    assert_eq!(
+        set.len(),
+        4,
+        "All variations with different separators must be uniquely encoded"
+    );
+}
+
+#[test]
+fn test_65_unicode_route_patterns_encoded_deterministically() {
+    let mod_cafe = sanitize_module_name("/api/café");
+    let mod_unicode = sanitize_module_name("/api/ünicode");
+
+    assert!(mod_cafe.starts_with("route_"));
+    assert!(mod_unicode.starts_with("route_"));
+    // Ensure identifier contains only safe hex characters after prefix
+    assert!(mod_cafe["route_".len()..]
+        .chars()
+        .all(|c: char| c.is_ascii_hexdigit()));
+    assert!(mod_unicode["route_".len()..]
+        .chars()
+        .all(|c: char| c.is_ascii_hexdigit()));
+
+    // Deterministic across repeated calls
+    assert_eq!(mod_cafe, sanitize_module_name("/api/café"));
+    assert_eq!(mod_unicode, sanitize_module_name("/api/ünicode"));
+}
+
+#[test]
+fn test_66_same_route_produces_identical_identifier_across_repeated_runs() {
+    let patterns = vec![
+        "/api/users",
+        "/api-users",
+        "/api/posts/[id]",
+        "/shop/[[...filter]]",
+        "/docs/[...path]",
+    ];
+    for p in patterns {
+        let first = sanitize_module_name(p);
+        for _ in 0..50 {
+            assert_eq!(first, sanitize_module_name(p));
+        }
+    }
+}
+
+#[test]
+fn test_67_temporary_app_with_colliding_routes_pipeline() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("api/users")).unwrap();
+    fs::create_dir_all(app_dir.join("api-users")).unwrap();
+
+    fs::write(
+        app_dir.join("api/users/route.va"),
+        "import std::string::String;\npub fn GET() -> String { String::from_str(\"users\") }",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("api-users/route.va"),
+        "import std::string::String;\npub fn GET() -> String { String::from_str(\"customers\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).expect("Both distinct routes must be discovered");
+    assert_eq!(discovered.routes.len(), 2);
+
+    let route_users = discovered
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/api/users")
+        .unwrap();
+    let route_dash = discovered
+        .routes
+        .iter()
+        .find(|r| r.canonical_pattern == "/api-users")
+        .unwrap();
+
+    assert_ne!(
+        route_users.adapter_module_name,
+        route_dash.adapter_module_name
+    );
+    assert_eq!(
+        route_users.adapter_module_name,
+        "route_2f6170692f7573657273"
+    );
+    assert_eq!(route_dash.adapter_module_name, "route_2f6170692d7573657273");
+
+    let out_va = tmp.path().join("ventanext/generated_routes.va");
+    write_generated_routes(&discovered, &out_va).expect("write_generated_routes must succeed");
+
+    let adapter_dir = tmp.path().join("ventanext/generated_routes");
+    let file_users = adapter_dir.join("route_2f6170692f7573657273.va");
+    let file_dash = adapter_dir.join("route_2f6170692d7573657273.va");
+
+    assert!(
+        file_users.exists(),
+        "route_2f6170692f7573657273.va must exist"
+    );
+    assert!(
+        file_dash.exists(),
+        "route_2f6170692d7573657273.va must exist"
+    );
+
+    let content_users = fs::read_to_string(&file_users).unwrap();
+    let content_dash = fs::read_to_string(&file_dash).unwrap();
+
+    assert!(content_users.contains("String::from_str(\"users\")"));
+    assert!(!content_users.contains("customers"));
+    assert!(content_dash.contains("customers"));
+    assert!(!content_dash.contains("String::from_str(\"users\")"));
+}
+
+#[test]
+fn test_68_dispatcher_declares_each_adapter_exactly_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("api/users")).unwrap();
+    fs::create_dir_all(app_dir.join("api-users")).unwrap();
+
+    fs::write(
+        app_dir.join("api/users/route.va"),
+        "import std::string::String;\npub fn GET() -> String { String::from_str(\"users\") }",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("api-users/route.va"),
+        "import std::string::String;\npub fn GET() -> String { String::from_str(\"customers\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert_eq!(code.matches("mod route_2f6170692f7573657273;").count(), 1);
+    assert_eq!(code.matches("mod route_2f6170692d7573657273;").count(), 1);
+    assert!(code.contains("route_2f6170692f7573657273::invoke_get()"));
+    assert!(code.contains("route_2f6170692d7573657273::invoke_get()"));
+}
+
+#[test]
+fn test_69_enforce_uniqueness_rejects_duplicate_adapter_module_names() {
+    let r1 = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/api/one".to_string(),
+        normalized_url: "/api/one".to_string(),
+        route_kind: RouteKind::Api,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/api/one/route.va".to_string(),
+        segments: vec![Segment {
+            raw: "one".to_string(),
+            kind: SegmentKind::Static,
+            param_name: None,
+        }],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec!["GET".to_string()],
+        adapter_module_name: "route_collision".to_string(),
+        source_content: "pub fn GET() -> String { String::from_str(\"\") }".to_string(),
+    };
+    let r2 = RouteMetadata {
+        id: 1,
+        canonical_pattern: "/api/two".to_string(),
+        normalized_url: "/api/two".to_string(),
+        route_kind: RouteKind::Api,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/api/two/route.va".to_string(),
+        segments: vec![Segment {
+            raw: "two".to_string(),
+            kind: SegmentKind::Static,
+            param_name: None,
+        }],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec!["GET".to_string()],
+        adapter_module_name: "route_collision".to_string(),
+        source_content: "pub fn GET() -> String { String::from_str(\"\") }".to_string(),
+    };
+
+    let res = validate_conflicts(&[r1.clone(), r2.clone()]);
+    assert!(
+        res.is_err(),
+        "Duplicate adapter module names must be rejected"
+    );
+    let err = res.err().unwrap();
+    assert!(err.message.contains("API adapter module name collision"));
+
+    let discovered = DiscoveredApp {
+        routes: vec![r1, r2],
+        special_files: SpecialFilesMetadata {
+            root_layout: None,
+            loading: None,
+            error: None,
+            not_found: None,
+        },
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let out_va = tmp.path().join("generated_routes.va");
+    let write_res = write_generated_routes(&discovered, &out_va);
+    assert!(
+        write_res.is_err(),
+        "write_generated_routes must reject duplicate adapter module names"
+    );
+}
+
+#[test]
+fn test_70_existing_users_and_health_generate_and_execute_with_injective_names() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).unwrap();
+        let users = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/users")
+            .unwrap();
+        let health = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/health")
+            .unwrap();
+
+        assert_eq!(users.adapter_module_name, "route_2f6170692f7573657273");
+        assert_eq!(health.adapter_module_name, "route_2f6170692f6865616c7468");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let out_va = tmp.path().join("generated_routes.va");
+        write_generated_routes(&app, &out_va).unwrap();
+
+        let adapter_dir = tmp.path().join("generated_routes");
+        assert!(adapter_dir.join("route_2f6170692f7573657273.va").exists());
+        assert!(adapter_dir.join("route_2f6170692f6865616c7468.va").exists());
     }
 }

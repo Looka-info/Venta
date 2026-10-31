@@ -9,8 +9,8 @@ import ssr::{RenderContext};
 import std::string::String;
 import std::option::Option;
 
-mod route_api_health;
-mod route_api_users;
+mod route_2f6170692f6865616c7468;
+mod route_2f6170692f7573657273;
 
 // ----------------------------------------------------------------------------
 // 1. Build Generated Manifest
@@ -116,16 +116,16 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
 
 pub fn dispatch_api(handler_id: i64, req: &mut Request) -> Response {
     if handler_id == 0 {
-        let content = route_api_health::invoke_handle_api();
+        let content = route_2f6170692f6865616c7468::invoke_handle_api();
         return response_json(content.as_str());
     }
     if handler_id == 1 {
         if req.method.equals("HEAD") {
-            let content = route_api_users::invoke_head();
+            let content = route_2f6170692f7573657273::invoke_head();
             return response_json(content.as_str());
         }
         if req.method.equals("GET") {
-            let content = route_api_users::invoke_get();
+            let content = route_2f6170692f7573657273::invoke_get();
             return response_json(content.as_str());
         }
     }

@@ -738,33 +738,18 @@ pub struct ValidatedApiHandlers {
     pub has_generic_handler: bool,
 }
 
-/// Sanitizes a canonical route pattern (e.g. `/api/users`) into a valid, deterministic Venta module identifier.
+/// Encodes a canonical route pattern into a collision-resistant, deterministic Venta module identifier.
+///
+/// Injective UTF-8 hexadecimal encoding ensures that every distinct canonical pattern
+/// (e.g. `/api/users` vs `/api-users` vs `/api_[id]`) maps to a distinct identifier.
+/// Identifiers always begin with the valid alphabetic prefix `route_` followed by lowercase hexadecimal characters.
 pub fn sanitize_module_name(canonical_pattern: &str) -> String {
-    let raw = canonical_pattern
-        .trim_start_matches('/')
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+    let hex = canonical_pattern
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
         .collect::<String>();
-
-    let mut collapsed = String::new();
-    let mut prev_underscore = false;
-    for c in raw.chars() {
-        if c == '_' {
-            if !prev_underscore {
-                collapsed.push('_');
-                prev_underscore = true;
-            }
-        } else {
-            collapsed.push(c);
-            prev_underscore = false;
-        }
-    }
-    let trimmed = collapsed.trim_matches('_');
-    if trimmed.is_empty() {
-        "route_root".to_string()
-    } else {
-        format!("route_{}", trimmed)
-    }
+    format!("route_{}", hex)
 }
 
 /// Validates API route handlers against the Phase 1.3A signature contract.
@@ -1084,6 +1069,34 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
             }
         }
     }
+
+    // Validate uniqueness of API adapter module identifiers
+    let mut seen_adapters: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
+    for r in routes {
+        if r.route_kind == RouteKind::Api {
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+            if let Some(prev) = seen_adapters.get(&mod_name) {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "API adapter module name collision: module '{}' is generated for both '{}' ({:?}) and '{}' ({:?})",
+                        mod_name,
+                        prev.canonical_pattern,
+                        prev.source_file,
+                        r.canonical_pattern,
+                        r.source_file
+                    ),
+                    first_source: Some(PathBuf::from(&prev.source_file)),
+                    second_source: Some(PathBuf::from(&r.source_file)),
+                });
+            }
+            seen_adapters.insert(mod_name, r);
+        }
+    }
+
     Ok(())
 }
 
@@ -1271,8 +1284,8 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
 /// Directory layout:
 /// - `{out_va_path}` (e.g. `ventanext/generated_routes.va`)
 /// - `{out_va_path.stem()}/` (e.g. `ventanext/generated_routes/`)
-///   - `{adapter_mod_1}.va` (e.g. `route_api_health.va`)
-///   - `{adapter_mod_2}.va` (e.g. `route_api_users.va`)
+///   - `{adapter_mod_1}.va` (e.g. `route_2f6170692f6865616c7468.va`)
+///   - `{adapter_mod_2}.va` (e.g. `route_2f6170692f7573657273.va`)
 pub fn write_generated_routes(
     discovered: &DiscoveredApp,
     out_va_path: &Path,
@@ -1285,6 +1298,51 @@ pub fn write_generated_routes(
     let adapter_dir = parent_dir.join(stem);
 
     fs::create_dir_all(&adapter_dir)?;
+
+    // Enforce uniqueness of adapter module identifiers and filenames before writing
+    let mut seen_mods: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
+    let mut seen_files: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
+
+    for r in &discovered.routes {
+        if r.route_kind == RouteKind::Api {
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+
+            if let Some(prev) = seen_mods.get(&mod_name) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Duplicate adapter module '{}' for routes '{}' ({}) and '{}' ({})",
+                        mod_name,
+                        prev.canonical_pattern,
+                        prev.source_file,
+                        r.canonical_pattern,
+                        r.source_file
+                    ),
+                ));
+            }
+            seen_mods.insert(mod_name.clone(), r);
+
+            let adapter_filename = format!("{}.va", mod_name);
+            if let Some(prev) = seen_files.get(&adapter_filename) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Duplicate adapter filename '{}' for routes '{}' ({}) and '{}' ({})",
+                        adapter_filename,
+                        prev.canonical_pattern,
+                        prev.source_file,
+                        r.canonical_pattern,
+                        r.source_file
+                    ),
+                ));
+            }
+            seen_files.insert(adapter_filename, r);
+        }
+    }
 
     let mut expected_files = BTreeSet::new();
 
