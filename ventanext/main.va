@@ -9,6 +9,7 @@ mod router;
 mod component;
 mod ssr;
 mod middleware;
+mod generated_routes;
 mod server;
 
 import server::run_server;

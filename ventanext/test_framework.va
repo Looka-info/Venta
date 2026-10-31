@@ -9,6 +9,7 @@ mod router;
 mod component;
 mod ssr;
 mod middleware;
+mod generated_routes;
 mod server;
 
 import http::{
@@ -52,7 +53,7 @@ fn exit_with_error(code: i64) {
 }
 
 fn test_route_manifest_registration_and_validation() {
-    print_str("[1/10] Testing Route Manifest registration & validation... ");
+    print_str("[1/21] Testing Route Manifest registration & validation... ");
     let mut m = make_route_manifest();
     m.add_page_route("/", layout_root(), 1);
     m.add_page_route("/about", layout_root(), 2);
@@ -75,7 +76,7 @@ fn test_route_manifest_registration_and_validation() {
 }
 
 fn test_route_conflict_detection() {
-    print_str("[2/10] Testing Route Conflict detection... ");
+    print_str("[2/21] Testing Route Conflict detection... ");
     let mut m = make_route_manifest();
     m.add_page_route("/blog/[id]", layout_root(), 10);
     m.add_page_route("/blog/[slug]", layout_root(), 11); // Conflict: ambiguous dynamic parameter
@@ -104,7 +105,7 @@ fn test_route_conflict_detection() {
 }
 
 fn test_specificity_precedence() {
-    print_str("[3/10] Testing Specificity Precedence (Static > Dynamic)... ");
+    print_str("[3/21] Testing Specificity Precedence (Static > Dynamic)... ");
     let mut m = make_route_manifest();
     m.add_page_route("/posts/[slug]", layout_root(), 100); // Dynamic
     m.add_page_route("/posts/new", layout_root(), 101);    // Static: higher specificity
@@ -122,7 +123,7 @@ fn test_specificity_precedence() {
 }
 
 fn test_dynamic_param_extraction() {
-    print_str("[4/10] Testing Dynamic Parameter Extraction ([param])... ");
+    print_str("[4/21] Testing Dynamic Parameter Extraction ([param])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/users/[id]", layout_root(), 200);
 
@@ -148,7 +149,7 @@ fn test_dynamic_param_extraction() {
 }
 
 fn test_catch_all_param_extraction() {
-    print_str("[5/10] Testing Catch-All Parameter Extraction ([...path])... ");
+    print_str("[5/21] Testing Catch-All Parameter Extraction ([...path])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/docs/[...path]", layout_root(), 300);
 
@@ -174,7 +175,7 @@ fn test_catch_all_param_extraction() {
 }
 
 fn test_optional_catch_all_param_extraction() {
-    print_str("[6/10] Testing Optional Catch-All Parameter Extraction ([[...filter]])... ");
+    print_str("[6/21] Testing Optional Catch-All Parameter Extraction ([[...filter]])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/shop/[[...filter]]", layout_root(), 400);
 
@@ -213,7 +214,7 @@ fn test_optional_catch_all_param_extraction() {
 }
 
 fn test_route_group_normalization() {
-    print_str("[7/10] Testing Route Group Normalization ((group))... ");
+    print_str("[7/21] Testing Route Group Normalization ((group))... ");
     let mut m = make_route_manifest();
     m.add_page_route("/(marketing)/pricing", layout_root(), 500);
     m.add_page_route("/(admin)/settings", layout_root_and_dashboard(), 501);
@@ -238,7 +239,7 @@ fn test_route_group_normalization() {
 }
 
 fn test_nested_layout_resolution() {
-    print_str("[8/10] Testing Nested Layout Resolution (Root > Dashboard > Page)... ");
+    print_str("[8/21] Testing Nested Layout Resolution (Root > Dashboard > Page)... ");
     let mut params = make_param_map();
     params.add("tab", "metrics");
     let ctx = make_render_context(
@@ -275,7 +276,7 @@ fn test_nested_layout_resolution() {
 }
 
 fn test_http_request_parsing_lifecycle() {
-    print_str("[9/10] Testing HTTP Request Parsing (Query, Headers, Cookies, Body)... ");
+    print_str("[9/21] Testing HTTP Request Parsing (Query, Headers, Cookies, Body)... ");
     let raw_http = "POST /api/echo?tag=venta&sort=desc HTTP/1.1\r\nHost: localhost:3000\r\nUser-Agent: VentaClient/1.0\r\nCookie: session_token=tok_98765; theme=midnight\r\nContent-Length: 18\r\n\r\n{\"key\":\"payload1\"}";
     let req = parse_http_request(raw_http);
 
@@ -315,7 +316,7 @@ fn test_http_request_parsing_lifecycle() {
 }
 
 fn test_http_response_and_wire_formatting() {
-    print_str("[10/10] Testing HTTP Response Model & Wire Formatting... ");
+    print_str("[10/21] Testing HTTP Response Model & Wire Formatting... ");
     let mut resp = response_json("{\"status\":\"ok\"}");
     set_cookie(&mut resp, "visited", "1", "/", 3600, true, true, "Lax");
     add_header(&mut resp, "X-Framework", "VentaNext");
@@ -348,7 +349,7 @@ fn test_http_response_and_wire_formatting() {
 }
 
 fn test_path_normalization_and_traversal_rejection() {
-    print_str("[11/15] Testing Path Normalization & Traversal Rejection... ");
+    print_str("[11/21] Testing Path Normalization & Traversal Rejection... ");
     let norm1 = normalize_request_path("//about///team");
     match norm1 {
         Result::Ok(p) => { assert(p.as_str().equals("/about/team"), "Repeated slashes not collapsed"); }
@@ -376,7 +377,7 @@ fn test_path_normalization_and_traversal_rejection() {
 }
 
 fn test_response_status_helpers_and_head() {
-    print_str("[12/15] Testing Response Status Helpers & HEAD Body Suppression... ");
+    print_str("[12/21] Testing Response Status Helpers & HEAD Body Suppression... ");
     let bad = response_bad_request("Bad Request");
     assert(bad.status == 400, "Expected status 400");
 
@@ -404,7 +405,7 @@ fn test_response_status_helpers_and_head() {
 }
 
 fn test_header_crlf_injection_rejection() {
-    print_str("[13/15] Testing CRLF Injection Prevention in Headers... ");
+    print_str("[13/21] Testing CRLF Injection Prevention in Headers... ");
     let mut resp = response_json("{}");
     add_header(&mut resp, "X-Auth\r\nInjected", "Secret\r\nCookie");
 
@@ -421,7 +422,7 @@ fn test_header_crlf_injection_rejection() {
 }
 
 fn test_repeated_query_and_header_preservation() {
-    print_str("[14/15] Testing Repeated Query Parameters & Header Preservation... ");
+    print_str("[14/21] Testing Repeated Query Parameters & Header Preservation... ");
     let raw = "GET /search?tag=venta&tag=compiler&tag=systems HTTP/1.1\r\nHost: localhost\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n";
     let req = parse_http_request(raw);
 
@@ -434,7 +435,7 @@ fn test_repeated_query_and_header_preservation() {
 }
 
 fn test_method_not_allowed_405_lifecycle() {
-    print_str("[15/20] Testing 405 Method Not Allowed Lifecycle... ");
+    print_str("[15/21] Testing 405 Method Not Allowed Lifecycle... ");
     let mut m = make_route_manifest();
     m.add_page_route("/about", layout_root(), 10);
 
@@ -453,7 +454,7 @@ fn test_method_not_allowed_405_lifecycle() {
 }
 
 fn test_component_builder_and_xss_escaping() {
-    print_str("[16/20] Testing Component Builder & XSS Escaping... ");
+    print_str("[16/21] Testing Component Builder & XSS Escaping... ");
     let dangerous = "<script>alert('xss & attack')</script>\"";
     let safe = component::escape_html(dangerous);
     assert(safe.as_str().equals("&lt;script&gt;alert(&#39;xss &amp; attack&#39;)&lt;/script&gt;&quot;"), "XSS characters must be escaped");
@@ -467,7 +468,7 @@ fn test_component_builder_and_xss_escaping() {
 }
 
 fn test_etag_computation_and_determinism() {
-    print_str("[17/20] Testing ETag Computation & Determinism... ");
+    print_str("[17/21] Testing ETag Computation & Determinism... ");
     let body1 = "<html><body><h1>Hello VentaNext</h1></body></html>";
     let body2 = "<html><body><h1>Hello VentaNext</h1></body></html>";
     let etag1 = compute_etag(body1);
@@ -490,7 +491,7 @@ fn test_etag_computation_and_determinism() {
 }
 
 fn test_conditional_if_none_match_304() {
-    print_str("[18/20] Testing Conditional Request (If-None-Match -> 304)... ");
+    print_str("[18/21] Testing Conditional Request (If-None-Match -> 304)... ");
     let mut m = make_route_manifest();
     m.add_page_route("/about", layout_root(), 104);
 
@@ -520,7 +521,7 @@ fn test_conditional_if_none_match_304() {
 }
 
 fn test_cache_control_headers_by_render_mode() {
-    print_str("[19/20] Testing Cache-Control Policies by Render Mode... ");
+    print_str("[19/21] Testing Cache-Control Policies by Render Mode... ");
     let mut m = make_route_manifest();
     m.add_page_route_with_mode("/static-page", layout_root(), 100, render_mode_static());
     m.add_page_route_with_mode("/dynamic-page", layout_root(), 105, render_mode_dynamic());
@@ -553,7 +554,7 @@ fn test_cache_control_headers_by_render_mode() {
 }
 
 fn test_render_mode_classification_and_matching() {
-    print_str("[20/20] Testing Render Mode Manifest Classification... ");
+    print_str("[20/21] Testing Render Mode Manifest Classification... ");
     let mut m = make_route_manifest();
     m.add_page_route("/", layout_root(), 100);
     m.add_page_route("/blog/[slug]", layout_root(), 105);

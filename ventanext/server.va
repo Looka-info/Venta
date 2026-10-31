@@ -14,6 +14,7 @@ import router::{
     render_mode_static, render_mode_dynamic, render_mode_isr
 };
 import middleware::{apply_security_headers, apply_cors_headers, handle_options_preflight, log_request};
+import generated_routes::{build_generated_manifest, dispatch_route, dispatch_api};
 import ssr::{
     RenderContext, make_render_context, resolve_layout,
     layout_root, layout_root_and_dashboard, layout_root_and_docs,
@@ -110,7 +111,9 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
             // Route Response Processing (API or Page Component)
             let mut resp = response_error("Unhandled route");
             if m_res.is_api {
-                if m_res.page_id == 200 {
+                if m_res.page_id < 100 {
+                    resp = dispatch_api(m_res.page_id, req);
+                } else if m_res.page_id == 200 {
                     let json = "{\"framework\":\"VentaNext\",\"version\":\"1.0.0-rc.2\",\"architecture\":\"x86_64-unknown-linux-gnu\",\"status\":\"operational\",\"memory_safety\":\"guaranteed\",\"features\":[\"App Router Manifest\",\"Nested Layouts\",\"Dynamic Params ([slug])\",\"Catch-All ([...path])\",\"Typed API Routes\",\"Middleware Pipeline\"]}\n";
                     resp = response_json(json);
                 } else if m_res.page_id == 201 {
@@ -188,7 +191,10 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 );
 
                 let mut page_markup = String::new();
-                if m_res.page_id == 100 {
+                if m_res.page_id < 100 {
+                    let gen_resp = dispatch_route(m_res.page_id, &ctx);
+                    page_markup.push_str(gen_resp.body.as_str());
+                } else if m_res.page_id == 100 {
                     page_markup = render_home_page(&ctx);
                 } else if m_res.page_id == 101 {
                     page_markup = render_dashboard_page(&ctx);
@@ -278,14 +284,14 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
 }
 
 pub fn dispatch_request(req: &mut Request) -> Response {
-    let manifest = build_default_manifest();
+    let manifest = build_generated_manifest();
     dispatch_request_with_manifest(&manifest, req)
 }
 
 pub fn run_server(port: i64, serve_once: bool) -> i64 {
     print_server_banner(port);
 
-    let manifest = build_default_manifest();
+    let manifest = build_generated_manifest();
     let val_res = manifest.validate();
     match val_res {
         Result::Ok(route_count) => {

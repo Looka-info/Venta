@@ -667,10 +667,13 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out.push_str(
         "// ============================================================================\n\n",
     );
-    out.push_str("import ventanext::router::{RouteManifest, make_route_manifest};\n");
-    out.push_str("import ventanext::http::{Request, Response, response_html, response_json, response_not_found};\n");
-    out.push_str("import ventanext::ssr::{RenderContext};\n");
-    out.push_str("import std::string::String;\n\n");
+    out.push_str("import router::{RouteManifest, make_route_manifest};\n");
+    out.push_str(
+        "import http::{Request, Response, response_html, response_json, response_not_found};\n",
+    );
+    out.push_str("import ssr::{RenderContext};\n");
+    out.push_str("import std::string::String;\n");
+    out.push_str("import std::option::Option;\n\n");
 
     out.push_str(
         "// ----------------------------------------------------------------------------\n",
@@ -720,10 +723,32 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     for r in &app.routes {
         if r.route_kind == RouteKind::Page {
             out.push_str(&format!("    if route_id == {} {{\n", r.id));
-            out.push_str(&format!(
-                "        return response_html(\"<h1>Page {}</h1><p>Pattern: {}</p>\");\n",
-                r.id, r.canonical_pattern
-            ));
+            let mut params = Vec::new();
+            for seg in &r.segments {
+                if let Some(ref p) = seg.param_name {
+                    if seg.kind != SegmentKind::Group {
+                        params.push(p);
+                    }
+                }
+            }
+            if params.is_empty() {
+                out.push_str(&format!(
+                    "        return response_html(\"<h1>Page {}</h1><p>Pattern: {}</p>\");\n",
+                    r.id, r.canonical_pattern
+                ));
+            } else {
+                out.push_str(&format!(
+                    "        let mut body = String::from_str(\"<h1>Route: {}</h1>\");\n",
+                    r.canonical_pattern
+                ));
+                for p in &params {
+                    out.push_str(&format!(
+                        "        let p_opt_{} = ctx.params.get(\"{}\");\n        body.push_str(\"<p>{} = \");\n        match p_opt_{} {{\n            Option::Some(val) => {{ body.push_str(val.as_str()); }}\n            Option::None => {{}}\n        }}\n        body.push_str(\"</p>\");\n",
+                        p, p, p, p
+                    ));
+                }
+                out.push_str("        return response_html(body.as_str());\n");
+            }
             out.push_str("    }\n");
         }
     }

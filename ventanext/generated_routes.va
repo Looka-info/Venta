@@ -3,10 +3,11 @@
 // Stage 2 Auto-Generated Module — DO NOT EDIT MANUALLY
 // ============================================================================
 
-import ventanext::router::{RouteManifest, make_route_manifest};
-import ventanext::http::{Request, Response, response_html, response_json, response_not_found};
-import ventanext::ssr::{RenderContext};
+import router::{RouteManifest, make_route_manifest};
+import http::{Request, Response, response_html, response_json, response_not_found};
+import ssr::{RenderContext};
 import std::string::String;
+import std::option::Option;
 
 // ----------------------------------------------------------------------------
 // 1. Build Generated Manifest
@@ -46,13 +47,37 @@ pub fn build_generated_manifest() -> RouteManifest {
 
 pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
     if route_id == 2 {
-        return response_html("<h1>Page 2</h1><p>Pattern: /blog/[slug]</p>");
+        let mut body = String::from_str("<h1>Route: /blog/[slug]</h1>");
+        let p_opt_slug = ctx.params.get("slug");
+        body.push_str("<p>slug = ");
+        match p_opt_slug {
+            Option::Some(val) => { body.push_str(val.as_str()); }
+            Option::None => {}
+        }
+        body.push_str("</p>");
+        return response_html(body.as_str());
     }
     if route_id == 3 {
-        return response_html("<h1>Page 3</h1><p>Pattern: /docs/[...path]</p>");
+        let mut body = String::from_str("<h1>Route: /docs/[...path]</h1>");
+        let p_opt_path = ctx.params.get("path");
+        body.push_str("<p>path = ");
+        match p_opt_path {
+            Option::Some(val) => { body.push_str(val.as_str()); }
+            Option::None => {}
+        }
+        body.push_str("</p>");
+        return response_html(body.as_str());
     }
     if route_id == 4 {
-        return response_html("<h1>Page 4</h1><p>Pattern: /foo/[...rest]</p>");
+        let mut body = String::from_str("<h1>Route: /foo/[...rest]</h1>");
+        let p_opt_rest = ctx.params.get("rest");
+        body.push_str("<p>rest = ");
+        match p_opt_rest {
+            Option::Some(val) => { body.push_str(val.as_str()); }
+            Option::None => {}
+        }
+        body.push_str("</p>");
+        return response_html(body.as_str());
     }
     if route_id == 5 {
         return response_html("<h1>Page 5</h1><p>Pattern: /about</p>");
@@ -64,10 +89,26 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         return response_html("<h1>Page 7</h1><p>Pattern: /pricing</p>");
     }
     if route_id == 8 {
-        return response_html("<h1>Page 8</h1><p>Pattern: /shop/[[...filter]]</p>");
+        let mut body = String::from_str("<h1>Route: /shop/[[...filter]]</h1>");
+        let p_opt_filter = ctx.params.get("filter");
+        body.push_str("<p>filter = ");
+        match p_opt_filter {
+            Option::Some(val) => { body.push_str(val.as_str()); }
+            Option::None => {}
+        }
+        body.push_str("</p>");
+        return response_html(body.as_str());
     }
     if route_id == 9 {
-        return response_html("<h1>Page 9</h1><p>Pattern: /[id]/bar</p>");
+        let mut body = String::from_str("<h1>Route: /[id]/bar</h1>");
+        let p_opt_id = ctx.params.get("id");
+        body.push_str("<p>id = ");
+        match p_opt_id {
+            Option::Some(val) => { body.push_str(val.as_str()); }
+            Option::None => {}
+        }
+        body.push_str("</p>");
+        return response_html(body.as_str());
     }
     if route_id == 10 {
         return response_html("<h1>Page 10</h1><p>Pattern: /</p>");
