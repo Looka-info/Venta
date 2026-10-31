@@ -6,8 +6,8 @@
 use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
-    export_static_site, generate_manifest_json, generate_venta_code, parse_segment,
-    scan_app_directory, RenderMode, RouteKind, SegmentKind,
+    discover_api_methods, export_static_site, generate_manifest_json, generate_venta_code,
+    parse_segment, scan_app_directory, RenderMode, RouteKind, SegmentKind,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -633,4 +633,173 @@ fn test_28_method_discovery_from_route_file() {
     assert!(items.methods.contains(&"HEAD".to_string())); // GET implicitly supports HEAD
     assert!(!items.methods.contains(&"DELETE".to_string()));
     assert!(!items.methods.contains(&"PUT".to_string()));
+}
+
+#[test]
+fn test_29_exported_get_and_post_discovered() {
+    let code = r#"
+        pub fn GET() -> String { "get" }
+        pub fn POST() -> String { "post" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(methods.contains(&"GET".to_string()));
+    assert!(methods.contains(&"POST".to_string()));
+    assert!(methods.contains(&"HEAD".to_string())); // Implied HEAD
+    assert!(!methods.contains(&"DELETE".to_string()));
+    assert!(!methods.contains(&"PUT".to_string()));
+}
+
+#[test]
+fn test_30_private_get_is_ignored() {
+    let code = r#"
+        fn GET() -> String { "private get" }
+        pub fn POST() -> String { "exported post" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(!methods.contains(&"GET".to_string()));
+    assert!(!methods.contains(&"HEAD".to_string())); // No GET, so no implied HEAD
+    assert!(methods.contains(&"POST".to_string()));
+    assert_eq!(methods, vec!["POST".to_string()]);
+}
+
+#[test]
+fn test_31_commented_out_delete_is_ignored() {
+    let code = r#"
+        // pub fn DELETE() -> String { "deleted" }
+        /*
+        pub fn DELETE() -> String { "block deleted" }
+        */
+        pub fn POST() -> String { "post" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(!methods.contains(&"DELETE".to_string()));
+    assert_eq!(methods, vec!["POST".to_string()]);
+}
+
+#[test]
+fn test_32_string_literal_containing_put_is_ignored() {
+    let code = r#"
+        pub fn POST() -> String {
+            let fake_decl = "pub fn PUT() -> String { \"fake\" }";
+            fake_decl
+        }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(!methods.contains(&"PUT".to_string()));
+    assert_eq!(methods, vec!["POST".to_string()]);
+}
+
+#[test]
+fn test_33_similar_identifier_getting_does_not_register_get() {
+    let code = r#"
+        pub fn GETTING() -> String { "getting" }
+        pub fn POST() -> String { "post" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(!methods.contains(&"GET".to_string()));
+    assert!(!methods.contains(&"HEAD".to_string()));
+    assert_eq!(methods, vec!["POST".to_string()]);
+}
+
+#[test]
+fn test_34_multiline_exported_function_declarations_recognized() {
+    let code = r#"
+        pub
+            fn
+                GET(
+                    req: &Request
+                ) -> Response {
+            Response::ok()
+        }
+        pub
+            fn
+                POST(
+                    req: &Request
+                ) -> Response {
+            Response::ok()
+        }
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(methods.contains(&"GET".to_string()));
+    assert!(methods.contains(&"POST".to_string()));
+    assert!(methods.contains(&"HEAD".to_string())); // Implied HEAD
+    assert_eq!(
+        methods,
+        vec!["GET".to_string(), "POST".to_string(), "HEAD".to_string()]
+    );
+}
+
+#[test]
+fn test_35_explicit_head_recognized() {
+    let code = r#"
+        pub fn HEAD() -> String { "" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert_eq!(methods, vec!["HEAD".to_string()]);
+}
+
+#[test]
+fn test_36_get_automatically_adds_head() {
+    let code = r#"
+        pub fn GET() -> String { "only get declared" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert_eq!(methods, vec!["GET".to_string(), "HEAD".to_string()]);
+}
+
+#[test]
+fn test_37_route_with_no_recognized_methods_retains_fallback() {
+    let code = r#"
+        // Generic handler pattern without individual HTTP method functions
+        pub fn handle_api() -> String { "fallback" }
+    "#;
+    let methods = discover_api_methods(code);
+    assert_eq!(
+        methods,
+        vec![
+            "GET".to_string(),
+            "POST".to_string(),
+            "PUT".to_string(),
+            "DELETE".to_string(),
+            "PATCH".to_string(),
+            "HEAD".to_string(),
+            "OPTIONS".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_38_nested_function_declarations_ignored() {
+    let code = r#"
+        pub fn helper() {
+            pub fn DELETE() {}
+        }
+        pub fn POST() {}
+    "#;
+    let methods = discover_api_methods(code);
+    assert!(!methods.contains(&"DELETE".to_string()));
+    assert_eq!(methods, vec!["POST".to_string()]);
+}
+
+#[test]
+fn test_39_api_users_manifest_registers_only_get_and_head() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Scan of real app/ directory must succeed");
+        let users = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/users")
+            .expect("/api/users must be registered in app/");
+        assert_eq!(
+            users.methods,
+            vec!["GET".to_string(), "HEAD".to_string()],
+            "/api/users route must only declare GET and implied HEAD"
+        );
+    }
 }

@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use vanta_diagnostics::DiagnosticBag;
+use vanta_lexer::{Lexer, TokenKind};
+use vanta_source::{FileId, SourceFile};
 
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
@@ -529,37 +532,7 @@ fn parse_route_file(
         vec!["GET".to_string(), "HEAD".to_string()]
     } else {
         let content = fs::read_to_string(full_path).unwrap_or_default();
-        let candidate_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-        let mut found = Vec::new();
-        for m in &candidate_methods {
-            let pat1 = format!("pub fn {}()", m);
-            let pat2 = format!("pub fn {}(", m);
-            let pat3 = format!("fn {}()", m);
-            let pat4 = format!("fn {}(", m);
-            if content.contains(&pat1)
-                || content.contains(&pat2)
-                || content.contains(&pat3)
-                || content.contains(&pat4)
-            {
-                found.push(m.to_string());
-            }
-        }
-        if !found.is_empty() {
-            if found.contains(&"GET".to_string()) && !found.contains(&"HEAD".to_string()) {
-                found.push("HEAD".to_string());
-            }
-            found
-        } else {
-            vec![
-                "GET".to_string(),
-                "POST".to_string(),
-                "PUT".to_string(),
-                "DELETE".to_string(),
-                "PATCH".to_string(),
-                "HEAD".to_string(),
-                "OPTIONS".to_string(),
-            ]
-        }
+        discover_api_methods(&content)
     };
 
     let has_dynamic_segments = segments.iter().any(|s| {
@@ -589,6 +562,116 @@ fn parse_route_file(
         methods,
         specificity,
     })
+}
+
+// ----------------------------------------------------------------------------
+// 3.1. API Method Discovery Parser
+// ----------------------------------------------------------------------------
+
+/// Standard candidate HTTP methods recognized for VentaNext API route handlers.
+pub const CANDIDATE_HTTP_METHODS: [&str; 7] =
+    ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+
+/// Discovers top-level exported HTTP handler declarations in an API route file.
+///
+/// Recognized declarations:
+/// - `pub fn GET`
+/// - `pub fn POST`
+/// - `pub fn PUT`
+/// - `pub fn DELETE`
+/// - `pub fn PATCH`
+/// - `pub fn HEAD`
+/// - `pub fn OPTIONS`
+///
+/// Rules:
+/// - Only recognizes top-level declarations (`brace_depth == 0`).
+/// - Rejects private declarations (`fn METHOD`).
+/// - Rejects method declarations inside line or block comments (stripped by `vanta_lexer`).
+/// - Rejects method declarations inside string literals (`"pub fn PUT()"`).
+/// - Rejects similar identifiers (`pub fn GETTING()`).
+/// - Rejects nested declarations (e.g., inside functions, structs, or impl blocks).
+/// - Tolerates ordinary formatting variations, whitespace, and multiline signatures.
+/// - If `GET` is declared and `HEAD` is not explicitly declared, `HEAD` is automatically added.
+/// - If explicit `HEAD` is declared, it is recognized.
+/// - If no recognized HTTP method declarations are found, falls back to all 7 standard methods
+///   for backward compatibility with single-handler API files (e.g. `pub fn handle_api()`).
+pub fn discover_api_methods(content: &str) -> Vec<String> {
+    let source_file = SourceFile::new(FileId(0), "route.va".to_string(), content.to_string());
+    let mut diags = DiagnosticBag::new();
+    let mut lexer = Lexer::new(&source_file);
+    let tokens = lexer.tokenize(&mut diags);
+
+    let mut found = Vec::new();
+    let mut brace_depth: usize = 0;
+
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i].kind {
+            TokenKind::LBrace => {
+                brace_depth += 1;
+                i += 1;
+            }
+            TokenKind::RBrace => {
+                brace_depth = brace_depth.saturating_sub(1);
+                i += 1;
+            }
+            TokenKind::Pub if brace_depth == 0 => {
+                let mut cursor = i + 1;
+                if cursor < tokens.len() && tokens[cursor].kind == TokenKind::Unsafe {
+                    cursor += 1;
+                }
+                if cursor < tokens.len() && tokens[cursor].kind == TokenKind::Fn {
+                    cursor += 1;
+                    if cursor < tokens.len() {
+                        if let TokenKind::Ident(ref name) = tokens[cursor].kind {
+                            let next_cursor = cursor + 1;
+                            let is_fn_sig = next_cursor < tokens.len()
+                                && matches!(
+                                    tokens[next_cursor].kind,
+                                    TokenKind::LParen | TokenKind::Lt
+                                );
+
+                            if is_fn_sig && CANDIDATE_HTTP_METHODS.contains(&name.as_str()) {
+                                if !found.contains(name) {
+                                    found.push(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    if found.is_empty() {
+        // Compatibility fallback: if no recognized HTTP method declarations exist,
+        // retain all 7 methods for generic handler route files (e.g., `pub fn handle_api()`).
+        return CANDIDATE_HTTP_METHODS
+            .iter()
+            .map(|&s| s.to_string())
+            .collect();
+    }
+
+    // GET implies HEAD when HEAD is not explicitly declared
+    let has_get = found.iter().any(|m| m == "GET");
+    let has_head = found.iter().any(|m| m == "HEAD");
+    if has_get && !has_head {
+        found.push("HEAD".to_string());
+    }
+
+    // Return methods in canonical HTTP method order
+    let mut ordered = Vec::new();
+    for &candidate in &CANDIDATE_HTTP_METHODS {
+        if found.iter().any(|m| m == candidate) {
+            ordered.push(candidate.to_string());
+        }
+    }
+
+    ordered
 }
 
 // ----------------------------------------------------------------------------
