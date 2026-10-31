@@ -1,0 +1,19 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Route Adapter for /api/health
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn handle_api() -> String {
+    String::from_str("{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}")
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridges (lowercase to prevent uppercase enum variant collision)
+// ----------------------------------------------------------------------------
+
+pub fn invoke_handle_api() -> String {
+    handle_api()
+}
+

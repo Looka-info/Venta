@@ -6,8 +6,9 @@
 use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
-    discover_api_methods, export_static_site, generate_manifest_json, generate_venta_code,
-    parse_segment, scan_app_directory, RenderMode, RouteKind, SegmentKind,
+    discover_api_methods, export_static_site, generate_api_adapter_code, generate_manifest_json,
+    generate_venta_code, parse_segment, scan_app_directory, validate_api_route_handlers,
+    write_generated_routes, RenderMode, RouteKind, SegmentKind,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -617,7 +618,7 @@ fn test_28_method_discovery_from_route_file() {
     fs::create_dir_all(tmp.path().join("api/items")).unwrap();
     fs::write(
         tmp.path().join("api/items/route.va"),
-        "pub fn GET() {}\npub fn POST() {}",
+        "pub fn GET() -> String { String::from_str(\"\") }\npub fn POST() -> String { String::from_str(\"\") }",
     )
     .unwrap();
 
@@ -800,6 +801,269 @@ fn test_39_api_users_manifest_registers_only_get_and_head() {
             users.methods,
             vec!["GET".to_string(), "HEAD".to_string()],
             "/api/users route must only declare GET and implied HEAD"
+        );
+    }
+}
+
+#[test]
+fn test_40_static_api_adapter_generation_for_users() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Scan of real app/ directory must succeed");
+        let users = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/users")
+            .expect("/api/users must be registered");
+        let content = std::fs::read_to_string(&users.source_file).unwrap();
+        let adapter = generate_api_adapter_code(users, &content);
+
+        assert!(adapter.contains("pub fn GET() -> String"));
+        assert!(adapter.contains("Ada Lovelace"));
+        assert!(adapter.contains("Alan Turing"));
+        assert!(adapter.contains("pub fn invoke_get() -> String {\n    GET()\n}"));
+        assert!(adapter.contains("pub fn invoke_head() -> String {\n    GET()\n}"));
+    }
+}
+
+#[test]
+fn test_41_static_api_adapter_generation_for_health() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Scan of real app/ directory must succeed");
+        let health = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/health")
+            .expect("/api/health must be registered");
+        let content = std::fs::read_to_string(&health.source_file).unwrap();
+        let adapter = generate_api_adapter_code(health, &content);
+
+        assert!(adapter.contains("pub fn handle_api() -> String"));
+        assert!(adapter.contains("ventanext-health"));
+        assert!(adapter.contains("pub fn invoke_handle_api() -> String {\n    handle_api()\n}"));
+    }
+}
+
+#[test]
+fn test_42_generated_dispatcher_contains_no_generic_placeholder() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Scan of real app/ directory must succeed");
+        let code = generate_venta_code(&app);
+
+        // Must invoke static adapter bridges
+        assert!(code.contains("mod route_api_users;"));
+        assert!(code.contains("mod route_api_health;"));
+        assert!(code.contains("route_api_users::invoke_get()"));
+        assert!(code.contains("route_api_users::invoke_head()"));
+        assert!(code.contains("route_api_health::invoke_handle_api()"));
+
+        // Must NOT contain placeholder responses
+        assert!(!code.contains("{\"status\":\"ok\",\"endpoint\":\"/api/users\""));
+        assert!(!code.contains("{\"status\":\"ok\",\"endpoint\":\"/api/health\""));
+    }
+}
+
+#[test]
+fn test_43_unsupported_handler_signature_with_parameters_produces_diagnostic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        import http::Request;
+        import http::Response;
+        pub fn GET(req: &Request) -> Response {
+            Response::ok()
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Handlers with parameters must be rejected in Phase 1.3A"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Unsupported handler signature"),
+        "Error message must clearly state unsupported signature"
+    );
+    assert!(
+        err.message.contains("1 parameter(s)"),
+        "Error message must specify parameter count"
+    );
+}
+
+#[test]
+fn test_44_unsupported_handler_signature_with_non_string_return_produces_diagnostic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        pub fn GET() -> i64 {
+            42
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Handlers with non-String return types must be rejected"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Unsupported return type"),
+        "Error message must clearly state unsupported return type"
+    );
+}
+
+#[test]
+fn test_45_unsupported_handler_missing_return_type_produces_diagnostic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("route.va");
+    let code = r#"
+        pub fn GET() {
+        }
+    "#;
+    let res = validate_api_route_handlers(&file_path, code);
+    assert!(
+        res.is_err(),
+        "Handlers with unit return type must be rejected"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        err.message.contains("Unsupported return type"),
+        "Error message must clearly state unsupported return type"
+    );
+}
+
+#[test]
+fn test_46_write_generated_routes_creates_adapters_and_manifest() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).expect("Scan must succeed");
+        let tmp = tempfile::tempdir().unwrap();
+        let out_va = tmp.path().join("generated_routes.va");
+
+        write_generated_routes(&app, &out_va).expect("write_generated_routes must succeed");
+
+        assert!(out_va.exists(), "generated_routes.va must be created");
+        let adapter_dir = tmp.path().join("generated_routes");
+        assert!(
+            adapter_dir.exists(),
+            "generated_routes directory must be created"
+        );
+        assert!(
+            adapter_dir.join("route_api_users.va").exists(),
+            "route_api_users.va must be created"
+        );
+        assert!(
+            adapter_dir.join("route_api_health.va").exists(),
+            "route_api_health.va must be created"
+        );
+
+        let users_content =
+            std::fs::read_to_string(adapter_dir.join("route_api_users.va")).unwrap();
+        assert!(users_content.contains("Ada Lovelace"));
+        assert!(users_content.contains("invoke_get"));
+    }
+}
+
+#[test]
+fn test_47_changing_handler_data_changes_generated_adapter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("api/data")).unwrap();
+
+    let route_file = app_dir.join("api/data/route.va");
+    fs::write(
+        &route_file,
+        r#"
+        import std::string::String;
+        pub fn GET() -> String {
+            String::from_str("{\"author\":\"Ada Lovelace\"}")
+        }
+        "#,
+    )
+    .unwrap();
+
+    let app1 = scan_app_directory(&app_dir).unwrap();
+    let out_va = tmp.path().join("ventanext/generated_routes.va");
+    write_generated_routes(&app1, &out_va).unwrap();
+
+    let adapter_path = tmp
+        .path()
+        .join("ventanext/generated_routes/route_api_data.va");
+    let content1 = fs::read_to_string(&adapter_path).unwrap();
+    assert!(content1.contains("Ada Lovelace"));
+
+    // Modify route file with new data
+    fs::write(
+        &route_file,
+        r#"
+        import std::string::String;
+        pub fn GET() -> String {
+            String::from_str("{\"author\":\"Grace Hopper\"}")
+        }
+        "#,
+    )
+    .unwrap();
+
+    let app2 = scan_app_directory(&app_dir).unwrap();
+    write_generated_routes(&app2, &out_va).unwrap();
+
+    let content2 = fs::read_to_string(&adapter_path).unwrap();
+    assert!(!content2.contains("Ada Lovelace"));
+    assert!(content2.contains("Grace Hopper"));
+}
+
+#[test]
+fn test_48_generation_determinism_across_runs() {
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app1 = scan_app_directory(&app_dir).unwrap();
+        let app2 = scan_app_directory(&app_dir).unwrap();
+
+        let tmp1 = tempfile::tempdir().unwrap();
+        let out1 = tmp1.path().join("generated_routes.va");
+        write_generated_routes(&app1, &out1).unwrap();
+
+        let tmp2 = tempfile::tempdir().unwrap();
+        let out2 = tmp2.path().join("generated_routes.va");
+        write_generated_routes(&app2, &out2).unwrap();
+
+        let code1 = fs::read_to_string(&out1).unwrap();
+        let code2 = fs::read_to_string(&out2).unwrap();
+        assert_eq!(code1, code2, "Generated code must be 100% deterministic");
+
+        let adapter1_users =
+            fs::read_to_string(tmp1.path().join("generated_routes/route_api_users.va")).unwrap();
+        let adapter2_users =
+            fs::read_to_string(tmp2.path().join("generated_routes/route_api_users.va")).unwrap();
+        assert_eq!(
+            adapter1_users, adapter2_users,
+            "Adapter files must be 100% deterministic"
         );
     }
 }

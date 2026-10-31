@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process;
 use ventanext_codegen::{
     export_static_site, generate_manifest_json, generate_venta_code, scan_app_directory,
+    write_generated_routes,
 };
 
 fn print_usage() {
@@ -69,9 +70,8 @@ fn main() {
                 discovered.routes.len()
             );
 
-            let venta_code = generate_venta_code(&discovered);
             if let Some(ref path) = out_va_path {
-                if let Err(e) = fs::write(path, &venta_code) {
+                if let Err(e) = write_generated_routes(&discovered, path) {
                     eprintln!(
                         "[ventanext] Failed to write Venta output to {:?}: {}",
                         path, e
@@ -83,6 +83,7 @@ fn main() {
                     path
                 );
             } else {
+                let venta_code = generate_venta_code(&discovered);
                 println!("{}", venta_code);
             }
 

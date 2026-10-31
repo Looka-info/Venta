@@ -1,0 +1,23 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Route Adapter for /api/users
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"users\":[{\"id\":101,\"name\":\"Ada Lovelace\"},{\"id\":102,\"name\":\"Alan Turing\"}]}")
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridges (lowercase to prevent uppercase enum variant collision)
+// ----------------------------------------------------------------------------
+
+pub fn invoke_get() -> String {
+    GET()
+}
+
+pub fn invoke_head() -> String {
+    GET()
+}
+

@@ -11,6 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use vanta_diagnostics::DiagnosticBag;
 use vanta_lexer::{Lexer, TokenKind};
+use vanta_parser::ast::{Item, TypeExprKind};
+use vanta_parser::Parser;
 use vanta_source::{FileId, SourceFile};
 
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
@@ -65,6 +67,14 @@ pub struct RouteMetadata {
     pub layout_chain: Vec<String>,
     pub methods: Vec<String>,
     pub specificity: i64,
+    #[serde(default)]
+    pub has_generic_handler: bool,
+    #[serde(default)]
+    pub explicit_methods: Vec<String>,
+    #[serde(default)]
+    pub adapter_module_name: String,
+    #[serde(default)]
+    pub source_content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -528,12 +538,24 @@ fn parse_route_file(
         }
     }
 
-    let methods = if kind == RouteKind::Page {
-        vec!["GET".to_string(), "HEAD".to_string()]
-    } else {
-        let content = fs::read_to_string(full_path).unwrap_or_default();
-        discover_api_methods(&content)
-    };
+    let (methods, explicit_methods, has_generic_handler, source_content) =
+        if kind == RouteKind::Page {
+            (
+                vec!["GET".to_string(), "HEAD".to_string()],
+                Vec::new(),
+                false,
+                String::new(),
+            )
+        } else {
+            let content = fs::read_to_string(full_path).unwrap_or_default();
+            let validated = validate_api_route_handlers(full_path, &content)?;
+            (
+                validated.methods,
+                validated.explicit_methods,
+                validated.has_generic_handler,
+                content,
+            )
+        };
 
     let has_dynamic_segments = segments.iter().any(|s| {
         s.kind == SegmentKind::Dynamic
@@ -549,6 +571,12 @@ fn parse_route_file(
         RenderMode::Static
     };
 
+    let adapter_module_name = if kind == RouteKind::Api {
+        sanitize_module_name(&canonical_pattern)
+    } else {
+        String::new()
+    };
+
     Ok(RouteMetadata {
         id: 0, // Assigned after sorting
         canonical_pattern,
@@ -561,6 +589,10 @@ fn parse_route_file(
         layout_chain,
         methods,
         specificity,
+        has_generic_handler,
+        explicit_methods,
+        adapter_module_name,
+        source_content,
     })
 }
 
@@ -675,6 +707,219 @@ pub fn discover_api_methods(content: &str) -> Vec<String> {
 }
 
 // ----------------------------------------------------------------------------
+// 3.2. Static API Route Handler Validation & Adapter Generation
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedApiHandlers {
+    pub methods: Vec<String>,
+    pub explicit_methods: Vec<String>,
+    pub has_generic_handler: bool,
+}
+
+/// Sanitizes a canonical route pattern (e.g. `/api/users`) into a valid, deterministic Venta module identifier.
+pub fn sanitize_module_name(canonical_pattern: &str) -> String {
+    let raw = canonical_pattern
+        .trim_start_matches('/')
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+
+    let mut collapsed = String::new();
+    let mut prev_underscore = false;
+    for c in raw.chars() {
+        if c == '_' {
+            if !prev_underscore {
+                collapsed.push('_');
+                prev_underscore = true;
+            }
+        } else {
+            collapsed.push(c);
+            prev_underscore = false;
+        }
+    }
+    let trimmed = collapsed.trim_matches('_');
+    if trimmed.is_empty() {
+        "route_root".to_string()
+    } else {
+        format!("route_{}", trimmed)
+    }
+}
+
+/// Validates API route handlers against the Phase 1.3A signature contract.
+///
+/// Contract:
+/// - Supported functions: top-level exported candidate HTTP methods (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`)
+///   or the generic handler convention `handle_api`.
+/// - Parameter signature: MUST have zero parameters (`f.params.is_empty()`).
+/// - Return type: MUST return `String` (or `std::string::String`).
+/// - Rejects unsupported signatures (parameters > 0 or non-String return types) with detailed error diagnostics.
+/// - If no recognized handlers are found, retains 7-method compatibility fallback for generic or mock routes.
+pub fn validate_api_route_handlers(
+    file_path: &Path,
+    content: &str,
+) -> Result<ValidatedApiHandlers, RouteConflictError> {
+    let source_file = SourceFile::new(
+        FileId(0),
+        file_path.to_string_lossy().to_string(),
+        content.to_string(),
+    );
+    let mut diags = DiagnosticBag::new();
+    let mut lexer = Lexer::new(&source_file);
+    let tokens = lexer.tokenize(&mut diags);
+    let mut parser = Parser::new(tokens);
+    let program = parser.parse_program(&mut diags);
+
+    let mut explicit_methods = Vec::new();
+    let mut has_generic_handler = false;
+
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            if !f.is_pub {
+                continue;
+            }
+            let fn_name = &f.name.name;
+            let is_candidate_method = CANDIDATE_HTTP_METHODS.contains(&fn_name.as_str());
+            let is_handle_api = fn_name == "handle_api";
+
+            if is_candidate_method || is_handle_api {
+                // 1. Check parameter count: must be zero
+                if !f.params.is_empty() {
+                    return Err(RouteConflictError {
+                        message: format!(
+                            "Unsupported handler signature in {:?}: '{}' has {} parameter(s). Only zero-argument handlers returning 'String' (e.g. 'pub fn {}() -> String') are currently supported in Phase 1.3A.",
+                            file_path, fn_name, f.params.len(), fn_name
+                        ),
+                        first_source: Some(file_path.to_path_buf()),
+                        second_source: None,
+                    });
+                }
+
+                // 2. Check return type: must be String
+                let returns_string = match &f.ret_type {
+                    Some(type_expr) => match &type_expr.kind {
+                        TypeExprKind::Named(name) => {
+                            name == "String" || name == "std::string::String"
+                        }
+                        _ => false,
+                    },
+                    None => false,
+                };
+
+                if !returns_string {
+                    return Err(RouteConflictError {
+                        message: format!(
+                            "Unsupported return type in {:?}: handler '{}' must return 'String', found unsupported return type. Only handlers returning 'String' (e.g. 'pub fn {}() -> String') are currently supported in Phase 1.3A.",
+                            file_path, fn_name, fn_name
+                        ),
+                        first_source: Some(file_path.to_path_buf()),
+                        second_source: None,
+                    });
+                }
+
+                if is_handle_api {
+                    has_generic_handler = true;
+                } else if !explicit_methods.contains(fn_name) {
+                    explicit_methods.push(fn_name.clone());
+                }
+            }
+        }
+    }
+
+    let methods = if !explicit_methods.is_empty() {
+        let mut m = explicit_methods.clone();
+        if m.contains(&"GET".to_string()) && !m.contains(&"HEAD".to_string()) {
+            m.push("HEAD".to_string());
+        }
+        let mut ordered = Vec::new();
+        for &cand in &CANDIDATE_HTTP_METHODS {
+            if m.contains(&cand.to_string()) {
+                ordered.push(cand.to_string());
+            }
+        }
+        ordered
+    } else {
+        CANDIDATE_HTTP_METHODS
+            .iter()
+            .map(|&s| s.to_string())
+            .collect()
+    };
+
+    Ok(ValidatedApiHandlers {
+        methods,
+        explicit_methods,
+        has_generic_handler,
+    })
+}
+
+/// Generates the static adapter Venta module content for an API route.
+///
+/// Wraps the user's route source and appends lowercase static invocation bridge functions
+/// (`invoke_get`, `invoke_post`, etc., or `invoke_handle_api`) so that generated dispatch code
+/// can invoke route handlers without enum variant name collision.
+pub fn generate_api_adapter_code(route: &RouteMetadata, content: &str) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "// ============================================================================\n",
+    );
+    out.push_str(&format!(
+        "// ⚡ VentaNext Framework — Static Route Adapter for {}\n",
+        route.canonical_pattern
+    ));
+    out.push_str("// Auto-Generated Module — DO NOT EDIT MANUALLY\n");
+    out.push_str(
+        "// ============================================================================\n\n",
+    );
+
+    if !content.contains("import std::string::String") {
+        out.push_str("import std::string::String;\n\n");
+    }
+    out.push_str(content.trim());
+    out.push_str("\n\n");
+
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n",
+    );
+    out.push_str(
+        "// Static Invocation Bridges (lowercase to prevent uppercase enum variant collision)\n",
+    );
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n\n",
+    );
+
+    if route.has_generic_handler {
+        out.push_str("pub fn invoke_handle_api() -> String {\n");
+        out.push_str("    handle_api()\n");
+        out.push_str("}\n\n");
+    } else if !route.explicit_methods.is_empty() {
+        let has_explicit_head = route.explicit_methods.contains(&"HEAD".to_string());
+        for m in &route.methods {
+            let lower = m.to_lowercase();
+            if m == "HEAD" && !has_explicit_head {
+                out.push_str(&format!("pub fn invoke_{}() -> String {{\n", lower));
+                out.push_str("    GET()\n");
+                out.push_str("}\n\n");
+            } else if m == "HEAD" && has_explicit_head {
+                out.push_str(&format!("pub fn invoke_{}() -> String {{\n", lower));
+                out.push_str("    HEAD()\n");
+                out.push_str("}\n\n");
+            } else {
+                out.push_str(&format!("pub fn invoke_{}() -> String {{\n", lower));
+                out.push_str(&format!("    {}()\n", m));
+                out.push_str("}\n\n");
+            }
+        }
+    } else {
+        // Fallback for mock route files without declared handlers
+        out.push_str("pub fn invoke_handle_api() -> String {\n");
+        out.push_str("    String::from_str(\"{\\\"status\\\":\\\"ok\\\"}\")\n");
+        out.push_str("}\n\n");
+    }
+
+    out
+}
+
+// ----------------------------------------------------------------------------
 // 4. Collision & Conflict Detection
 // ----------------------------------------------------------------------------
 
@@ -781,6 +1026,25 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out.push_str("import std::string::String;\n");
     out.push_str("import std::option::Option;\n\n");
 
+    let mut api_routes: Vec<&RouteMetadata> = app
+        .routes
+        .iter()
+        .filter(|r| r.route_kind == RouteKind::Api)
+        .collect();
+    api_routes.sort_by_key(|r| r.id);
+
+    if !api_routes.is_empty() {
+        for r in &api_routes {
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+            out.push_str(&format!("mod {};\n", mod_name));
+        }
+        out.push_str("\n");
+    }
+
     out.push_str(
         "// ----------------------------------------------------------------------------\n",
     );
@@ -862,23 +1126,110 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out.push_str("}\n\n");
 
     out.push_str("pub fn dispatch_api(handler_id: i64, req: &mut Request) -> Response {\n");
-    for r in &app.routes {
-        if r.route_kind == RouteKind::Api {
-            out.push_str(&format!("    if handler_id == {} {{\n", r.id));
+    for r in &api_routes {
+        let mod_name = if !r.adapter_module_name.is_empty() {
+            r.adapter_module_name.clone()
+        } else {
+            sanitize_module_name(&r.canonical_pattern)
+        };
+
+        out.push_str(&format!("    if handler_id == {} {{\n", r.id));
+        if r.has_generic_handler || r.explicit_methods.is_empty() {
             out.push_str(&format!(
-                "        let mut json = String::from_str(\"{{\\\"status\\\":\\\"ok\\\",\\\"endpoint\\\":\\\"{}\\\",\\\"method\\\":\\\"\");\n",
-                r.canonical_pattern
+                "        let content = {}::invoke_handle_api();\n",
+                mod_name
             ));
-            out.push_str("        json.push_str(req.method.as_str());\n");
-            out.push_str("        json.push_str(\"\\\"}\");\n");
-            out.push_str("        return response_json(json.as_str());\n");
-            out.push_str("    }\n");
+            out.push_str("        return response_json(content.as_str());\n");
+        } else {
+            if r.methods.contains(&"HEAD".to_string()) {
+                out.push_str("        if req.method.equals(\"HEAD\") {\n");
+                out.push_str(&format!(
+                    "            let content = {}::invoke_head();\n",
+                    mod_name
+                ));
+                out.push_str("            return response_json(content.as_str());\n");
+                out.push_str("        }\n");
+            }
+            for m in &r.methods {
+                if m == "HEAD" {
+                    continue;
+                }
+                let lower = m.to_lowercase();
+                out.push_str(&format!("        if req.method.equals(\"{}\") {{\n", m));
+                out.push_str(&format!(
+                    "            let content = {}::invoke_{}();\n",
+                    mod_name, lower
+                ));
+                out.push_str("            return response_json(content.as_str());\n");
+                out.push_str("        }\n");
+            }
         }
+        out.push_str("    }\n");
     }
     out.push_str("    response_not_found(\"{\\\"error\\\":\\\"API endpoint not found\\\"}\")\n");
     out.push_str("}\n");
 
     out
+}
+
+/// Writes both the main generated routes module and all child API route adapter modules.
+///
+/// Directory layout:
+/// - `{out_va_path}` (e.g. `ventanext/generated_routes.va`)
+/// - `{out_va_path.stem()}/` (e.g. `ventanext/generated_routes/`)
+///   - `{adapter_mod_1}.va` (e.g. `route_api_health.va`)
+///   - `{adapter_mod_2}.va` (e.g. `route_api_users.va`)
+pub fn write_generated_routes(
+    discovered: &DiscoveredApp,
+    out_va_path: &Path,
+) -> std::io::Result<()> {
+    let parent_dir = out_va_path.parent().unwrap_or(Path::new("."));
+    let stem = out_va_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("generated_routes");
+    let adapter_dir = parent_dir.join(stem);
+
+    fs::create_dir_all(&adapter_dir)?;
+
+    let mut expected_files = BTreeSet::new();
+
+    for r in &discovered.routes {
+        if r.route_kind == RouteKind::Api {
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+            let adapter_filename = format!("{}.va", mod_name);
+            let adapter_path = adapter_dir.join(&adapter_filename);
+            expected_files.insert(adapter_filename);
+
+            let content = if !r.source_content.is_empty() {
+                r.source_content.clone()
+            } else {
+                fs::read_to_string(&r.source_file).unwrap_or_default()
+            };
+
+            let adapter_code = generate_api_adapter_code(r, &content);
+            fs::write(&adapter_path, adapter_code)?;
+        }
+    }
+
+    if let Ok(entries) = fs::read_dir(&adapter_dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_name) = entry.file_name().into_string() {
+                if file_name.ends_with(".va") && !expected_files.contains(&file_name) {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    let main_code = generate_venta_code(discovered);
+    fs::write(out_va_path, main_code)?;
+
+    Ok(())
 }
 
 // ----------------------------------------------------------------------------

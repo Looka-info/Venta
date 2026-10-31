@@ -76,7 +76,7 @@ fn str_contains(haystack: &str, needle: &str) -> bool {
 }
 
 fn test_route_manifest_registration_and_validation() {
-    print_str("[1/22] Testing Route Manifest registration & validation... ");
+    print_str("[1/23] Testing Route Manifest registration & validation... ");
     let mut m = make_route_manifest();
     m.add_page_route("/", layout_root(), 1);
     m.add_page_route("/about", layout_root(), 2);
@@ -99,7 +99,7 @@ fn test_route_manifest_registration_and_validation() {
 }
 
 fn test_route_conflict_detection() {
-    print_str("[2/22] Testing Route Conflict detection... ");
+    print_str("[2/23] Testing Route Conflict detection... ");
     let mut m = make_route_manifest();
     m.add_page_route("/blog/[id]", layout_root(), 10);
     m.add_page_route("/blog/[slug]", layout_root(), 11); // Conflict: ambiguous dynamic parameter
@@ -128,7 +128,7 @@ fn test_route_conflict_detection() {
 }
 
 fn test_specificity_precedence() {
-    print_str("[3/22] Testing Specificity Precedence (Static > Dynamic)... ");
+    print_str("[3/23] Testing Specificity Precedence (Static > Dynamic)... ");
     let mut m = make_route_manifest();
     m.add_page_route("/posts/[slug]", layout_root(), 100); // Dynamic
     m.add_page_route("/posts/new", layout_root(), 101);    // Static: higher specificity
@@ -146,7 +146,7 @@ fn test_specificity_precedence() {
 }
 
 fn test_dynamic_param_extraction() {
-    print_str("[4/22] Testing Dynamic Parameter Extraction ([param])... ");
+    print_str("[4/23] Testing Dynamic Parameter Extraction ([param])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/users/[id]", layout_root(), 200);
 
@@ -172,7 +172,7 @@ fn test_dynamic_param_extraction() {
 }
 
 fn test_catch_all_param_extraction() {
-    print_str("[5/22] Testing Catch-All Parameter Extraction ([...path])... ");
+    print_str("[5/23] Testing Catch-All Parameter Extraction ([...path])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/docs/[...path]", layout_root(), 300);
 
@@ -198,7 +198,7 @@ fn test_catch_all_param_extraction() {
 }
 
 fn test_optional_catch_all_param_extraction() {
-    print_str("[6/22] Testing Optional Catch-All Parameter Extraction ([[...filter]])... ");
+    print_str("[6/23] Testing Optional Catch-All Parameter Extraction ([[...filter]])... ");
     let mut m = make_route_manifest();
     m.add_page_route("/shop/[[...filter]]", layout_root(), 400);
 
@@ -237,7 +237,7 @@ fn test_optional_catch_all_param_extraction() {
 }
 
 fn test_route_group_normalization() {
-    print_str("[7/22] Testing Route Group Normalization ((group))... ");
+    print_str("[7/23] Testing Route Group Normalization ((group))... ");
     let mut m = make_route_manifest();
     m.add_page_route("/(marketing)/pricing", layout_root(), 500);
     m.add_page_route("/(admin)/settings", layout_root_and_dashboard(), 501);
@@ -262,7 +262,7 @@ fn test_route_group_normalization() {
 }
 
 fn test_nested_layout_resolution() {
-    print_str("[8/22] Testing Nested Layout Resolution (Root > Dashboard > Page)... ");
+    print_str("[8/23] Testing Nested Layout Resolution (Root > Dashboard > Page)... ");
     let mut params = make_param_map();
     params.add("tab", "metrics");
     let ctx = make_render_context(
@@ -299,7 +299,7 @@ fn test_nested_layout_resolution() {
 }
 
 fn test_http_request_parsing_lifecycle() {
-    print_str("[9/22] Testing HTTP Request Parsing (Query, Headers, Cookies, Body)... ");
+    print_str("[9/23] Testing HTTP Request Parsing (Query, Headers, Cookies, Body)... ");
     let raw_http = "POST /api/echo?tag=venta&sort=desc HTTP/1.1\r\nHost: localhost:3000\r\nUser-Agent: VentaClient/1.0\r\nCookie: session_token=tok_98765; theme=midnight\r\nContent-Length: 18\r\n\r\n{\"key\":\"payload1\"}";
     let req = parse_http_request(raw_http);
 
@@ -339,7 +339,7 @@ fn test_http_request_parsing_lifecycle() {
 }
 
 fn test_http_response_and_wire_formatting() {
-    print_str("[10/22] Testing HTTP Response Model & Wire Formatting... ");
+    print_str("[10/23] Testing HTTP Response Model & Wire Formatting... ");
     let mut resp = response_json("{\"status\":\"ok\"}");
     set_cookie(&mut resp, "visited", "1", "/", 3600, true, true, "Lax");
     add_header(&mut resp, "X-Framework", "VentaNext");
@@ -372,7 +372,7 @@ fn test_http_response_and_wire_formatting() {
 }
 
 fn test_path_normalization_and_traversal_rejection() {
-    print_str("[11/22] Testing Path Normalization & Traversal Rejection... ");
+    print_str("[11/23] Testing Path Normalization & Traversal Rejection... ");
     let norm1 = normalize_request_path("//about///team");
     match norm1 {
         Result::Ok(p) => { assert(p.as_str().equals("/about/team"), "Repeated slashes not collapsed"); }
@@ -400,7 +400,7 @@ fn test_path_normalization_and_traversal_rejection() {
 }
 
 fn test_response_status_helpers_and_head() {
-    print_str("[12/22] Testing Response Status Helpers & HEAD Body Suppression... ");
+    print_str("[12/23] Testing Response Status Helpers & HEAD Body Suppression... ");
     let bad = response_bad_request("Bad Request");
     assert(bad.status == 400, "Expected status 400");
 
@@ -428,7 +428,7 @@ fn test_response_status_helpers_and_head() {
 }
 
 fn test_header_crlf_injection_rejection() {
-    print_str("[13/22] Testing CRLF Injection Prevention in Headers... ");
+    print_str("[13/23] Testing CRLF Injection Prevention in Headers... ");
     let mut resp = response_json("{}");
     add_header(&mut resp, "X-Auth\r\nInjected", "Secret\r\nCookie");
 
@@ -445,7 +445,7 @@ fn test_header_crlf_injection_rejection() {
 }
 
 fn test_repeated_query_and_header_preservation() {
-    print_str("[14/22] Testing Repeated Query Parameters & Header Preservation... ");
+    print_str("[14/23] Testing Repeated Query Parameters & Header Preservation... ");
     let raw = "GET /search?tag=venta&tag=compiler&tag=systems HTTP/1.1\r\nHost: localhost\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n";
     let req = parse_http_request(raw);
 
@@ -458,7 +458,7 @@ fn test_repeated_query_and_header_preservation() {
 }
 
 fn test_method_not_allowed_405_lifecycle() {
-    print_str("[15/22] Testing 405 Method Not Allowed Lifecycle... ");
+    print_str("[15/23] Testing 405 Method Not Allowed Lifecycle... ");
     let mut m = make_route_manifest();
     m.add_page_route("/about", layout_root(), 10);
 
@@ -477,7 +477,7 @@ fn test_method_not_allowed_405_lifecycle() {
 }
 
 fn test_component_builder_and_xss_escaping() {
-    print_str("[16/22] Testing Component Builder & XSS Escaping... ");
+    print_str("[16/23] Testing Component Builder & XSS Escaping... ");
     let dangerous = "<script>alert('xss & attack')</script>\"";
     let safe = component::escape_html(dangerous);
     assert(safe.as_str().equals("&lt;script&gt;alert(&#39;xss &amp; attack&#39;)&lt;/script&gt;&quot;"), "XSS characters must be escaped");
@@ -491,7 +491,7 @@ fn test_component_builder_and_xss_escaping() {
 }
 
 fn test_etag_computation_and_determinism() {
-    print_str("[17/22] Testing ETag Computation & Determinism... ");
+    print_str("[17/23] Testing ETag Computation & Determinism... ");
     let body1 = "<html><body><h1>Hello VentaNext</h1></body></html>";
     let body2 = "<html><body><h1>Hello VentaNext</h1></body></html>";
     let etag1 = compute_etag(body1);
@@ -514,7 +514,7 @@ fn test_etag_computation_and_determinism() {
 }
 
 fn test_conditional_if_none_match_304() {
-    print_str("[18/22] Testing Conditional Request (If-None-Match -> 304)... ");
+    print_str("[18/23] Testing Conditional Request (If-None-Match -> 304)... ");
     let mut m = make_route_manifest();
     m.add_page_route("/about", layout_root(), 104);
 
@@ -544,7 +544,7 @@ fn test_conditional_if_none_match_304() {
 }
 
 fn test_cache_control_headers_by_render_mode() {
-    print_str("[19/22] Testing Cache-Control Policies by Render Mode... ");
+    print_str("[19/23] Testing Cache-Control Policies by Render Mode... ");
     let mut m = make_route_manifest();
     m.add_page_route_with_mode("/static-page", layout_root(), 100, render_mode_static());
     m.add_page_route_with_mode("/dynamic-page", layout_root(), 105, render_mode_dynamic());
@@ -577,7 +577,7 @@ fn test_cache_control_headers_by_render_mode() {
 }
 
 fn test_render_mode_classification_and_matching() {
-    print_str("[20/22] Testing Render Mode Manifest Classification... ");
+    print_str("[20/23] Testing Render Mode Manifest Classification... ");
     let mut m = make_route_manifest();
     m.add_page_route("/", layout_root(), 100);
     m.add_page_route("/blog/[slug]", layout_root(), 105);
@@ -613,7 +613,7 @@ fn test_render_mode_classification_and_matching() {
 }
 
 fn test_phase1_1_route_resolution_correctness_gate() {
-    print_str("[21/22] Testing Phase 1.1 Route Resolution Correctness Gate (A-K)... ");
+    print_str("[21/23] Testing Phase 1.1 Route Resolution Correctness Gate (A-K)... ");
 
     // Case A & C: Static versus Dynamic and Declaration Order Reversal
     let mut m_ac1 = make_route_manifest();
@@ -885,47 +885,48 @@ fn main() -> i64 {
     test_render_mode_classification_and_matching();
     test_phase1_1_route_resolution_correctness_gate();
     test_phase1_2_http_method_dispatch_and_allow_headers();
+    test_phase1_3a_static_api_handler_invocation();
 
     print_str("============================================================\n");
-    print_str("   ALL 22 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 23 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
 
 fn test_phase1_2_http_method_dispatch_and_allow_headers() {
-    print_str("[22/22] Testing Phase 1.2 HTTP Method Dispatch & Allow Headers (1-12)... ");
+    print_str("[22/23] Testing Phase 1.2 HTTP Method Dispatch & Allow Headers (1-12)... ");
 
     let gen_manifest = generated_routes::build_generated_manifest();
 
-    // 1. GET selects the GET handler
+    // 1. GET selects the GET handler (generic handle_api for /api/health)
     let mut req_get = make_request("GET", "/api/health", "", make_header_map(), "");
     let resp_get = server::dispatch_request_with_manifest(&gen_manifest, &mut req_get);
     assert(resp_get.status == 200, "1. Expected 200 for GET /api/health");
-    assert(str_contains(resp_get.body.as_str(), "\"method\":\"GET\""), "1. Handler must reflect GET method");
+    assert(str_contains(resp_get.body.as_str(), "ventanext-health"), "1. Handler must execute handle_api");
 
     // 2. POST selects the POST handler
     let mut req_post = make_request("POST", "/api/health", "", make_header_map(), "{\"action\":\"check\"}");
     let resp_post = server::dispatch_request_with_manifest(&gen_manifest, &mut req_post);
     assert(resp_post.status == 200, "2. Expected 200 for POST /api/health");
-    assert(str_contains(resp_post.body.as_str(), "\"method\":\"POST\""), "2. Handler must reflect POST method");
+    assert(str_contains(resp_post.body.as_str(), "ventanext-health"), "2. Handler must execute handle_api");
 
     // 3. PUT selects the PUT handler when registered
     let mut req_put = make_request("PUT", "/api/health", "", make_header_map(), "{\"update\":true}");
     let resp_put = server::dispatch_request_with_manifest(&gen_manifest, &mut req_put);
     assert(resp_put.status == 200, "3. Expected 200 for PUT /api/health");
-    assert(str_contains(resp_put.body.as_str(), "\"method\":\"PUT\""), "3. Handler must reflect PUT method");
+    assert(str_contains(resp_put.body.as_str(), "ventanext-health"), "3. Handler must execute handle_api");
 
     // 4. DELETE selects the DELETE handler when registered
     let mut req_del = make_request("DELETE", "/api/health", "", make_header_map(), "");
     let resp_del = server::dispatch_request_with_manifest(&gen_manifest, &mut req_del);
     assert(resp_del.status == 200, "4. Expected 200 for DELETE /api/health");
-    assert(str_contains(resp_del.body.as_str(), "\"method\":\"DELETE\""), "4. Handler must reflect DELETE method");
+    assert(str_contains(resp_del.body.as_str(), "ventanext-health"), "4. Handler must execute handle_api");
 
     // 5. PATCH selects the PATCH handler when registered
     let mut req_patch = make_request("PATCH", "/api/health", "", make_header_map(), "{\"patch\":1}");
     let resp_patch = server::dispatch_request_with_manifest(&gen_manifest, &mut req_patch);
     assert(resp_patch.status == 200, "5. Expected 200 for PATCH /api/health");
-    assert(str_contains(resp_patch.body.as_str(), "\"method\":\"PATCH\""), "5. Handler must reflect PATCH method");
+    assert(str_contains(resp_patch.body.as_str(), "ventanext-health"), "5. Handler must execute handle_api");
 
     // 6. Unsupported PUT on a GET-only page returns 405
     let mut req_page_put = make_request("PUT", "/about", "", make_header_map(), "");
@@ -968,7 +969,7 @@ fn test_phase1_2_http_method_dispatch_and_allow_headers() {
     let mut req_opt_explicit = make_request("OPTIONS", "/api/health", "", make_header_map(), "");
     let resp_opt_explicit = server::dispatch_request_with_manifest(&gen_manifest, &mut req_opt_explicit);
     assert(resp_opt_explicit.status == 200, "9. Expected 200 for explicit OPTIONS handler on /api/health");
-    assert(str_contains(resp_opt_explicit.body.as_str(), "\"method\":\"OPTIONS\""), "9. Expected explicit OPTIONS response body");
+    assert(str_contains(resp_opt_explicit.body.as_str(), "ventanext-health"), "9. Expected explicit OPTIONS response body");
 
     // 10. CORS preflight remains functional on routes without explicit OPTIONS
     let mut req_opt_preflight = make_request("OPTIONS", "/about", "", make_header_map(), "");
@@ -1019,6 +1020,64 @@ fn test_phase1_2_http_method_dispatch_and_allow_headers() {
     let mut req_404_opt = make_request("OPTIONS", "/completely/nonexistent/path", "", make_header_map(), "");
     let resp_404_opt = server::dispatch_request_with_manifest(&gen_manifest, &mut req_404_opt);
     assert(resp_404_opt.status == 404, "12. Expected 404 for OPTIONS on unknown path");
+
+    print_str("OK\n");
+}
+
+fn test_phase1_3a_static_api_handler_invocation() {
+    print_str("[23/23] Testing Phase 1.3A Static API Route Handler Invocation (1-6)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /api/users executes real user GET() function and returns Ada Lovelace + Alan Turing
+    let mut req_users_get = make_request("GET", "/api/users", "", make_header_map(), "");
+    let resp_users_get = server::dispatch_request_with_manifest(&gen_manifest, &mut req_users_get);
+    assert(resp_users_get.status == 200, "1. Expected 200 OK for GET /api/users");
+    assert(str_contains(resp_users_get.body.as_str(), "Ada Lovelace"), "1. Body must contain 'Ada Lovelace'");
+    assert(str_contains(resp_users_get.body.as_str(), "Alan Turing"), "1. Body must contain 'Alan Turing'");
+
+    // 2. HEAD /api/users invokes GET handler, suppresses body, and preserves Content-Length
+    let mut req_users_head = make_request("HEAD", "/api/users", "", make_header_map(), "");
+    let resp_users_head = server::dispatch_request_with_manifest(&gen_manifest, &mut req_users_head);
+    assert(resp_users_head.status == 200, "2. Expected 200 OK for HEAD /api/users");
+    assert(resp_users_head.body.is_empty(), "2. HEAD body must be empty");
+    let cl = resp_users_head.headers.get("content-length");
+    assert(cl.is_some(), "2. Expected Content-Length header for HEAD /api/users");
+    match cl {
+        Option::Some(len) => {
+            assert(len.as_str().equals("76"), "2. Content-Length must match users JSON byte length (76)");
+        }
+        Option::None => {}
+    }
+
+    // 3. DELETE /api/users is rejected with 405 Method Not Allowed and Allow: GET, HEAD, OPTIONS
+    let mut req_users_del = make_request("DELETE", "/api/users", "", make_header_map(), "");
+    let resp_users_del = server::dispatch_request_with_manifest(&gen_manifest, &mut req_users_del);
+    assert(resp_users_del.status == 405, "3. Expected 405 Method Not Allowed for DELETE /api/users");
+    let allow = resp_users_del.headers.get("allow");
+    assert(allow.is_some(), "3. Expected Allow header in 405 response");
+    match allow {
+        Option::Some(al) => {
+            assert(al.as_str().equals("GET, HEAD, OPTIONS"), "3. Allow header must be GET, HEAD, OPTIONS");
+        }
+        Option::None => {}
+    }
+
+    // 4. GET /api/health executes actual handle_api() function
+    let mut req_health_get = make_request("GET", "/api/health", "", make_header_map(), "");
+    let resp_health_get = server::dispatch_request_with_manifest(&gen_manifest, &mut req_health_get);
+    assert(resp_health_get.status == 200, "4. Expected 200 OK for GET /api/health");
+    assert(str_contains(resp_health_get.body.as_str(), "ventanext-health"), "4. Body must contain 'ventanext-health'");
+    assert(str_contains(resp_health_get.body.as_str(), "1.0.0-rc.2"), "4. Body must contain version");
+
+    // 5. POST /api/health compatibility path works with handle_api()
+    let mut req_health_post = make_request("POST", "/api/health", "", make_header_map(), "{}");
+    let resp_health_post = server::dispatch_request_with_manifest(&gen_manifest, &mut req_health_post);
+    assert(resp_health_post.status == 200, "5. Expected 200 OK for POST /api/health");
+    assert(str_contains(resp_health_post.body.as_str(), "ventanext-health"), "5. POST must invoke handle_api");
+
+    // 6. Verify that dispatch_api contains actual handler invocation (no placeholder)
+    assert(!str_contains(resp_users_get.body.as_str(), "\"endpoint\":\"/api/users\""), "6. Response must NOT be placeholder");
 
     print_str("OK\n");
 }

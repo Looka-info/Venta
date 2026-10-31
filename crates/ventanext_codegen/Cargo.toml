@@ -15,6 +15,7 @@ serde_json = "1.0"
 vanta_source = { workspace = true }
 vanta_diagnostics = { workspace = true }
 vanta_lexer = { workspace = true }
+vanta_parser = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

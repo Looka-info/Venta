@@ -9,6 +9,9 @@ import ssr::{RenderContext};
 import std::string::String;
 import std::option::Option;
 
+mod route_api_health;
+mod route_api_users;
+
 // ----------------------------------------------------------------------------
 // 1. Build Generated Manifest
 // ----------------------------------------------------------------------------
@@ -113,16 +116,18 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
 
 pub fn dispatch_api(handler_id: i64, req: &mut Request) -> Response {
     if handler_id == 0 {
-        let mut json = String::from_str("{\"status\":\"ok\",\"endpoint\":\"/api/health\",\"method\":\"");
-        json.push_str(req.method.as_str());
-        json.push_str("\"}");
-        return response_json(json.as_str());
+        let content = route_api_health::invoke_handle_api();
+        return response_json(content.as_str());
     }
     if handler_id == 1 {
-        let mut json = String::from_str("{\"status\":\"ok\",\"endpoint\":\"/api/users\",\"method\":\"");
-        json.push_str(req.method.as_str());
-        json.push_str("\"}");
-        return response_json(json.as_str());
+        if req.method.equals("HEAD") {
+            let content = route_api_users::invoke_head();
+            return response_json(content.as_str());
+        }
+        if req.method.equals("GET") {
+            let content = route_api_users::invoke_get();
+            return response_json(content.as_str());
+        }
     }
     response_not_found("{\"error\":\"API endpoint not found\"}")
 }
