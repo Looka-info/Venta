@@ -431,3 +431,44 @@ pub fn render_404_page(path: &str) -> String {
     c.push_str("    <a href=\"/\" class=\"btn btn-gold\">Return Home →</a>\n</div>\n");
     render_root_layout("404 Not Found", "none", c.as_str())
 }
+
+pub fn get_venta_file_icon_svg() -> String {
+    let mut s = String::from_str("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" width=\"32\" height=\"32\" fill=\"none\">\n");
+    s.push_str("  <defs>\n");
+    s.push_str("    <filter id=\"vanta-glow\" x=\"-25%\" y=\"-25%\" width=\"150%\" height=\"150%\">\n");
+    s.push_str("      <feDropShadow dx=\"0\" dy=\"0\" stdDeviation=\"1.2\" flood-color=\"#FFD700\" flood-opacity=\"0.55\"/>\n");
+    s.push_str("      <feDropShadow dx=\"0\" dy=\"1.5\" stdDeviation=\"2.5\" flood-color=\"#FF9100\" flood-opacity=\"0.35\"/>\n");
+    s.push_str("    </filter>\n");
+    s.push_str("    <linearGradient id=\"vanta-lit\" x1=\"20%\" y1=\"0%\" x2=\"80%\" y2=\"100%\">\n");
+    s.push_str("      <stop offset=\"0%\" stop-color=\"#FFFDF0\"/>\n");
+    s.push_str("      <stop offset=\"25%\" stop-color=\"#FFE838\"/>\n");
+    s.push_str("      <stop offset=\"60%\" stop-color=\"#FFC000\"/>\n");
+    s.push_str("      <stop offset=\"100%\" stop-color=\"#FF9500\"/>\n");
+    s.push_str("    </linearGradient>\n");
+    s.push_str("    <linearGradient id=\"vanta-shade\" x1=\"10%\" y1=\"0%\" x2=\"90%\" y2=\"100%\">\n");
+    s.push_str("      <stop offset=\"0%\" stop-color=\"#FFB300\"/>\n");
+    s.push_str("      <stop offset=\"35%\" stop-color=\"#E67300\"/>\n");
+    s.push_str("      <stop offset=\"70%\" stop-color=\"#B84A00\"/>\n");
+    s.push_str("      <stop offset=\"100%\" stop-color=\"#662600\"/>\n");
+    s.push_str("    </linearGradient>\n");
+    s.push_str("    <linearGradient id=\"vanta-ridge\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n");
+    s.push_str("      <stop offset=\"0%\" stop-color=\"#FFFFFF\" stop-opacity=\"0.95\"/>\n");
+    s.push_str("      <stop offset=\"40%\" stop-color=\"#FFF1A8\" stop-opacity=\"0.8\"/>\n");
+    s.push_str("      <stop offset=\"85%\" stop-color=\"#FFB703\" stop-opacity=\"0.3\"/>\n");
+    s.push_str("      <stop offset=\"100%\" stop-color=\"#FB8500\" stop-opacity=\"0.0\"/>\n");
+    s.push_str("    </linearGradient>\n");
+    s.push_str("    <linearGradient id=\"vanta-chamfer\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n");
+    s.push_str("      <stop offset=\"0%\" stop-color=\"#FFF6C2\"/>\n");
+    s.push_str("      <stop offset=\"100%\" stop-color=\"#FFB703\"/>\n");
+    s.push_str("    </linearGradient>\n");
+    s.push_str("  </defs>\n");
+    s.push_str("  <g filter=\"url(#vanta-glow)\">\n");
+    s.push_str("    <path d=\"M 25.4 2.5 L 18.3 13.1 L 25.0 14.1 L 6.0 29.5 L 7.4 18.8 L 13.4 19.4 Z\" fill=\"url(#vanta-lit)\"/>\n");
+    s.push_str("  </g>\n");
+    s.push_str("  <path d=\"M 25.4 2.5 L 13.4 19.4 L 7.4 18.8 L 6.0 29.5 C 10.5 22.0 14.0 17.0 18.3 13.1 Z\" fill=\"url(#vanta-lit)\"/>\n");
+    s.push_str("  <path d=\"M 25.4 2.5 L 18.3 13.1 L 25.0 14.1 L 6.0 29.5 C 14.0 17.0 10.5 22.0 18.3 13.1 Z\" fill=\"url(#vanta-shade)\"/>\n");
+    s.push_str("  <path d=\"M 18.3 13.1 L 13.4 19.4\" stroke=\"url(#vanta-chamfer)\" stroke-width=\"0.75\" stroke-linecap=\"round\"/>\n");
+    s.push_str("  <path d=\"M 25.4 2.5 L 16.5 15.6 L 6.0 29.5\" stroke=\"url(#vanta-ridge)\" stroke-width=\"0.85\" stroke-linecap=\"round\"/>\n");
+    s.push_str("</svg>\n");
+    s
+}

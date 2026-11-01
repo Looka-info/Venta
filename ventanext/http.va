@@ -830,6 +830,10 @@ pub fn response_text(text: &str) -> Response {
     make_response(200, "text/plain; charset=utf-8", text)
 }
 
+pub fn response_svg(svg: &str) -> Response {
+    make_response(200, "image/svg+xml; charset=utf-8", svg)
+}
+
 pub fn response_redirect(location: &str, status: i64) -> Response {
     let actual_status = if status >= 300 && status <= 308 { status } else { 307 };
     let mut r = make_response(actual_status, "text/html; charset=utf-8", "Redirecting...");

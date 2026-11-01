@@ -4,7 +4,7 @@
 // ============================================================================
 
 import http::{
-    Request, Response, parse_http_request, response_html, response_json,
+    Request, Response, parse_http_request, response_html, response_json, response_svg,
     response_not_found, response_bad_request, response_not_implemented, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
     add_header, i64_to_string, escape_json,
@@ -21,7 +21,8 @@ import ssr::{
     RenderContext, make_render_context, resolve_layout,
     layout_root, layout_root_and_dashboard, layout_root_and_docs,
     render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page,
-    render_about_page, render_blog_slug_page, render_docs_path_page, render_404_page
+    render_about_page, render_blog_slug_page, render_docs_path_page, render_404_page,
+    get_venta_file_icon_svg
 };
 
 import std::net;
@@ -94,6 +95,32 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
         }
     }
     let path = req.path.as_str();
+
+    // 0.1 Static Asset Serving: Venta 3D Gold Lightning File Icons
+    if path.equals("/vanta-file-icon.svg") || path.equals("/venta-file-icon.svg") {
+        if method.equals("GET") || method.equals("HEAD") {
+            let svg_content = get_venta_file_icon_svg();
+            let etag = compute_etag(svg_content.as_str());
+            let if_none_match = req.headers.get("if-none-match");
+            match if_none_match {
+                Option::Some(client_etag) => {
+                    if etag_matches(client_etag.as_str(), etag.as_str()) {
+                        let mut not_mod = response_not_modified();
+                        add_etag(&mut not_mod, etag.as_str());
+                        add_cache_control(&mut not_mod, "public, max-age=86400, stale-while-revalidate=604800");
+                        return not_mod;
+                    }
+                }
+                Option::None => {}
+            }
+            let mut resp = response_svg(svg_content.as_str());
+            add_cache_control(&mut resp, "public, max-age=86400, stale-while-revalidate=604800");
+            add_etag(&mut resp, etag.as_str());
+            return resp;
+        } else {
+            return response_method_not_allowed("GET, HEAD");
+        }
+    }
 
     // 1. Resolve Route via App Router Engine using actual request method
     let mut match_opt = match_route(manifest, path, method);

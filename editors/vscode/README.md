@@ -35,16 +35,23 @@
 
 ## 🚀 Local Installation
 
-To use this extension immediately in your local VS Code installation:
+To use this extension immediately in your local Antigravity IDE or VS Code installation:
+
+### Antigravity IDE (Windows PowerShell):
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.antigravity-ide\extensions\venta-vscode" -Target "$PWD\editors\vscode"
+```
+
+### Visual Studio Code (Windows PowerShell):
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.vscode\extensions\venta-vscode" -Target "$PWD\editors\vscode"
+```
 
 ### Linux / macOS:
 ```bash
-ln -s "$(pwd)/editors/vscode" ~/.vscode/extensions/vanta-lang
+ln -s "$(pwd)/editors/vscode" ~/.vscode/extensions/venta-vscode
+# Or for Antigravity IDE:
+ln -s "$(pwd)/editors/vscode" ~/.antigravity-ide/extensions/venta-vscode
 ```
 
-### Windows (PowerShell):
-```powershell
-New-Item -ItemType SymbolicLink -Path "$HOME\.vscode\extensions\vanta-lang" -Target "$PWD\editors\vscode"
-```
-
-Restart VS Code or reload the window (`Ctrl+Shift+P` -> `Developer: Reload Window`). All `.va` and `.vanta` files will immediately display the official gold lightning icon and full syntax highlighting!
+Restart the IDE or reload the window (`Ctrl+Shift+P` -> `Developer: Reload Window`). All `.va` and `.vanta` files will immediately display the official gold lightning icon and full syntax highlighting!

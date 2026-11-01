@@ -2,22 +2,42 @@
   "$schema": "vscode://schemas/icon-theme",
   "iconDefinitions": {
     "_venta_file": {
-      "iconPath": "./venta-file-icon.svg"
+      "iconPath": "./venta-file-icon-dark.svg"
     },
     "_venta_file_light": {
       "iconPath": "./venta-file-icon-light.svg"
+    },
+    "_file": {
+      "iconPath": "./file.svg"
+    },
+    "_folder": {
+      "iconPath": "./folder.svg"
+    },
+    "_folder_open": {
+      "iconPath": "./folder-open.svg"
     }
   },
+  "file": "_file",
+  "folder": "_folder",
+  "folderExpanded": "_folder_open",
+  "rootFolder": "_folder",
+  "rootFolderExpanded": "_folder_open",
   "fileExtensions": {
     "va": "_venta_file",
     "venta": "_venta_file",
     "vanta": "_venta_file"
   },
   "light": {
+    "file": "_file",
+    "folder": "_folder",
+    "folderExpanded": "_folder_open",
+    "rootFolder": "_folder",
+    "rootFolderExpanded": "_folder_open",
     "fileExtensions": {
       "va": "_venta_file_light",
       "venta": "_venta_file_light",
       "vanta": "_venta_file_light"
     }
-  }
+  },
+  "hidesExplorerArrows": false
 }

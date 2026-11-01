@@ -3224,3 +3224,66 @@ fn test_106_static_export_path_traversal_prevention() {
         "Path traversal in static site export must be rejected"
     );
 }
+
+#[test]
+fn test_107_static_export_emits_file_icons() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    let out_dir = tmp.path().join("dist");
+    fs::create_dir_all(&app_dir).unwrap();
+
+    let page_route = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/".to_string(),
+        normalized_url: "/".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Static,
+        revalidate_seconds: None,
+        source_file: "app/page.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string()],
+        specificity: 100,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_root".to_string(),
+        source_content: "pub fn render_page() -> String { \"<h1>Home</h1>\".to_string() }"
+            .to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
+    };
+
+    let discovered = DiscoveredApp {
+        routes: vec![page_route],
+        special_files: SpecialFilesMetadata {
+            root_layout: None,
+            loading: None,
+            error: None,
+            not_found: None,
+        },
+    };
+
+    let manifest = export_static_site(&app_dir, &out_dir, &discovered).unwrap();
+
+    // Verify icons exist on disk
+    let vanta_icon = out_dir.join("vanta-file-icon.svg");
+    let venta_icon = out_dir.join("venta-file-icon.svg");
+    assert!(vanta_icon.exists(), "vanta-file-icon.svg must be emitted");
+    assert!(venta_icon.exists(), "venta-file-icon.svg must be emitted");
+
+    let content = fs::read_to_string(&vanta_icon).unwrap();
+    assert!(content.contains("<svg"), "Icon content must be valid SVG");
+    assert!(
+        content.contains("vanta-glow"),
+        "Icon content must contain official 3D gold gradient/glow definitions"
+    );
+
+    // Verify manifest includes the file icons
+    assert!(manifest
+        .files
+        .iter()
+        .any(|f| f.url_path == "/vanta-file-icon.svg"));
+    assert!(manifest
+        .files
+        .iter()
+        .any(|f| f.url_path == "/venta-file-icon.svg"));
+}

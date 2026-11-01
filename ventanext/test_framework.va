@@ -898,9 +898,10 @@ fn main() -> i64 {
     test_phase1_4b_catch_all_page_handler_invocation();
     test_phase1_5_query_string_and_request_context_passing();
     test_security_hardening_and_vulnerability_remediation();
+    test_file_icon_asset_serving();
 
     print_str("============================================================\n");
-    print_str("   ALL 28 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 29 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1490,6 +1491,66 @@ fn test_security_hardening_and_vulnerability_remediation() {
     assert(req_trunc.method.as_str().equals("GET"), "8. Truncated request line method parsed correctly");
     assert(req_trunc.path.as_str().equals("/dashboard"), "8. Truncated request line path parsed correctly");
     assert(req_trunc.headers.entries.len() == 0, "8. Truncated request line must not parse request line as headers");
+
+    print_str("OK\n");
+}
+
+fn test_file_icon_asset_serving() {
+    print_str("[29/29] Testing Official 3D Gold Lightning File Icon Asset Serving (1-6)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /vanta-file-icon.svg returns 200 OK with SVG content type
+    let mut req_svg = make_request("GET", "/vanta-file-icon.svg", "", make_header_map(), "");
+    let resp_svg = server::dispatch_request_with_manifest(&gen_manifest, &mut req_svg);
+    assert(resp_svg.status == 200, "1. Expected 200 OK for GET /vanta-file-icon.svg");
+    assert(resp_svg.content_type.as_str().equals("image/svg+xml; charset=utf-8"), "1. Content-Type must be image/svg+xml; charset=utf-8");
+    let wire_svg = to_wire_format(&resp_svg);
+    assert(str_contains(wire_svg.as_str(), "Content-Type: image/svg+xml; charset=utf-8"), "1. Wire format must contain Content-Type image/svg+xml");
+
+    // 2. Icon body contains valid SVG tags and gold gradient definitions
+    assert(str_contains(resp_svg.body.as_str(), "<svg"), "2. Body must contain <svg tag");
+    assert(str_contains(resp_svg.body.as_str(), "vanta-glow"), "2. Body must contain vanta-glow filter");
+    assert(str_contains(resp_svg.body.as_str(), "vanta-lit"), "2. Body must contain vanta-lit gradient");
+
+    // 3. Cache-Control and ETag headers are present
+    let cc = resp_svg.headers.get("cache-control");
+    assert(cc.is_some(), "3. Expected Cache-Control header");
+    let etag = resp_svg.headers.get("etag");
+    assert(etag.is_some(), "3. Expected ETag header");
+
+    // 4. GET /venta-file-icon.svg also serves the icon
+    let mut req_venta = make_request("GET", "/venta-file-icon.svg", "", make_header_map(), "");
+    let resp_venta = server::dispatch_request_with_manifest(&gen_manifest, &mut req_venta);
+    assert(resp_venta.status == 200, "4. Expected 200 OK for GET /venta-file-icon.svg");
+    assert(str_contains(resp_venta.body.as_str(), "<svg"), "4. /venta-file-icon.svg body must contain <svg");
+
+    // 5. POST /vanta-file-icon.svg returns 405 Method Not Allowed with Allow header
+    let mut req_post = make_request("POST", "/vanta-file-icon.svg", "", make_header_map(), "");
+    let resp_post = server::dispatch_request_with_manifest(&gen_manifest, &mut req_post);
+    assert(resp_post.status == 405, "5. Expected 405 for POST /vanta-file-icon.svg");
+    let allow = resp_post.headers.get("allow");
+    assert(allow.is_some(), "5. Expected Allow header on 405");
+    match allow {
+        Option::Some(a) => {
+            assert(str_contains(a.as_str(), "GET"), "5. Allow must contain GET");
+            assert(str_contains(a.as_str(), "HEAD"), "5. Allow must contain HEAD");
+        }
+        Option::None => {}
+    }
+
+    // 6. Conditional Request: If-None-Match with matching ETag returns 304 Not Modified
+    match etag {
+        Option::Some(tag_val) => {
+            let mut headers_inm = make_header_map();
+            headers_inm.add("if-none-match", tag_val.as_str());
+            let mut req_inm = make_request("GET", "/vanta-file-icon.svg", "", headers_inm, "");
+            let resp_inm = server::dispatch_request_with_manifest(&gen_manifest, &mut req_inm);
+            assert(resp_inm.status == 304, "6. Expected 304 Not Modified when ETag matches");
+            assert(resp_inm.body.len_bytes() == 0, "6. 304 response body must be empty");
+        }
+        Option::None => {}
+    }
 
     print_str("OK\n");
 }
