@@ -7,10 +7,12 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
-    discover_api_methods, export_static_site, generate_api_adapter_code, generate_manifest_json,
-    generate_venta_code, parse_segment, sanitize_module_name, scan_app_directory,
-    validate_api_route_handlers, validate_conflicts, write_generated_routes, DiscoveredApp,
-    RenderMode, RouteKind, RouteMetadata, Segment, SegmentKind, SpecialFilesMetadata,
+    adapter_filename_len_for_bytes, discover_api_methods, export_static_site,
+    generate_api_adapter_code, generate_manifest_json, generate_venta_code, parse_segment,
+    sanitize_module_name, scan_app_directory, validate_api_route_handlers, validate_conflicts,
+    write_generated_routes, DiscoveredApp, RenderMode, RouteKind, RouteMetadata, Segment,
+    SegmentKind, SpecialFilesMetadata, ADAPTER_FILENAME_WRAPPER_LEN,
+    MAX_PORTABLE_ADAPTER_FILENAME_LEN, MAX_PORTABLE_ROUTE_PATTERN_BYTES,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -1760,4 +1762,437 @@ fn test_70_existing_users_and_health_generate_and_execute_with_injective_names()
         assert!(adapter_dir.join("route_2f6170692f7573657273.va").exists());
         assert!(adapter_dir.join("route_2f6170692f6865616c7468.va").exists());
     }
+}
+
+#[test]
+fn test_71_route_at_maximum_supported_length_succeeds() {
+    // MAX_PORTABLE_ROUTE_PATTERN_BYTES is 123 bytes.
+    // Encoded filename length: 9 + 2 * 123 = 255 bytes (MAX_PORTABLE_ADAPTER_FILENAME_LEN).
+    assert_eq!(MAX_PORTABLE_ROUTE_PATTERN_BYTES, 123);
+    assert_eq!(adapter_filename_len_for_bytes(123), 255);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    // Canonical pattern: "/api/" (5 bytes) + 118 ASCII bytes = 123 bytes
+    let seg118 = "a".repeat(118);
+    let route_dir = app_dir.join("api").join(&seg118);
+    fs::create_dir_all(&route_dir).unwrap();
+    fs::write(
+        route_dir.join("route.va"),
+        "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"max_limit_reached\")\n}\n",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).expect("Route at 123 bytes must succeed");
+    assert_eq!(discovered.routes.len(), 1);
+    let r = &discovered.routes[0];
+
+    assert_eq!(r.canonical_pattern.as_bytes().len(), 123);
+    assert_eq!(r.canonical_pattern, format!("/api/{}", seg118));
+
+    let expected_mod_name = sanitize_module_name(&r.canonical_pattern);
+    assert_eq!(r.adapter_module_name, expected_mod_name);
+    // 6 chars ("route_") + 246 hex chars = 252 chars
+    assert_eq!(expected_mod_name.len(), 252);
+
+    let adapter_filename = format!("{}.va", expected_mod_name);
+    assert_eq!(adapter_filename.len(), 255);
+    assert_eq!(adapter_filename.len(), MAX_PORTABLE_ADAPTER_FILENAME_LEN);
+
+    let out_va = tmp.path().join("generated_routes.va");
+    write_generated_routes(&discovered, &out_va)
+        .expect("Writing adapter at 255 bytes limit must succeed");
+
+    let adapter_path = tmp.path().join("generated_routes").join(&adapter_filename);
+    assert!(adapter_path.exists());
+    let adapter_content = fs::read_to_string(&adapter_path).unwrap();
+    assert!(adapter_content.contains("pub fn invoke_get() -> String"));
+}
+
+#[test]
+fn test_72_route_one_byte_beyond_maximum_is_rejected() {
+    // 124 bytes canonical pattern -> 9 + 2 * 124 = 257 bytes filename (> 255 limit).
+    assert_eq!(adapter_filename_len_for_bytes(124), 257);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    // Canonical pattern: "/api/" (5 bytes) + 119 ASCII bytes = 124 bytes
+    let seg119 = "a".repeat(119);
+    let route_dir = app_dir.join("api").join(&seg119);
+    fs::create_dir_all(&route_dir).unwrap();
+    let file_path = route_dir.join("route.va");
+    fs::write(
+        &file_path,
+        "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"overflow\")\n}\n",
+    )
+    .unwrap();
+
+    let res = scan_app_directory(&app_dir);
+    assert!(res.is_err(), "Route at 124 bytes must be rejected");
+
+    let err = res.unwrap_err();
+    let expected_pattern = format!("/api/{}", seg119);
+    // 1. Preserves original canonical pattern
+    assert!(
+        err.message.contains(&expected_pattern),
+        "Error diagnostic must preserve the original route pattern: {}",
+        err.message
+    );
+    // 2. Mentions source file
+    assert!(
+        err.first_source.is_some() || err.message.contains("route.va"),
+        "Error diagnostic must include the source file: {}",
+        err.message
+    );
+    // 3. Mentions actual encoded length (257)
+    assert!(
+        err.message.contains("257"),
+        "Error diagnostic must report actual encoded length 257: {}",
+        err.message
+    );
+    // 4. Mentions maximum permitted length (123 bytes / 255 bytes)
+    assert!(
+        err.message.contains("123"),
+        "Error diagnostic must report maximum pattern length 123: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains("255"),
+        "Error diagnostic must report maximum filename length 255: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_73_unicode_routes_measured_by_utf8_bytes_not_char_count() {
+    // 'é' is 2 UTF-8 bytes (0xc3, 0xa9).
+    // Pattern: "/api/" (5 bytes, 5 chars) + 60 'é' characters (120 bytes, 60 chars)
+    // Total char count = 65 chars (well under 123 characters!).
+    // Total UTF-8 byte length = 125 bytes (> 123 byte limit).
+    // Filename length = 9 + 2 * 125 = 259 bytes (> 255 limit).
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    let sixty_es: String = "é".repeat(60);
+    assert_eq!(sixty_es.chars().count(), 60);
+    assert_eq!(sixty_es.as_bytes().len(), 120);
+
+    let route_dir = app_dir.join("api").join(&sixty_es);
+    fs::create_dir_all(&route_dir).unwrap();
+    let file_path = route_dir.join("route.va");
+    fs::write(
+        &file_path,
+        "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"unicode\")\n}\n",
+    )
+    .unwrap();
+
+    let res = scan_app_directory(&app_dir);
+    assert!(
+        res.is_err(),
+        "Route with 65 characters but 125 UTF-8 bytes must be rejected"
+    );
+
+    let err = res.unwrap_err();
+    assert!(
+        err.message.contains("125 UTF-8 bytes"),
+        "Error message must specify 125 UTF-8 bytes: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains("259"),
+        "Error message must report encoded filename length 259: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains("123"),
+        "Error message must report maximum limit 123: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains("255"),
+        "Error message must report maximum filename limit 255: {}",
+        err.message
+    );
+}
+
+#[test]
+fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
+    // 1. Boundary 2-byte UTF-8 sequence: 'é' (2 bytes)
+    // Pattern A: "/api/" (5 bytes) + 116 ASCII 'b' + 'é' (2 bytes) = 123 UTF-8 bytes (122 chars).
+    // Filename: 9 + 2 * 123 = 255 bytes -> SUCCEEDS.
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("app");
+        let seg = format!("{}é", "b".repeat(116));
+        assert_eq!(seg.as_bytes().len(), 118);
+        assert_eq!(seg.chars().count(), 117);
+
+        let route_dir = app_dir.join("api").join(&seg);
+        fs::create_dir_all(&route_dir).unwrap();
+        fs::write(
+            route_dir.join("route.va"),
+            "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"boundary_2byte_ok\")\n}\n",
+        )
+        .unwrap();
+
+        let discovered =
+            scan_app_directory(&app_dir).expect("2-byte Unicode at 123 bytes must succeed");
+        assert_eq!(discovered.routes[0].canonical_pattern.as_bytes().len(), 123);
+        let mod_name = &discovered.routes[0].adapter_module_name;
+        assert_eq!(format!("{}.va", mod_name).len(), 255);
+    }
+
+    // Pattern B: "/api/" (5 bytes) + 117 ASCII 'b' + 'é' (2 bytes) = 124 UTF-8 bytes (123 chars!).
+    // Notice char count is exactly 123, but byte count is 124!
+    // Filename: 9 + 2 * 124 = 257 bytes -> REJECTED.
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("app");
+        let seg = format!("{}é", "b".repeat(117));
+        assert_eq!(seg.as_bytes().len(), 119);
+        assert_eq!(seg.chars().count(), 118);
+
+        let route_dir = app_dir.join("api").join(&seg);
+        fs::create_dir_all(&route_dir).unwrap();
+        fs::write(
+            route_dir.join("route.va"),
+            "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"boundary_2byte_overflow\")\n}\n",
+        )
+        .unwrap();
+
+        let res = scan_app_directory(&app_dir);
+        assert!(res.is_err(), "2-byte Unicode at 124 bytes must be rejected");
+        let err = res.unwrap_err();
+        assert!(err.message.contains("124 UTF-8 bytes"));
+        assert!(err.message.contains("257"));
+    }
+
+    // 2. Boundary 3-byte UTF-8 sequence: 'あ' (3 bytes: 0xe3, 0x81, 0x82)
+    // Pattern C: "/api/" (5 bytes) + 115 ASCII 'c' + 'あ' (3 bytes) = 123 UTF-8 bytes (121 chars).
+    // Filename: 9 + 2 * 123 = 255 bytes -> SUCCEEDS.
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("app");
+        let seg = format!("{}あ", "c".repeat(115));
+        assert_eq!(seg.as_bytes().len(), 118);
+
+        let route_dir = app_dir.join("api").join(&seg);
+        fs::create_dir_all(&route_dir).unwrap();
+        fs::write(
+            route_dir.join("route.va"),
+            "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"boundary_3byte_ok\")\n}\n",
+        )
+        .unwrap();
+
+        let discovered =
+            scan_app_directory(&app_dir).expect("3-byte Unicode at 123 bytes must succeed");
+        assert_eq!(discovered.routes[0].canonical_pattern.as_bytes().len(), 123);
+        let mod_name = &discovered.routes[0].adapter_module_name;
+        assert_eq!(format!("{}.va", mod_name).len(), 255);
+    }
+
+    // Pattern D: "/api/" (5 bytes) + 116 ASCII 'c' + 'あ' (3 bytes) = 124 UTF-8 bytes (122 chars).
+    // Filename: 9 + 2 * 124 = 257 bytes -> REJECTED.
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("app");
+        let seg = format!("{}あ", "c".repeat(116));
+        assert_eq!(seg.as_bytes().len(), 119);
+
+        let route_dir = app_dir.join("api").join(&seg);
+        fs::create_dir_all(&route_dir).unwrap();
+        fs::write(
+            route_dir.join("route.va"),
+            "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"boundary_3byte_overflow\")\n}\n",
+        )
+        .unwrap();
+
+        let res = scan_app_directory(&app_dir);
+        assert!(res.is_err(), "3-byte Unicode at 124 bytes must be rejected");
+        let err = res.unwrap_err();
+        assert!(err.message.contains("124 UTF-8 bytes"));
+        assert!(err.message.contains("257"));
+    }
+}
+
+#[test]
+fn test_75_rejected_oversized_routes_do_not_create_or_overwrite_adapter_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    let out_va = tmp.path().join("generated_routes.va");
+    let adapter_dir = tmp.path().join("generated_routes");
+    fs::create_dir_all(&adapter_dir).unwrap();
+
+    // 1. Seed an existing adapter file with pre-existing content
+    let existing_adapter = adapter_dir.join("route_existing.va");
+    let seed_content = "// PRE_EXISTING_ADAPTER_DO_NOT_TOUCH";
+    fs::write(&existing_adapter, seed_content).unwrap();
+
+    // 2. Create an oversized route in app_dir
+    let seg120 = "x".repeat(120); // /api/ + 120 = 125 bytes -> 259 filename chars
+    let route_dir = app_dir.join("api").join(&seg120);
+    fs::create_dir_all(&route_dir).unwrap();
+    fs::write(
+        route_dir.join("route.va"),
+        "import std::string::String;\n\npub fn GET() -> String {\n    String::from_str(\"bad\")\n}\n",
+    )
+    .unwrap();
+
+    // 3. Scan fails during discovery
+    let scan_res = scan_app_directory(&app_dir);
+    assert!(scan_res.is_err());
+
+    // 4. Verify existing file untouched and no new file created
+    assert_eq!(fs::read_to_string(&existing_adapter).unwrap(), seed_content);
+    let entries: Vec<_> = fs::read_dir(&adapter_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(entries, vec!["route_existing.va"]);
+
+    // 5. Direct write_generated_routes call with an oversized route also fails closed
+    let oversized_route = RouteMetadata {
+        id: 0,
+        canonical_pattern: format!("/api/{}", seg120),
+        normalized_url: format!("/api/{}", seg120),
+        route_kind: RouteKind::Api,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "oversized/route.va".to_string(),
+        segments: vec![Segment {
+            raw: "api".to_string(),
+            kind: SegmentKind::Static,
+            param_name: None,
+        }],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec!["GET".to_string()],
+        adapter_module_name: sanitize_module_name(&format!("/api/{}", seg120)),
+        source_content: "pub fn GET() -> String { String::from_str(\"oversized\") }".to_string(),
+    };
+
+    let fake_app = DiscoveredApp {
+        routes: vec![oversized_route],
+        special_files: SpecialFilesMetadata {
+            root_layout: None,
+            loading: None,
+            error: None,
+            not_found: None,
+        },
+    };
+
+    let write_res = write_generated_routes(&fake_app, &out_va);
+    assert!(
+        write_res.is_err(),
+        "write_generated_routes must reject oversized routes before writing files"
+    );
+
+    // Existing file still untouched, and no other files written
+    assert_eq!(fs::read_to_string(&existing_adapter).unwrap(), seed_content);
+    let entries_after: Vec<_> = fs::read_dir(&adapter_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(entries_after, vec!["route_existing.va"]);
+}
+
+#[test]
+fn test_76_existing_users_and_health_remain_unaffected() {
+    // /api/users is 10 UTF-8 bytes
+    let users_pattern = "/api/users";
+    assert_eq!(users_pattern.as_bytes().len(), 10);
+    let users_filename_len = adapter_filename_len_for_bytes(users_pattern.as_bytes().len());
+    assert_eq!(users_filename_len, 29);
+    assert!(users_filename_len <= MAX_PORTABLE_ADAPTER_FILENAME_LEN);
+
+    // /api/health is 11 UTF-8 bytes
+    let health_pattern = "/api/health";
+    assert_eq!(health_pattern.as_bytes().len(), 11);
+    let health_filename_len = adapter_filename_len_for_bytes(health_pattern.as_bytes().len());
+    assert_eq!(health_filename_len, 31);
+    assert!(health_filename_len <= MAX_PORTABLE_ADAPTER_FILENAME_LEN);
+
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app");
+    if app_dir.exists() {
+        let app = scan_app_directory(&app_dir).unwrap();
+        let users = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/users")
+            .unwrap();
+        let health = app
+            .routes
+            .iter()
+            .find(|r| r.canonical_pattern == "/api/health")
+            .unwrap();
+
+        assert_eq!(users.adapter_module_name, "route_2f6170692f7573657273");
+        assert_eq!(health.adapter_module_name, "route_2f6170692f6865616c7468");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let out_va = tmp.path().join("generated_routes.va");
+        write_generated_routes(&app, &out_va).unwrap();
+
+        let adapter_dir = tmp.path().join("generated_routes");
+        let users_file = adapter_dir.join("route_2f6170692f7573657273.va");
+        let health_file = adapter_dir.join("route_2f6170692f6865616c7468.va");
+
+        assert!(users_file.exists());
+        assert!(health_file.exists());
+
+        let users_content = fs::read_to_string(&users_file).unwrap();
+        assert!(users_content.contains("pub fn invoke_get() -> String"));
+        assert!(users_content.contains("pub fn invoke_head() -> String"));
+
+        let health_content = fs::read_to_string(&health_file).unwrap();
+        assert!(health_content.contains("pub fn invoke_handle_api() -> String"));
+    }
+}
+
+#[test]
+fn test_77_collision_resistant_module_identifiers_remain_deterministic() {
+    // Determinism checks across repeated invocations
+    let patterns = vec![
+        "/api/users",
+        "/api-users",
+        "/api_users",
+        "/api/health",
+        "/api/posts/[id]",
+        "/api/docs/[...slug]",
+        "/api/shop/[[...filter]]",
+    ];
+
+    for pattern in patterns {
+        let id1 = sanitize_module_name(pattern);
+        let id2 = sanitize_module_name(pattern);
+        assert_eq!(
+            id1, id2,
+            "Identifier must be deterministic for '{}'",
+            pattern
+        );
+        assert!(id1.starts_with("route_"));
+
+        let expected_filename_len = ADAPTER_FILENAME_WRAPPER_LEN + (pattern.as_bytes().len() * 2);
+        assert_eq!(
+            adapter_filename_len_for_bytes(pattern.as_bytes().len()),
+            expected_filename_len
+        );
+        let filename = format!("{}.va", id1);
+        assert_eq!(filename.len(), expected_filename_len);
+    }
+
+    // Boundary constant mathematical invariant
+    assert_eq!(
+        MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+        ADAPTER_FILENAME_WRAPPER_LEN + (MAX_PORTABLE_ROUTE_PATTERN_BYTES * 2)
+    );
+    assert_eq!(MAX_PORTABLE_ROUTE_PATTERN_BYTES, 123);
+    assert_eq!(MAX_PORTABLE_ADAPTER_FILENAME_LEN, 255);
+    assert_eq!(ADAPTER_FILENAME_WRAPPER_LEN, 9);
 }

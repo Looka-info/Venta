@@ -18,6 +18,28 @@ use vanta_source::{FileId, SourceFile};
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
 // ----------------------------------------------------------------------------
+// Adapter Filename Portability Constants
+// ----------------------------------------------------------------------------
+
+/// Maximum supported filename component length for portable filesystems (ext4, NTFS, APFS, FAT32).
+pub const MAX_PORTABLE_ADAPTER_FILENAME_LEN: usize = 255;
+
+/// Fixed prefix and suffix wrapper character length in generated adapter filenames
+/// (`route_` is 6 characters, `.va` is 3 characters, totaling 9 characters).
+pub const ADAPTER_FILENAME_WRAPPER_LEN: usize = 9;
+
+/// Maximum permitted UTF-8 byte length of an API route canonical pattern:
+/// (255 - 9) / 2 = 123 bytes.
+pub const MAX_PORTABLE_ROUTE_PATTERN_BYTES: usize =
+    (MAX_PORTABLE_ADAPTER_FILENAME_LEN - ADAPTER_FILENAME_WRAPPER_LEN) / 2;
+
+/// Calculates the generated adapter filename length for a given canonical route pattern byte length:
+/// 9 + 2 * byte_len
+pub fn adapter_filename_len_for_bytes(byte_len: usize) -> usize {
+    ADAPTER_FILENAME_WRAPPER_LEN + (byte_len * 2)
+}
+
+// ----------------------------------------------------------------------------
 // 1. Enums and Data Models
 // ----------------------------------------------------------------------------
 
@@ -496,6 +518,33 @@ fn parse_route_file(
     };
 
     let normalized_url = canonical_pattern.clone();
+
+    // Portable adapter filename length validation:
+    // Every API route produces an adapter file named `route_{hex}.va` where hex is 2 * pattern_bytes.
+    // Portable filesystems limit a filename component to 255 bytes, meaning canonical_pattern
+    // cannot exceed MAX_PORTABLE_ROUTE_PATTERN_BYTES (123 bytes).
+    if kind == RouteKind::Api {
+        let pattern_bytes = canonical_pattern.as_bytes().len();
+        if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES {
+            let encoded_mod = sanitize_module_name(&canonical_pattern);
+            let encoded_filename = format!("{}.va", encoded_mod);
+            let actual_filename_len = encoded_filename.len();
+            return Err(RouteConflictError {
+                message: format!(
+                    "API route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                    canonical_pattern,
+                    full_path.to_string_lossy(),
+                    pattern_bytes,
+                    encoded_filename,
+                    actual_filename_len,
+                    MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+                    MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+                ),
+                first_source: Some(full_path.to_path_buf()),
+                second_source: None,
+            });
+        }
+    }
 
     // Compute specificity score:
     // Static = 1000, Dynamic = 100, CatchAll = 10, OptionalCatchAll = 1
@@ -1070,6 +1119,47 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
         }
     }
 
+    // Validate adapter filename length for API routes
+    for r in routes {
+        if r.route_kind == RouteKind::Api {
+            let pattern_bytes = r.canonical_pattern.as_bytes().len();
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+            let adapter_filename = format!("{}.va", mod_name);
+            let actual_filename_len = adapter_filename.len();
+            if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
+                || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
+            {
+                let source_display = if r.source_file.is_empty() {
+                    "<unknown source>".to_string()
+                } else {
+                    r.source_file.clone()
+                };
+                return Err(RouteConflictError {
+                    message: format!(
+                        "API route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        r.canonical_pattern,
+                        source_display,
+                        pattern_bytes,
+                        adapter_filename,
+                        actual_filename_len,
+                        MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+                        MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+                    ),
+                    first_source: if r.source_file.is_empty() {
+                        None
+                    } else {
+                        Some(PathBuf::from(&r.source_file))
+                    },
+                    second_source: None,
+                });
+            }
+        }
+    }
+
     // Validate uniqueness of API adapter module identifiers
     let mut seen_adapters: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
     for r in routes {
@@ -1290,6 +1380,42 @@ pub fn write_generated_routes(
     discovered: &DiscoveredApp,
     out_va_path: &Path,
 ) -> std::io::Result<()> {
+    // 1. Enforce filename length limits before ANY filesystem operations
+    for r in &discovered.routes {
+        if r.route_kind == RouteKind::Api {
+            let pattern_bytes = r.canonical_pattern.as_bytes().len();
+            let mod_name = if !r.adapter_module_name.is_empty() {
+                r.adapter_module_name.clone()
+            } else {
+                sanitize_module_name(&r.canonical_pattern)
+            };
+            let adapter_filename = format!("{}.va", mod_name);
+            let actual_filename_len = adapter_filename.len();
+            if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
+                || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
+            {
+                let source_display = if r.source_file.is_empty() {
+                    "<unknown source>".to_string()
+                } else {
+                    r.source_file.clone()
+                };
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "API route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        r.canonical_pattern,
+                        source_display,
+                        pattern_bytes,
+                        adapter_filename,
+                        actual_filename_len,
+                        MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+                        MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+                    ),
+                ));
+            }
+        }
+    }
+
     let parent_dir = out_va_path.parent().unwrap_or(Path::new("."));
     let stem = out_va_path
         .file_stem()
