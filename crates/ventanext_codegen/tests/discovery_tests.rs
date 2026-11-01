@@ -52,10 +52,14 @@ fn create_temp_app_tree(base: &Path) {
         "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
     )
     .unwrap();
-    fs::write(base.join("docs/[...path]/page.va"), "pub fn render() {}").unwrap();
+    fs::write(
+        base.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(path: &str) -> String { String::from_str(path) }",
+    )
+    .unwrap();
     fs::write(
         base.join("shop/[[...filter]]/page.va"),
-        "pub fn render() {}",
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
     )
     .unwrap();
     fs::write(
@@ -400,7 +404,11 @@ fn test_16_phase1_1_earlier_static_vs_later_static_sorting() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("foo/[...rest]")).unwrap();
     fs::create_dir_all(tmp.path().join("[id]/bar")).unwrap();
-    fs::write(tmp.path().join("foo/[...rest]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("foo/[...rest]/page.va"),
+        "import std::string::String;\npub fn render_page(rest: &str) -> String { String::from_str(rest) }",
+    )
+    .unwrap();
     fs::write(
         tmp.path().join("[id]/bar/page.va"),
         "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
@@ -452,13 +460,21 @@ fn test_17_phase1_1_precedence_ordering() {
         "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
     )
     .unwrap();
-    fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("posts/[...slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
     fs::write(
         tmp.path().join("shop/page.va"),
         "import std::string::String;\npub fn render_page() -> String { String::from_str(\"shop\") }",
     )
     .unwrap();
-    fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
+    )
+    .unwrap();
 
     let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
 
@@ -674,7 +690,11 @@ fn test_25_valid_dynamic_vs_required_catch_all() {
         "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
     )
     .unwrap();
-    fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("posts/[...slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -688,8 +708,16 @@ fn test_26_valid_required_vs_optional_catch_all() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("docs/[...path]")).unwrap();
     fs::create_dir_all(tmp.path().join("docs/[[...filter]]")).unwrap();
-    fs::write(tmp.path().join("docs/[...path]/page.va"), "").unwrap();
-    fs::write(tmp.path().join("docs/[[...filter]]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(path: &str) -> String { String::from_str(path) }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("docs/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -708,7 +736,11 @@ fn test_27_valid_exact_route_vs_optional_catch_all() {
         "import std::string::String;\npub fn render_page() -> String { String::from_str(\"shop\") }",
     )
     .unwrap();
-    fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -2739,39 +2771,176 @@ fn test_93_codegen_imports_bad_request_and_not_implemented() {
 }
 
 #[test]
-fn test_94_catch_all_route_emits_response_not_implemented() {
+fn test_94_catch_all_route_adapter_generation_and_invocation() {
     let tmp = tempfile::tempdir().unwrap();
     let app_dir = tmp.path().join("app");
     fs::create_dir_all(app_dir.join("docs/[...path]")).unwrap();
     fs::write(
         app_dir.join("docs/[...path]/page.va"),
-        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Docs\") }",
+        "import std::string::String;\npub fn render_page(path: &str) -> String { String::from_str(path) }",
     )
     .unwrap();
 
     let discovered = scan_app_directory(&app_dir).unwrap();
     let code = generate_venta_code(&discovered);
 
-    assert!(code.contains(
-        "return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");"
-    ));
+    assert!(code.contains("invoke_render_page(val_path.as_str())"));
+    assert!(code.contains("let p_opt_path = ctx.params.get(\"path\");"));
+    assert!(code.contains("Option::Some(val_path) => {"));
 }
 
 #[test]
-fn test_95_optional_catch_all_route_emits_response_not_implemented() {
+fn test_95_optional_catch_all_route_adapter_generation_and_invocation() {
     let tmp = tempfile::tempdir().unwrap();
     let app_dir = tmp.path().join("app");
     fs::create_dir_all(app_dir.join("shop/[[...filter]]")).unwrap();
     fs::write(
         app_dir.join("shop/[[...filter]]/page.va"),
-        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Shop\") }",
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
     )
     .unwrap();
 
     let discovered = scan_app_directory(&app_dir).unwrap();
     let code = generate_venta_code(&discovered);
 
-    assert!(code.contains(
-        "return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");"
-    ));
+    assert!(code.contains("invoke_render_page(val_filter.as_str())"));
+    assert!(code.contains("let p_opt_filter = ctx.params.get(\"filter\");"));
+    assert!(code.contains("Option::Some(val_filter) => {"));
+}
+
+#[test]
+fn test_96_catch_all_page_handler_parameter_validation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("docs/[...path]")).unwrap();
+
+    // 1. Missing parameter fails validation
+    fs::write(
+        app_dir.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Docs\") }",
+    )
+    .unwrap();
+    let res_missing = scan_app_directory(&app_dir);
+    assert!(
+        res_missing.is_err(),
+        "Missing parameter must fail validation"
+    );
+    assert!(res_missing
+        .unwrap_err()
+        .message
+        .contains("Parameter count mismatch"));
+
+    // 2. Wrong parameter name fails validation
+    fs::write(
+        app_dir.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(wrong_name: &str) -> String { String::from_str(wrong_name) }",
+    )
+    .unwrap();
+    let res_wrong_name = scan_app_directory(&app_dir);
+    assert!(
+        res_wrong_name.is_err(),
+        "Wrong parameter name must fail validation"
+    );
+    assert!(res_wrong_name
+        .unwrap_err()
+        .message
+        .contains("Parameter name mismatch"));
+
+    // 3. Wrong parameter type fails validation
+    fs::write(
+        app_dir.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(path: String) -> String { path }",
+    )
+    .unwrap();
+    let res_wrong_type = scan_app_directory(&app_dir);
+    assert!(
+        res_wrong_type.is_err(),
+        "Wrong parameter type must fail validation"
+    );
+    assert!(res_wrong_type
+        .unwrap_err()
+        .message
+        .contains("Unsupported parameter type"));
+
+    // 4. Valid parameter succeeds
+    fs::write(
+        app_dir.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(path: &str) -> String { String::from_str(path) }",
+    )
+    .unwrap();
+    let res_ok = scan_app_directory(&app_dir);
+    assert!(
+        res_ok.is_ok(),
+        "Valid catch-all parameter must pass validation"
+    );
+}
+
+#[test]
+fn test_97_optional_catch_all_page_handler_parameter_validation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("shop/[[...filter]]")).unwrap();
+
+    // 1. Missing parameter fails
+    fs::write(
+        app_dir.join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Shop\") }",
+    )
+    .unwrap();
+    let res_missing = scan_app_directory(&app_dir);
+    assert!(
+        res_missing.is_err(),
+        "Missing parameter on optional catch-all must fail"
+    );
+    assert!(res_missing
+        .unwrap_err()
+        .message
+        .contains("Parameter count mismatch"));
+
+    // 2. Wrong name fails
+    fs::write(
+        app_dir.join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page(category: &str) -> String { String::from_str(category) }",
+    )
+    .unwrap();
+    let res_wrong_name = scan_app_directory(&app_dir);
+    assert!(res_wrong_name.is_err(), "Wrong parameter name must fail");
+    assert!(res_wrong_name
+        .unwrap_err()
+        .message
+        .contains("Parameter name mismatch"));
+
+    // 3. Valid succeeds
+    fs::write(
+        app_dir.join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page(filter: &str) -> String { String::from_str(filter) }",
+    )
+    .unwrap();
+    let res_ok = scan_app_directory(&app_dir);
+    assert!(
+        res_ok.is_ok(),
+        "Valid optional catch-all parameter must pass"
+    );
+}
+
+#[test]
+fn test_98_multi_segment_with_catch_all_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("[org]/[repo]/[...path]")).unwrap();
+    fs::write(
+        app_dir.join("[org]/[repo]/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page(org: &str, repo: &str, path: &str) -> String { String::from_str(path) }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert!(code.contains("let p_opt_org = ctx.params.get(\"org\");"));
+    assert!(code.contains("let p_opt_repo = ctx.params.get(\"repo\");"));
+    assert!(code.contains("let p_opt_path = ctx.params.get(\"path\");"));
+    assert!(
+        code.contains("invoke_render_page(val_org.as_str(), val_repo.as_str(), val_path.as_str())")
+    );
 }

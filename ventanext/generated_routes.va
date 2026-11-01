@@ -10,9 +10,12 @@ import std::string::String;
 import std::option::Option;
 
 mod page_2f626c6f672f5b736c75675d;
+mod page_2f646f63732f5b2e2e2e706174685d;
+mod page_2f666f6f2f5b2e2e2e726573745d;
 mod page_2f61626f7574;
 mod page_2f64617368626f617264;
 mod page_2f70726963696e67;
+mod page_2f73686f702f5b5b2e2e2e66696c7465725d5d;
 mod page_2f5b69645d2f626172;
 mod page_2f;
 mod route_2f6170692f6865616c7468;
@@ -63,10 +66,28 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         }
     }
     if route_id == 3 {
-        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
+        let p_opt_path = ctx.params.get("path");
+        match p_opt_path {
+            Option::Some(val_path) => {
+                let content = page_2f646f63732f5b2e2e2e706174685d::invoke_render_page(val_path.as_str());
+                return response_html(content.as_str());
+            }
+            Option::None => {
+                return response_bad_request("<h1>400 — Missing required route parameter</h1>");
+            }
+        }
     }
     if route_id == 4 {
-        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
+        let p_opt_rest = ctx.params.get("rest");
+        match p_opt_rest {
+            Option::Some(val_rest) => {
+                let content = page_2f666f6f2f5b2e2e2e726573745d::invoke_render_page(val_rest.as_str());
+                return response_html(content.as_str());
+            }
+            Option::None => {
+                return response_bad_request("<h1>400 — Missing required route parameter</h1>");
+            }
+        }
     }
     if route_id == 5 {
         let content = page_2f61626f7574::invoke_render_page();
@@ -81,7 +102,16 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         return response_html(content.as_str());
     }
     if route_id == 8 {
-        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
+        let p_opt_filter = ctx.params.get("filter");
+        match p_opt_filter {
+            Option::Some(val_filter) => {
+                let content = page_2f73686f702f5b5b2e2e2e66696c7465725d5d::invoke_render_page(val_filter.as_str());
+                return response_html(content.as_str());
+            }
+            Option::None => {
+                return response_bad_request("<h1>400 — Missing required route parameter</h1>");
+            }
+        }
     }
     if route_id == 9 {
         let p_opt_id = ctx.params.get("id");

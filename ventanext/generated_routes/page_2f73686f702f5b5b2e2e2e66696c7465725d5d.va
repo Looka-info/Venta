@@ -1,0 +1,25 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Page Adapter for /shop/[[...filter]]
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn render_page(filter: &str) -> String {
+    let mut html = String::from_str("<h1>Shop Catalog</h1><p>Active Filter: ");
+    if filter.is_empty() {
+        html.push_str("All Products (No Filter)");
+    } else {
+        html.push_str(filter);
+    }
+    html.push_str("</p>");
+    html
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridge
+// ----------------------------------------------------------------------------
+
+pub fn invoke_render_page(filter: &str) -> String {
+    render_page(filter)
+}

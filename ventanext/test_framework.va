@@ -894,9 +894,10 @@ fn main() -> i64 {
     test_phase1_3a_static_api_handler_invocation();
     test_phase1_4a_real_page_handler_invocation();
     test_phase1_5_http_error_propagation_and_unsupported_routes();
+    test_phase1_4b_catch_all_page_handler_invocation();
 
     print_str("============================================================\n");
-    print_str("   ALL 25 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 26 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1204,77 +1205,35 @@ fn test_phase1_5_http_error_propagation_and_unsupported_routes() {
     assert(str_contains(resp_missing_id.body.as_str(), "400 — Missing required route parameter"), "2. Expected actionable 400 message in /[id]/bar");
     assert(!str_contains(resp_missing_id.body.as_str(), "id = "), "2. Must NOT invoke page handler for /[id]/bar");
 
-    // 3. Unsupported catch-all route dispatch: verify status == 501 Not Implemented, Content-Type == "text/html; charset=utf-8"
-    let mut req_docs = make_request("GET", "/docs/getting-started", "", make_header_map(), "");
-    let resp_docs = server::dispatch_request_with_manifest(&gen_manifest, &mut req_docs);
-    assert(resp_docs.status == 501, "3. Expected 501 Not Implemented for GET /docs/getting-started");
-    let r_501_docs = status_reason(resp_docs.status);
-    assert(r_501_docs.as_str().equals("Not Implemented"), "3. Expected reason phrase 'Not Implemented'");
-    assert(resp_docs.content_type.as_str().equals("text/html; charset=utf-8"), "3. Expected Content-Type 'text/html; charset=utf-8'");
-    assert(str_contains(resp_docs.body.as_str(), "501 — Page handler not supported"), "3. Body must contain 501 message");
-    assert(!str_contains(resp_docs.body.as_str(), "<!DOCTYPE html>"), "3. Error response must NOT be wrapped in layout");
-    assert(resp_docs.status != 200, "3. Response status must NOT be converted to 200");
-    let wire_docs = to_wire_format(&resp_docs);
-    assert(str_contains(wire_docs.as_str(), "HTTP/1.1 501 Not Implemented"), "3. Wire format must contain 'HTTP/1.1 501 Not Implemented'");
-    assert(str_contains(wire_docs.as_str(), "Content-Type: text/html; charset=utf-8"), "3. Wire format must contain Content-Type");
+    // 3. Unmapped route ID dispatch: verify status == 404 Not Found, Content-Type == "text/html; charset=utf-8"
+    let resp_unmapped = generated_routes::dispatch_route(99, &ctx_empty);
+    assert(resp_unmapped.status == 404, "3. Expected 404 Not Found for unmapped route in dispatcher");
+    let r_404_unmapped = status_reason(resp_unmapped.status);
+    assert(r_404_unmapped.as_str().equals("Not Found"), "3. Expected reason phrase 'Not Found'");
+    assert(resp_unmapped.content_type.as_str().equals("text/html; charset=utf-8"), "3. Expected Content-Type 'text/html; charset=utf-8'");
+    assert(str_contains(resp_unmapped.body.as_str(), "404 — Page Not Found"), "3. Body must contain 404 message");
+    let wire_unmapped = to_wire_format(&resp_unmapped);
+    assert(str_contains(wire_unmapped.as_str(), "HTTP/1.1 404 Not Found"), "3. Wire format must contain 'HTTP/1.1 404 Not Found'");
+    assert(str_contains(wire_unmapped.as_str(), "Content-Type: text/html; charset=utf-8"), "3. Wire format must contain Content-Type");
 
-    let mut req_foo = make_request("GET", "/foo/bar/baz", "", make_header_map(), "");
-    let resp_foo = server::dispatch_request_with_manifest(&gen_manifest, &mut req_foo);
-    assert(resp_foo.status == 501, "3. Expected 501 Not Implemented for GET /foo/bar/baz");
-    let r_501_foo = status_reason(resp_foo.status);
-    assert(r_501_foo.as_str().equals("Not Implemented"), "3. Expected reason phrase 'Not Implemented'");
+    // 4. Test manifest with unmapped page route: verify server preserves error status (does NOT convert to 200 or wrap in layout)
+    let mut tm_unmapped = make_route_manifest();
+    tm_unmapped.add_page_route("/unmapped-page", layout_root(), 99);
+    let mut req_unmapped = make_request("GET", "/unmapped-page", "", make_header_map(), "");
+    let resp_tm_unmapped = server::dispatch_request_with_manifest(&tm_unmapped, &mut req_unmapped);
+    assert(resp_tm_unmapped.status == 404, "4. Expected 404 Not Found for unmapped page route");
+    assert(!str_contains(resp_tm_unmapped.body.as_str(), "<!DOCTYPE html>"), "4. Error response must NOT be wrapped in layout");
+    assert(resp_tm_unmapped.status != 200, "4. Response status must NOT be converted to 200");
 
-    // 4. Unsupported optional catch-all route dispatch: verify status == 501 Not Implemented
-    let mut req_shop = make_request("GET", "/shop/electronics", "", make_header_map(), "");
-    let resp_shop = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop);
-    assert(resp_shop.status == 501, "4. Expected 501 Not Implemented for GET /shop/electronics");
-    let r_501_shop = status_reason(resp_shop.status);
-    assert(r_501_shop.as_str().equals("Not Implemented"), "4. Expected reason phrase 'Not Implemented'");
-    assert(resp_shop.content_type.as_str().equals("text/html; charset=utf-8"), "4. Expected Content-Type 'text/html; charset=utf-8'");
-    assert(str_contains(resp_shop.body.as_str(), "501 — Page handler not supported"), "4. Body must contain 501 message");
-    assert(!str_contains(resp_shop.body.as_str(), "<!DOCTYPE html>"), "4. Error response must NOT be wrapped in layout");
-    let wire_shop = to_wire_format(&resp_shop);
-    assert(str_contains(wire_shop.as_str(), "HTTP/1.1 501 Not Implemented"), "4. Wire format must contain 'HTTP/1.1 501 Not Implemented'");
-
-    let mut req_shop_base = make_request("GET", "/shop", "", make_header_map(), "");
-    let resp_shop_base = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_base);
-    assert(resp_shop_base.status == 501, "4. Expected 501 Not Implemented for GET /shop");
-    let r_501_shop_base = status_reason(resp_shop_base.status);
-    assert(r_501_shop_base.as_str().equals("Not Implemented"), "4. Expected reason phrase 'Not Implemented'");
-
-    // 5. HEAD requests on unsupported routes: verify status == 501, empty body, Content-Length matching unsuppressed body
-    let mut req_docs_head = make_request("HEAD", "/docs/getting-started", "", make_header_map(), "");
-    let resp_docs_head = server::dispatch_request_with_manifest(&gen_manifest, &mut req_docs_head);
-    assert(resp_docs_head.status == 501, "5. Expected status 501 for HEAD /docs/getting-started");
-    let r_head_docs = status_reason(resp_docs_head.status);
-    assert(r_head_docs.as_str().equals("Not Implemented"), "5. Expected reason phrase 'Not Implemented' for HEAD");
-    assert(resp_docs_head.body.len_bytes() == 0, "5. HEAD response body must be empty (0 bytes)");
-    let docs_head_cl = resp_docs_head.headers.get("content-length");
-    assert(docs_head_cl.is_some(), "5. Expected Content-Length header for HEAD response");
-    match docs_head_cl {
-        Option::Some(cl) => {
-            assert(cl.as_str().equals("43"), "5. Content-Length must match unsuppressed body length 43");
-        }
-        Option::None => {}
-    }
-    let wire_head_docs = to_wire_format(&resp_docs_head);
-    assert(str_contains(wire_head_docs.as_str(), "HTTP/1.1 501 Not Implemented"), "5. HEAD wire format must contain 'HTTP/1.1 501 Not Implemented'");
-    assert(str_contains(wire_head_docs.as_str(), "Content-Length: 43"), "5. HEAD wire format must contain Content-Length: 43");
-
-    let mut req_shop_head = make_request("HEAD", "/shop/electronics", "", make_header_map(), "");
-    let resp_shop_head = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_head);
-    assert(resp_shop_head.status == 501, "5. Expected status 501 for HEAD /shop/electronics");
-    let r_head_shop = status_reason(resp_shop_head.status);
-    assert(r_head_shop.as_str().equals("Not Implemented"), "5. Expected reason phrase 'Not Implemented' for HEAD");
-    assert(resp_shop_head.body.len_bytes() == 0, "5. HEAD response body on optional catch-all must be empty");
-    let shop_head_cl = resp_shop_head.headers.get("content-length");
-    assert(shop_head_cl.is_some(), "5. Expected Content-Length header for HEAD /shop/electronics");
-    match shop_head_cl {
-        Option::Some(cl) => {
-            assert(cl.as_str().equals("43"), "5. Content-Length on /shop/electronics must match unsuppressed body length 43");
-        }
-        Option::None => {}
-    }
+    // 5. HEAD request on unmapped route: verify status == 404, empty body, Content-Length matching unsuppressed body
+    let mut req_unmapped_head = make_request("HEAD", "/unmapped-page", "", make_header_map(), "");
+    let resp_unmapped_head = server::dispatch_request_with_manifest(&tm_unmapped, &mut req_unmapped_head);
+    assert(resp_unmapped_head.status == 404, "5. Expected status 404 for HEAD on unmapped route");
+    assert(resp_unmapped_head.body.len_bytes() == 0, "5. HEAD response body must be empty (0 bytes)");
+    let unsupp_head_cl = resp_unmapped_head.headers.get("content-length");
+    assert(unsupp_head_cl.is_some(), "5. Expected Content-Length header for HEAD response");
+    let wire_head_unmapped = to_wire_format(&resp_unmapped_head);
+    assert(str_contains(wire_head_unmapped.as_str(), "HTTP/1.1 404 Not Found"), "5. HEAD wire format must contain 'HTTP/1.1 404 Not Found'");
 
     // 6. Regression tests: verify status 200 for /, /blog/venta (dynamic param & layout), /api/users, /api/health
     let mut req_root = make_request("GET", "/", "", make_header_map(), "");
@@ -1308,6 +1267,79 @@ fn test_phase1_5_http_error_propagation_and_unsupported_routes() {
     assert(r_200_health.as_str().equals("OK"), "6. Expected reason phrase 'OK'");
     assert(str_contains(resp_health.body.as_str(), "ventanext-health"), "6. Response must contain health data");
     assert(str_contains(resp_health.body.as_str(), "1.0.0-rc.2"), "6. Response must contain version");
+
+    print_str("OK\n");
+}
+
+fn test_phase1_4b_catch_all_page_handler_invocation() {
+    print_str("[26/26] Testing Phase 1.4B Catch-All & Optional Catch-All Page Handler Invocation (1-8)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /docs/getting-started executes real render_page(path: &str) from app/docs/[...path]/page.va
+    let mut req_docs = make_request("GET", "/docs/getting-started", "", make_header_map(), "");
+    let resp_docs = server::dispatch_request_with_manifest(&gen_manifest, &mut req_docs);
+    assert(resp_docs.status == 200, "1. Expected 200 OK for GET /docs/getting-started");
+    assert(str_contains(resp_docs.body.as_str(), "Documentation: getting-started"), "1. Body must contain 'Documentation: getting-started'");
+    assert(str_contains(resp_docs.body.as_str(), "Catch-all route pattern successfully resolved nested segments"), "1. Body must contain catch-all success message");
+    assert(str_contains(resp_docs.body.as_str(), "<!DOCTYPE html>"), "1. Response must be wrapped in root layout");
+
+    // 2. GET /docs/guide/deep/routing executes with multi-segment slash-separated path
+    let mut req_docs_deep = make_request("GET", "/docs/guide/deep/routing", "", make_header_map(), "");
+    let resp_docs_deep = server::dispatch_request_with_manifest(&gen_manifest, &mut req_docs_deep);
+    assert(resp_docs_deep.status == 200, "2. Expected 200 OK for GET /docs/guide/deep/routing");
+    assert(str_contains(resp_docs_deep.body.as_str(), "Documentation: guide/deep/routing"), "2. Body must contain multi-segment path");
+    assert(str_contains(resp_docs_deep.body.as_str(), "<!DOCTYPE html>"), "2. Response must be wrapped in root layout");
+
+    // 3. GET /shop executes real render_page(filter: &str) from app/shop/[[...filter]]/page.va at the optional base path
+    let mut req_shop = make_request("GET", "/shop", "", make_header_map(), "");
+    let resp_shop = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop);
+    assert(resp_shop.status == 200, "3. Expected 200 OK for GET /shop");
+    assert(str_contains(resp_shop.body.as_str(), "Shop Catalog"), "3. Body must contain 'Shop Catalog'");
+    assert(str_contains(resp_shop.body.as_str(), "Active Filter: All Products (No Filter)"), "3. Body must contain empty filter indicator");
+    assert(str_contains(resp_shop.body.as_str(), "<!DOCTYPE html>"), "3. Response must be wrapped in root layout");
+
+    // 4. GET /shop/electronics executes with single filter segment
+    let mut req_shop_elec = make_request("GET", "/shop/electronics", "", make_header_map(), "");
+    let resp_shop_elec = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_elec);
+    assert(resp_shop_elec.status == 200, "4. Expected 200 OK for GET /shop/electronics");
+    assert(str_contains(resp_shop_elec.body.as_str(), "Active Filter: electronics"), "4. Body must contain 'Active Filter: electronics'");
+    assert(str_contains(resp_shop_elec.body.as_str(), "<!DOCTYPE html>"), "4. Response must be wrapped in root layout");
+
+    // 5. GET /shop/shoes/nike executes with multi-segment filter
+    let mut req_shop_shoes = make_request("GET", "/shop/shoes/nike", "", make_header_map(), "");
+    let resp_shop_shoes = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_shoes);
+    assert(resp_shop_shoes.status == 200, "5. Expected 200 OK for GET /shop/shoes/nike");
+    assert(str_contains(resp_shop_shoes.body.as_str(), "Active Filter: shoes/nike"), "5. Body must contain 'Active Filter: shoes/nike'");
+
+    // 6. GET /foo/bar/baz executes real render_page(rest: &str) from app/foo/[...rest]/page.va
+    let mut req_foo = make_request("GET", "/foo/bar/baz", "", make_header_map(), "");
+    let resp_foo = server::dispatch_request_with_manifest(&gen_manifest, &mut req_foo);
+    assert(resp_foo.status == 200, "6. Expected 200 OK for GET /foo/bar/baz");
+    assert(str_contains(resp_foo.body.as_str(), "Route: /foo/[...rest]"), "6. Body must contain 'Route: /foo/[...rest]'");
+    assert(str_contains(resp_foo.body.as_str(), "rest = bar/baz"), "6. Body must contain 'rest = bar/baz'");
+
+    // 7. HEAD request on /docs/getting-started returns 200 OK, empty body, Content-Length preserved
+    let mut req_head_docs = make_request("HEAD", "/docs/getting-started", "", make_header_map(), "");
+    let resp_head_docs = server::dispatch_request_with_manifest(&gen_manifest, &mut req_head_docs);
+    assert(resp_head_docs.status == 200, "7. Expected 200 OK for HEAD /docs/getting-started");
+    assert(resp_head_docs.body.len_bytes() == 0, "7. HEAD body must be suppressed (0 bytes)");
+    let head_docs_cl = resp_head_docs.headers.get("content-length");
+    assert(head_docs_cl.is_some(), "7. Expected Content-Length header for HEAD response");
+
+    // 8. Missing parameter error handling: dispatching /docs/[...path] with empty params returns 400 Bad Request
+    let ctx_empty = ssr::make_render_context(
+        "/docs/[...path]",
+        "Docs",
+        "home",
+        http::make_param_map(),
+        http::make_query_map(),
+        http::make_header_map(),
+        http::make_cookie_map(),
+    );
+    let resp_missing_docs = generated_routes::dispatch_route(3, &ctx_empty);
+    assert(resp_missing_docs.status == 400, "8. Expected 400 Bad Request for missing path parameter in /docs/[...path]");
+    assert(str_contains(resp_missing_docs.body.as_str(), "400 — Missing required route parameter"), "8. Expected 400 missing parameter message");
 
     print_str("OK\n");
 }

@@ -1,0 +1,21 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Page Adapter for /foo/[...rest]
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn render_page(rest: &str) -> String {
+    let mut html = String::from_str("<h1>Route: /foo/[...rest]</h1><p>rest = ");
+    html.push_str(rest);
+    html.push_str("</p>");
+    html
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridge
+// ----------------------------------------------------------------------------
+
+pub fn invoke_render_page(rest: &str) -> String {
+    render_page(rest)
+}

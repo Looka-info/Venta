@@ -587,68 +587,56 @@ fn parse_route_file(
         }
     }
 
-    let has_catch_all = segments
+    let dynamic_params: Vec<String> = segments
         .iter()
-        .any(|s| s.kind == SegmentKind::CatchAll || s.kind == SegmentKind::OptionalCatchAll);
-
-    let ordinary_dynamic_params: Vec<String> = segments
-        .iter()
-        .filter(|s| s.kind == SegmentKind::Dynamic)
+        .filter(|s| {
+            s.kind == SegmentKind::Dynamic
+                || s.kind == SegmentKind::CatchAll
+                || s.kind == SegmentKind::OptionalCatchAll
+        })
         .filter_map(|s| s.param_name.clone())
         .collect();
 
     let (methods, explicit_methods, has_generic_handler, source_content, adapter_module_name) =
         if kind == RouteKind::Page {
-            if has_catch_all {
-                // Catch-all and optional catch-all page handlers are outside Phase 1.4A.
-                // Do not create adapters or generate fake content for them.
-                (
-                    vec!["GET".to_string(), "HEAD".to_string()],
-                    Vec::new(),
-                    false,
-                    String::new(),
-                    String::new(),
-                )
-            } else {
-                let pattern_bytes = canonical_pattern.as_bytes().len();
-                let encoded_mod = sanitize_page_module_name(&canonical_pattern);
-                let encoded_filename = format!("{}.va", encoded_mod);
-                let actual_filename_len = encoded_filename.len();
-                if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
-                    || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
-                {
-                    return Err(RouteConflictError {
-                        message: format!(
-                            "Page route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
-                            canonical_pattern,
-                            full_path.to_string_lossy(),
-                            pattern_bytes,
-                            encoded_filename,
-                            actual_filename_len,
-                            MAX_PORTABLE_ROUTE_PATTERN_BYTES,
-                            MAX_PORTABLE_ADAPTER_FILENAME_LEN,
-                        ),
-                        first_source: Some(full_path.to_path_buf()),
-                        second_source: None,
-                    });
-                }
-
-                let content = fs::read_to_string(full_path).map_err(|e| RouteConflictError {
-                    message: format!("Failed to read page file {:?}: {}", full_path, e),
+            let pattern_bytes = canonical_pattern.as_bytes().len();
+            let encoded_mod = sanitize_page_module_name(&canonical_pattern);
+            let encoded_filename = format!("{}.va", encoded_mod);
+            let actual_filename_len = encoded_filename.len();
+            if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
+                || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
+            {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Page route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        canonical_pattern,
+                        full_path.to_string_lossy(),
+                        pattern_bytes,
+                        encoded_filename,
+                        actual_filename_len,
+                        MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+                        MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+                    ),
                     first_source: Some(full_path.to_path_buf()),
                     second_source: None,
-                })?;
-
-                validate_page_route_handlers(full_path, &content, &ordinary_dynamic_params)?;
-
-                (
-                    vec!["GET".to_string(), "HEAD".to_string()],
-                    Vec::new(),
-                    false,
-                    content,
-                    encoded_mod,
-                )
+                });
             }
+
+            let content = fs::read_to_string(full_path).map_err(|e| RouteConflictError {
+                message: format!("Failed to read page file {:?}: {}", full_path, e),
+                first_source: Some(full_path.to_path_buf()),
+                second_source: None,
+            })?;
+
+            validate_page_route_handlers(full_path, &content, &dynamic_params)?;
+
+            (
+                vec!["GET".to_string(), "HEAD".to_string()],
+                Vec::new(),
+                false,
+                content,
+                encoded_mod,
+            )
         } else {
             let content = fs::read_to_string(full_path).unwrap_or_default();
             let validated = validate_api_route_handlers(full_path, &content)?;
@@ -1382,7 +1370,11 @@ pub fn generate_page_adapter_code(route: &RouteMetadata, content: &str) -> Strin
     let dynamic_params: Vec<String> = route
         .segments
         .iter()
-        .filter(|s| s.kind == SegmentKind::Dynamic)
+        .filter(|s| {
+            s.kind == SegmentKind::Dynamic
+                || s.kind == SegmentKind::CatchAll
+                || s.kind == SegmentKind::OptionalCatchAll
+        })
         .filter_map(|s| s.param_name.clone())
         .collect();
 
@@ -1690,15 +1682,15 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
             let dynamic_params: Vec<String> = r
                 .segments
                 .iter()
-                .filter(|s| s.kind == SegmentKind::Dynamic)
+                .filter(|s| {
+                    s.kind == SegmentKind::Dynamic
+                        || s.kind == SegmentKind::CatchAll
+                        || s.kind == SegmentKind::OptionalCatchAll
+                })
                 .filter_map(|s| s.param_name.clone())
                 .collect();
 
-            let has_catch_all = r.segments.iter().any(|s| {
-                s.kind == SegmentKind::CatchAll || s.kind == SegmentKind::OptionalCatchAll
-            });
-
-            if has_catch_all || r.adapter_module_name.is_empty() {
+            if r.adapter_module_name.is_empty() {
                 out.push_str("        return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");\n");
             } else if dynamic_params.is_empty() {
                 out.push_str(&format!(
