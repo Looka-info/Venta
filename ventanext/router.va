@@ -4,7 +4,7 @@
 // Optional Catch-All ([[...filter]]), Route Groups ((group)), and Conflict Checks
 // ============================================================================
 
-import http::{ParamMap, make_param_map, clone_param_map};
+import http::{ParamMap, make_param_map, clone_param_map, ascii_eq_ignore_case};
 import std::string::String;
 import std::option::Option;
 import std::result::Result;
@@ -60,6 +60,19 @@ pub fn split_segments(path: &str) -> Vec<String> {
 }
 
 pub fn normalize_request_path(path: &str) -> Result<String, String> {
+    let p_len = path.len();
+    let mut p_idx = 0;
+    while p_idx < p_len {
+        let b: i64 = path[p_idx];
+        if b == 0 {
+            return Result::Err(String::from_str("Null byte in path rejected"));
+        }
+        if b == 92 { // '\'
+            return Result::Err(String::from_str("Backslash in path rejected"));
+        }
+        p_idx = p_idx + 1;
+    }
+
     let segs = split_segments(path);
     if segs.len() == 0 {
         return Result::Ok(String::from_str("/"));
@@ -69,7 +82,11 @@ pub fn normalize_request_path(path: &str) -> Result<String, String> {
     let mut i = 0;
     while i < segs.len() {
         let seg_s = segs[i].as_str();
-        if seg_s.equals(".") || seg_s.equals("..") {
+        if seg_s.equals(".") || seg_s.equals("..")
+            || ascii_eq_ignore_case(seg_s, "%2e")
+            || ascii_eq_ignore_case(seg_s, "%2e%2e")
+            || ascii_eq_ignore_case(seg_s, ".%2e")
+            || ascii_eq_ignore_case(seg_s, "%2e.") {
             return Result::Err(String::from_str("Path traversal dot-segment rejected"));
         }
         res.push_str("/");

@@ -19,8 +19,9 @@ import http::{
     response_no_content, response_not_modified, response_internal_server_error, response_error,
     compute_etag, add_etag, add_cache_control, set_cookie, add_header,
     to_wire_format, to_wire_format_ex, make_header_map, make_query_map, make_param_map, make_cookie_map,
-    clone_param_map, status_reason
+    clone_param_map, status_reason, escape_json
 };
+import component::escape_html;
 import router::{
     RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
     render_mode_static, render_mode_dynamic, render_mode_isr,
@@ -896,9 +897,10 @@ fn main() -> i64 {
     test_phase1_5_http_error_propagation_and_unsupported_routes();
     test_phase1_4b_catch_all_page_handler_invocation();
     test_phase1_5_query_string_and_request_context_passing();
+    test_security_hardening_and_vulnerability_remediation();
 
     print_str("============================================================\n");
-    print_str("   ALL 27 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 28 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1417,3 +1419,77 @@ fn test_phase1_5_query_string_and_request_context_passing() {
     print_str("OK\n");
 }
 
+
+fn test_security_hardening_and_vulnerability_remediation() {
+    print_str("[28/28] Testing Security Hardening & Vulnerability Remediation (1-8)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. escape_html correctly escapes HTML special characters (<, >, &, ", ')
+    let dangerous_html = "<script>alert('xss' & \"attack\");</script>";
+    let escaped_html = escape_html(dangerous_html);
+    assert(str_contains(escaped_html.as_str(), "&lt;script&gt;"), "1. <script> must be escaped to &lt;script&gt;");
+    assert(str_contains(escaped_html.as_str(), "&#39;xss&#39;"), "1. Single quote must be escaped to &#39;");
+    assert(str_contains(escaped_html.as_str(), "&quot;attack&quot;"), "1. Double quote must be escaped to &quot;");
+    assert(str_contains(escaped_html.as_str(), "&amp;"), "1. Ampersand must be escaped to &amp;");
+    assert(!str_contains(escaped_html.as_str(), "<script>"), "1. Raw <script> must not exist in output");
+
+    // 2. escape_html safely preserves multi-byte UTF-8 sequences (international characters & emoji)
+    let unicode_text = "Venta ⚡ Rust 🦀 — München & São Paulo";
+    let escaped_unicode = escape_html(unicode_text);
+    assert(str_contains(escaped_unicode.as_str(), "⚡"), "2. 3-byte lightning emoji must be preserved");
+    assert(str_contains(escaped_unicode.as_str(), "🦀"), "2. 4-byte crab emoji must be preserved");
+    assert(str_contains(escaped_unicode.as_str(), "ünchen"), "2. 2-byte umlaut must be preserved");
+    assert(str_contains(escaped_unicode.as_str(), "São"), "2. 2-byte tilde must be preserved");
+    assert(str_contains(escaped_unicode.as_str(), "&amp;"), "2. Ampersand inside Unicode string must be escaped");
+
+    // 3. escape_json escapes quotes, backslashes, newlines, and control characters
+    let dangerous_json = "hello \"world\"\npath\\to\\file\tvalue\r\n";
+    let escaped_j = escape_json(dangerous_json);
+    assert(str_contains(escaped_j.as_str(), "\\\"world\\\""), "3. Double quotes must be escaped with backslash");
+    assert(str_contains(escaped_j.as_str(), "\\\\to\\\\"), "3. Backslashes must be escaped with double backslash");
+    assert(str_contains(escaped_j.as_str(), "\\n"), "3. Newline must be escaped as \\n");
+    assert(str_contains(escaped_j.as_str(), "\\t"), "3. Tab must be escaped as \\t");
+    assert(str_contains(escaped_j.as_str(), "\\r"), "3. Carriage return must be escaped as \\r");
+
+    // 4. set_cookie sanitizes semicolons and CRLF to prevent cookie attribute injection
+    let mut resp_cookie = response_html("OK");
+    set_cookie(&mut resp_cookie, "session", "abc123; Domain=evil.com; SameSite=None", "/; Path=/evil", 3600, true, true, "Lax; evil");
+    let set_cookie_hdr = resp_cookie.headers.get("set-cookie");
+    match set_cookie_hdr {
+        Option::Some(cookie_val) => {
+            assert(!str_contains(cookie_val.as_str(), "; Domain=evil.com"), "4. Injected Domain attribute must be stripped");
+            assert(str_contains(cookie_val.as_str(), "session=abc123 Domain=evil.com SameSite=None"), "4. Semicolon stripped cleanly from cookie value");
+        }
+        Option::None => {
+            assert(false, "4. Expected Set-Cookie header");
+        }
+    }
+
+    // 5. normalize_request_path rejects backslashes and null bytes
+    let bs_res = normalize_request_path("/foo\\..\\bar");
+    assert(bs_res.is_err(), "5. Path with backslash must be rejected");
+
+    // 6. normalize_request_path rejects percent-encoded dot segments (%2e%2e, %2e)
+    let enc_dot_res = normalize_request_path("/foo/%2e%2e/bar");
+    assert(enc_dot_res.is_err(), "6. Path with %2e%2e must be rejected");
+
+    let enc_single_dot = normalize_request_path("/foo/%2e/bar");
+    assert(enc_single_dot.is_err(), "6. Path with %2e must be rejected");
+
+    // 7. 404 response sanitizes unmapped path containing <script> payload
+    let mut req_404_xss = make_request("GET", "/nonexistent/<script>alert(1)</script>", "", make_header_map(), "");
+    let resp_404_xss = server::dispatch_request_with_manifest(&gen_manifest, &mut req_404_xss);
+    assert(resp_404_xss.status == 404, "7. Expected 404 Not Found");
+    assert(!str_contains(resp_404_xss.body.as_str(), "<script>alert(1)</script>"), "7. 404 body must NOT contain raw script tag");
+    assert(str_contains(resp_404_xss.body.as_str(), "&lt;script&gt;alert(1)&lt;/script&gt;"), "7. 404 body must contain escaped script tag");
+
+    // 8. Truncated HTTP request line does not corrupt parser or panic
+    let truncated_http = "GET /dashboard HTTP/1.1";
+    let req_trunc = parse_http_request(truncated_http);
+    assert(req_trunc.method.as_str().equals("GET"), "8. Truncated request line method parsed correctly");
+    assert(req_trunc.path.as_str().equals("/dashboard"), "8. Truncated request line path parsed correctly");
+    assert(req_trunc.headers.entries.len() == 0, "8. Truncated request line must not parse request line as headers");
+
+    print_str("OK\n");
+}

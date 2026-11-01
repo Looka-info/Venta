@@ -73,6 +73,69 @@ pub fn ascii_eq_ignore_case(a: &str, b: &str) -> bool {
     true
 }
 
+pub fn escape_json(input: &str) -> String {
+    let mut out = String::new();
+    let len = input.len();
+    let mut i = 0;
+    while i < len {
+        let b: i64 = input[i];
+        if b == 92 { // '\\'
+            out.push_str("\\\\");
+        } else if b == 34 { // '\"'
+            out.push_str("\\\"");
+        } else if b == 10 { // '\n'
+            out.push_str("\\n");
+        } else if b == 13 { // '\r'
+            out.push_str("\\r");
+        } else if b == 9 { // '\t'
+            out.push_str("\\t");
+        } else if b == 8 { // '\b'
+            out.push_str("\\b");
+        } else if b == 12 { // '\f'
+            out.push_str("\\f");
+        } else if b < 32 {
+            // Drop control characters to ensure JSON validity
+        } else if b >= 192 && b <= 223 { // 2-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 2);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 1;
+                }
+                Option::None => {}
+            }
+        } else if b >= 224 && b <= 239 { // 3-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 3);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 2;
+                }
+                Option::None => {}
+            }
+        } else if b >= 240 && b <= 247 { // 4-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 4);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 3;
+                }
+                Option::None => {}
+            }
+        } else {
+            let slice_opt = input.slice_bytes(i, i + 1);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                }
+                Option::None => {}
+            }
+        }
+        i = i + 1;
+    }
+    out
+}
+
 // ----------------------------------------------------------------------------
 // 2. HTTP Status Codes & Reason Phrases
 // ----------------------------------------------------------------------------
@@ -570,6 +633,10 @@ pub fn parse_http_request(raw_str: &str) -> Request {
         i = i + 1;
     }
 
+    if line_end == 0 {
+        line_end = len;
+    }
+
     if space1 == 0 {
         return make_request("GET", "/", "", make_header_map(), "");
     }
@@ -876,6 +943,24 @@ pub fn add_header(resp: &mut Response, name: &str, value: &str) {
     resp.headers.add(name, value);
 }
 
+pub fn sanitize_cookie_param(input: &str) -> String {
+    let mut clean = String::new();
+    let len = input.len();
+    let mut i = 0;
+    while i < len {
+        let b: i64 = input[i];
+        if b != 59 && b != 13 && b != 10 && b >= 32 && b != 127 {
+            let slice_opt = input.slice_bytes(i, i + 1);
+            match slice_opt {
+                Option::Some(s) => { clean.push_str(s); }
+                Option::None => {}
+            }
+        }
+        i = i + 1;
+    }
+    clean
+}
+
 pub fn set_cookie(
     resp: &mut Response,
     name: &str,
@@ -886,11 +971,16 @@ pub fn set_cookie(
     is_http_only: bool,
     same_site: &str,
 ) {
-    let mut cookie_str = String::from_str(name);
+    let clean_name = sanitize_cookie_param(name);
+    let clean_val = sanitize_cookie_param(value);
+    let clean_path = sanitize_cookie_param(path);
+
+    let mut cookie_str = String::new();
+    cookie_str.push_str(clean_name.as_str());
     cookie_str.push_str("=");
-    cookie_str.push_str(value);
+    cookie_str.push_str(clean_val.as_str());
     cookie_str.push_str("; Path=");
-    cookie_str.push_str(path);
+    cookie_str.push_str(clean_path.as_str());
 
     if max_age_secs >= 0 {
         cookie_str.push_str("; Max-Age=");
@@ -906,9 +996,10 @@ pub fn set_cookie(
         cookie_str.push_str("; HttpOnly");
     }
 
-    if !same_site.equals("") {
+    let clean_same_site = sanitize_cookie_param(same_site);
+    if !clean_same_site.is_empty() {
         cookie_str.push_str("; SameSite=");
-        cookie_str.push_str(same_site);
+        cookie_str.push_str(clean_same_site.as_str());
     }
 
     add_header(resp, "Set-Cookie", cookie_str.as_str());

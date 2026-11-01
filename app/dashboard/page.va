@@ -1,5 +1,6 @@
 import std::string::String;
 import ssr::RenderContext;
+import component::escape_html;
 import std::option::Option;
 
 pub fn render_page(ctx: &RenderContext) -> String {
@@ -8,7 +9,8 @@ pub fn render_page(ctx: &RenderContext) -> String {
     match tab_opt {
         Option::Some(tab_val) => {
             html.push_str("<p>Active Tab: ");
-            html.push_str(tab_val.as_str());
+            let clean_tab = escape_html(tab_val.as_str());
+            html.push_str(clean_tab.as_str());
             html.push_str("</p>");
         }
         Option::None => {}

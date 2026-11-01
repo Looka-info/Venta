@@ -3159,3 +3159,68 @@ fn test_103_codegen_dispatcher_passes_query_and_ctx() {
     // ContextOnly -> invoke_render_page(ctx)
     assert!(code.contains("invoke_render_page(ctx);"));
 }
+
+// ----------------------------------------------------------------------------
+// Security Hardening & Vulnerability Remediation Tests (104-106)
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_104_dot_and_double_dot_segments_rejected() {
+    assert!(parse_segment(".").is_err());
+    assert!(parse_segment("..").is_err());
+}
+
+#[test]
+fn test_105_backslash_and_encoded_dots_in_route_rejected() {
+    assert!(parse_segment("..\\foo").is_err());
+    assert!(parse_segment("foo\\bar").is_err());
+    assert!(parse_segment("foo/bar").is_err());
+    assert!(parse_segment("%2e").is_err());
+    assert!(parse_segment("%2E").is_err());
+    assert!(parse_segment("%2e%2e").is_err());
+    assert!(parse_segment("%2E%2E").is_err());
+    assert!(parse_segment("foo\0bar").is_err());
+}
+
+#[test]
+fn test_106_static_export_path_traversal_prevention() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    let out_dir = tmp.path().join("dist");
+    fs::create_dir_all(&app_dir).unwrap();
+
+    let malicious_route = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/../escaped_dir".to_string(),
+        normalized_url: "/../escaped_dir".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Static,
+        revalidate_seconds: None,
+        source_file: "app/page.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string()],
+        specificity: 100,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_escape".to_string(),
+        source_content: String::new(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
+    };
+
+    let discovered = DiscoveredApp {
+        routes: vec![malicious_route],
+        special_files: SpecialFilesMetadata {
+            root_layout: None,
+            loading: None,
+            error: None,
+            not_found: None,
+        },
+    };
+
+    let result = export_static_site(&app_dir, &out_dir, &discovered);
+    assert!(
+        result.is_err(),
+        "Path traversal in static site export must be rejected"
+    );
+}

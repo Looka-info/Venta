@@ -7,7 +7,7 @@ import http::{
     Request, Response, parse_http_request, response_html, response_json,
     response_not_found, response_bad_request, response_not_implemented, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
-    add_header, i64_to_string,
+    add_header, i64_to_string, escape_json,
     to_wire_format, to_wire_format_ex, clone_param_map,
     clone_query_map, clone_header_map, clone_cookie_map
 };
@@ -132,21 +132,24 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                         Option::Some(s) => { id_str = s; }
                         Option::None => {}
                     }
+                    let clean_id = escape_json(id_str.as_str());
                     let mut json = String::from_str("{\"id\":\"");
-                    json.push_str(id_str.as_str());
+                    json.push_str(clean_id.as_str());
                     json.push_str("\",\"title\":\"Dynamic Post #");
-                    json.push_str(id_str.as_str());
+                    json.push_str(clean_id.as_str());
                     json.push_str("\",\"body\":\"Fetched dynamically via VentaNext App Router dynamic parameter.\",\"framework\":\"VentaNext\"}\n");
                     resp = response_json(json.as_str());
                 } else if m_res.page_id == 203 {
+                    let clean_method = escape_json(req.method.as_str());
                     let mut json = String::from_str("{\"status\":\"received\",\"method\":\"");
-                    json.push_str(req.method.as_str());
+                    json.push_str(clean_method.as_str());
                     json.push_str("\",\"echo_payload\":");
                     if req.body.is_empty() {
                         json.push_str("null");
                     } else {
+                        let clean_body = escape_json(req.body.as_str());
                         json.push_str("\"");
-                        json.push_str(req.body.as_str());
+                        json.push_str(clean_body.as_str());
                         json.push_str("\"");
                     }
                     json.push_str("}\n");
@@ -156,10 +159,11 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     resp = response_json(json);
                 } else {
                     let id_str = i64_to_string(m_res.page_id);
+                    let clean_method = escape_json(req.method.as_str());
                     let mut msg = String::from_str("{\"status\":\"ok\",\"handler_id\":");
                     msg.push_str(id_str.as_str());
                     msg.push_str(",\"method\":\"");
-                    msg.push_str(req.method.as_str());
+                    msg.push_str(clean_method.as_str());
                     msg.push_str("\"}");
                     resp = response_json(msg.as_str());
                 }

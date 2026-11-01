@@ -5,6 +5,7 @@
 
 import std::string::String;
 import http::QueryMap;
+import component::escape_html;
 import std::option::Option;
 
 pub fn render_page(filter: &str, query: &QueryMap) -> String {
@@ -12,7 +13,8 @@ pub fn render_page(filter: &str, query: &QueryMap) -> String {
     if filter.is_empty() {
         html.push_str("All Products (No Filter)");
     } else {
-        html.push_str(filter);
+        let clean_filter = escape_html(filter);
+        html.push_str(clean_filter.as_str());
     }
     html.push_str("</p>");
 
@@ -20,7 +22,8 @@ pub fn render_page(filter: &str, query: &QueryMap) -> String {
     match sort_opt {
         Option::Some(sort_val) => {
             html.push_str("<p>Sort Order: ");
-            html.push_str(sort_val.as_str());
+            let clean_sort = escape_html(sort_val.as_str());
+            html.push_str(clean_sort.as_str());
             html.push_str("</p>");
         }
         Option::None => {}

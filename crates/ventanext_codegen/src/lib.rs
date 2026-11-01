@@ -265,6 +265,27 @@ pub fn parse_segment(raw: &str) -> Result<Segment, RouteConflictError> {
         });
     }
 
+    // Reject path traversal dot-segments and invalid path characters
+    if s == "."
+        || s == ".."
+        || s.contains('/')
+        || s.contains('\\')
+        || s.contains('\0')
+        || s.eq_ignore_ascii_case("%2e")
+        || s.eq_ignore_ascii_case("%2e%2e")
+        || s.eq_ignore_ascii_case(".%2e")
+        || s.eq_ignore_ascii_case("%2e.")
+    {
+        return Err(RouteConflictError {
+            message: format!(
+                "Path traversal dot-segment or invalid path character in '{}'",
+                s
+            ),
+            first_source: None,
+            second_source: None,
+        });
+    }
+
     // Static segment
     Ok(Segment {
         raw: s.to_string(),
@@ -2225,6 +2246,17 @@ pub fn export_static_site(
                 out_dir.join("index.html")
             } else {
                 let rel = route.canonical_pattern.trim_start_matches('/');
+                let rel_path = Path::new(rel);
+                if rel_path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err(format!(
+                        "Security error: static export path {:?} escapes output directory via parent directory traversal",
+                        rel
+                    )
+                    .into());
+                }
                 let page_dir = out_dir.join(rel);
                 fs::create_dir_all(&page_dir)?;
                 page_dir.join("index.html")

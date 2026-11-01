@@ -26,6 +26,33 @@ pub fn escape_html(input: &str) -> String {
             out.push_str("&quot;");
         } else if b == 39 { // '\''
             out.push_str("&#39;");
+        } else if b >= 192 && b <= 223 { // 2-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 2);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 1;
+                }
+                Option::None => {}
+            }
+        } else if b >= 224 && b <= 239 { // 3-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 3);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 2;
+                }
+                Option::None => {}
+            }
+        } else if b >= 240 && b <= 247 { // 4-byte UTF-8
+            let slice_opt = input.slice_bytes(i, i + 4);
+            match slice_opt {
+                Option::Some(s) => {
+                    out.push_str(s);
+                    i = i + 3;
+                }
+                Option::None => {}
+            }
         } else {
             let slice_opt = input.slice_bytes(i, i + 1);
             match slice_opt {
