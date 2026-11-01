@@ -94,7 +94,7 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         return response_html(content.as_str());
     }
     if route_id == 6 {
-        let content = page_2f64617368626f617264::invoke_render_page();
+        let content = page_2f64617368626f617264::invoke_render_page(ctx);
         return response_html(content.as_str());
     }
     if route_id == 7 {
@@ -105,7 +105,7 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         let p_opt_filter = ctx.params.get("filter");
         match p_opt_filter {
             Option::Some(val_filter) => {
-                let content = page_2f73686f702f5b5b2e2e2e66696c7465725d5d::invoke_render_page(val_filter.as_str());
+                let content = page_2f73686f702f5b5b2e2e2e66696c7465725d5d::invoke_render_page(val_filter.as_str(), &ctx.query);
                 return response_html(content.as_str());
             }
             Option::None => {

@@ -4,8 +4,10 @@
 // ============================================================================
 
 import std::string::String;
+import http::QueryMap;
+import std::option::Option;
 
-pub fn render_page(filter: &str) -> String {
+pub fn render_page(filter: &str, query: &QueryMap) -> String {
     let mut html = String::from_str("<h1>Shop Catalog</h1><p>Active Filter: ");
     if filter.is_empty() {
         html.push_str("All Products (No Filter)");
@@ -13,6 +15,17 @@ pub fn render_page(filter: &str) -> String {
         html.push_str(filter);
     }
     html.push_str("</p>");
+
+    let sort_opt = query.get("sort");
+    match sort_opt {
+        Option::Some(sort_val) => {
+            html.push_str("<p>Sort Order: ");
+            html.push_str(sort_val.as_str());
+            html.push_str("</p>");
+        }
+        Option::None => {}
+    }
+
     html
 }
 
@@ -20,6 +33,6 @@ pub fn render_page(filter: &str) -> String {
 // Static Invocation Bridge
 // ----------------------------------------------------------------------------
 
-pub fn invoke_render_page(filter: &str) -> String {
-    render_page(filter)
+pub fn invoke_render_page(filter: &str, query: &QueryMap) -> String {
+    render_page(filter, query)
 }

@@ -11,9 +11,10 @@ use ventanext_codegen::{
     generate_api_adapter_code, generate_manifest_json, generate_page_adapter_code,
     generate_venta_code, parse_segment, sanitize_module_name, sanitize_page_module_name,
     scan_app_directory, validate_api_route_handlers, validate_conflicts,
-    validate_page_route_handlers, write_generated_routes, DiscoveredApp, RenderMode, RouteKind,
-    RouteMetadata, Segment, SegmentKind, SpecialFilesMetadata, ADAPTER_FILENAME_WRAPPER_LEN,
-    MAX_PORTABLE_ADAPTER_FILENAME_LEN, MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+    validate_page_route_handlers, write_generated_routes, DiscoveredApp, PageHandlerKind,
+    RenderMode, RouteKind, RouteMetadata, Segment, SegmentKind, SpecialFilesMetadata,
+    ADAPTER_FILENAME_WRAPPER_LEN, MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+    MAX_PORTABLE_ROUTE_PATTERN_BYTES,
 };
 
 fn create_temp_app_tree(base: &Path) {
@@ -1503,6 +1504,7 @@ fn test_59_generated_adapters_never_contain_fake_success_response() {
         explicit_methods: vec!["GET".to_string()],
         adapter_module_name: "route_2f6170692f7573657273".to_string(),
         source_content: "pub fn GET() -> String { String::from_str(\"users\") }".to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
 
     let adapter_users = generate_api_adapter_code(&route_users, &route_users.source_content);
@@ -1538,6 +1540,7 @@ fn test_59_generated_adapters_never_contain_fake_success_response() {
         adapter_module_name: "route_2f6170692f6865616c7468".to_string(),
         source_content: "pub fn handle_api() -> String { String::from_str(\"health\") }"
             .to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
 
     let adapter_health = generate_api_adapter_code(&route_health, &route_health.source_content);
@@ -1806,6 +1809,7 @@ fn test_69_enforce_uniqueness_rejects_duplicate_adapter_module_names() {
         explicit_methods: vec!["GET".to_string()],
         adapter_module_name: "route_collision".to_string(),
         source_content: "pub fn GET() -> String { String::from_str(\"\") }".to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
     let r2 = RouteMetadata {
         id: 1,
@@ -1827,6 +1831,7 @@ fn test_69_enforce_uniqueness_rejects_duplicate_adapter_module_names() {
         explicit_methods: vec!["GET".to_string()],
         adapter_module_name: "route_collision".to_string(),
         source_content: "pub fn GET() -> String { String::from_str(\"\") }".to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
 
     let res = validate_conflicts(&[r1.clone(), r2.clone()]);
@@ -2195,6 +2200,7 @@ fn test_75_rejected_oversized_routes_do_not_create_or_overwrite_adapter_files() 
         explicit_methods: vec!["GET".to_string()],
         adapter_module_name: sanitize_module_name(&format!("/api/{}", seg120)),
         source_content: "pub fn GET() -> String { String::from_str(\"oversized\") }".to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
 
     let fake_app = DiscoveredApp {
@@ -2355,6 +2361,7 @@ pub fn render_page() -> String {
         explicit_methods: vec![],
         adapter_module_name: "page_2f".to_string(),
         source_content: content.to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
     let adapter = generate_page_adapter_code(&route, content);
     assert!(adapter.contains("pub fn invoke_render_page() -> String"));
@@ -2407,6 +2414,7 @@ pub fn render_page(slug: &str) -> String {
         explicit_methods: vec![],
         adapter_module_name: "page_2f626c6f672f5b736c75675d".to_string(),
         source_content: content.to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
     let adapter = generate_page_adapter_code(&route, content);
     assert!(adapter.contains("pub fn invoke_render_page(slug: &str) -> String"));
@@ -2464,6 +2472,7 @@ pub fn render_page(org: &str, repo: &str) -> String {
         explicit_methods: vec![],
         adapter_module_name: "page_multi".to_string(),
         source_content: content.to_string(),
+        page_handler_kind: PageHandlerKind::ParamsOnly,
     };
     let adapter = generate_page_adapter_code(&route, content);
     assert!(adapter.contains("pub fn invoke_render_page(org: &str, repo: &str) -> String"));
@@ -2943,4 +2952,210 @@ fn test_98_multi_segment_with_catch_all_route() {
     assert!(
         code.contains("invoke_render_page(val_org.as_str(), val_repo.as_str(), val_path.as_str())")
     );
+}
+
+#[test]
+fn test_99_static_page_with_query_map() {
+    let content = r#"
+import std::string::String;
+import http::QueryMap;
+
+pub fn render_page(query: &QueryMap) -> String {
+    String::from_str("static with query")
+}
+"#;
+    let validated = validate_page_route_handlers(Path::new("page.va"), content, &[])
+        .expect("Static page handler with query map must pass validation");
+    assert_eq!(validated.kind, PageHandlerKind::ParamsWithQuery);
+
+    let route = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/search".to_string(),
+        normalized_url: "/search".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Static,
+        revalidate_seconds: None,
+        source_file: "app/search/page.va".to_string(),
+        segments: vec![Segment {
+            raw: "search".to_string(),
+            kind: SegmentKind::Static,
+            param_name: None,
+        }],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_search".to_string(),
+        source_content: content.to_string(),
+        page_handler_kind: PageHandlerKind::ParamsWithQuery,
+    };
+    let adapter = generate_page_adapter_code(&route, content);
+    assert!(adapter.contains("pub fn invoke_render_page(query: &QueryMap) -> String"));
+    assert!(adapter.contains("render_page(query)"));
+}
+
+#[test]
+fn test_100_dynamic_page_with_query_map() {
+    let content = r#"
+import std::string::String;
+import http::QueryMap;
+
+pub fn render_page(slug: &str, query: &QueryMap) -> String {
+    let mut s = String::from_str("Blog: ");
+    s.push_str(slug);
+    s
+}
+"#;
+    let validated = validate_page_route_handlers(
+        Path::new("app/blog/[slug]/page.va"),
+        content,
+        &["slug".to_string()],
+    )
+    .expect("Dynamic page handler with query map must pass validation");
+    assert_eq!(validated.kind, PageHandlerKind::ParamsWithQuery);
+    assert_eq!(
+        validated.param_names,
+        vec!["slug".to_string(), "query".to_string()]
+    );
+
+    let route = RouteMetadata {
+        id: 1,
+        canonical_pattern: "/blog/[slug]".to_string(),
+        normalized_url: "/blog/[slug]".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/blog/[slug]/page.va".to_string(),
+        segments: vec![
+            Segment {
+                raw: "blog".to_string(),
+                kind: SegmentKind::Static,
+                param_name: None,
+            },
+            Segment {
+                raw: "[slug]".to_string(),
+                kind: SegmentKind::Dynamic,
+                param_name: Some("slug".to_string()),
+            },
+        ],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 1102,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_blog_slug".to_string(),
+        source_content: content.to_string(),
+        page_handler_kind: PageHandlerKind::ParamsWithQuery,
+    };
+    let adapter = generate_page_adapter_code(&route, content);
+    assert!(adapter.contains("pub fn invoke_render_page(slug: &str, query: &QueryMap) -> String"));
+    assert!(adapter.contains("render_page(slug, query)"));
+}
+
+#[test]
+fn test_101_page_with_render_context() {
+    let content_static = r#"
+import std::string::String;
+import ssr::RenderContext;
+
+pub fn render_page(ctx: &RenderContext) -> String {
+    String::from_str("context page")
+}
+"#;
+    let val_static = validate_page_route_handlers(Path::new("page.va"), content_static, &[])
+        .expect("Static page handler with RenderContext must pass validation");
+    assert_eq!(val_static.kind, PageHandlerKind::ContextOnly);
+
+    let content_dynamic = r#"
+import std::string::String;
+import ssr::RenderContext;
+
+pub fn render_page(ctx: &RenderContext) -> String {
+    String::from_str("context dynamic page")
+}
+"#;
+    let val_dyn = validate_page_route_handlers(
+        Path::new("app/docs/[...path]/page.va"),
+        content_dynamic,
+        &["path".to_string()],
+    )
+    .expect("Catch-all page handler with RenderContext must pass validation");
+    assert_eq!(val_dyn.kind, PageHandlerKind::ContextOnly);
+
+    let route = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/dashboard".to_string(),
+        normalized_url: "/dashboard".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Static,
+        revalidate_seconds: None,
+        source_file: "app/dashboard/page.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 1000,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_dashboard".to_string(),
+        source_content: content_static.to_string(),
+        page_handler_kind: PageHandlerKind::ContextOnly,
+    };
+    let adapter = generate_page_adapter_code(&route, content_static);
+    assert!(adapter.contains("pub fn invoke_render_page(ctx: &RenderContext) -> String"));
+    assert!(adapter.contains("render_page(ctx)"));
+}
+
+#[test]
+fn test_102_trailing_query_param_wrong_type_rejected() {
+    let content = r#"
+import std::string::String;
+
+pub fn render_page(slug: &str, query: String) -> String {
+    slug
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &["slug".to_string()]);
+    assert!(
+        res.is_err(),
+        "Non-&QueryMap trailing parameter must fail validation"
+    );
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Unsupported parameter type"));
+    assert!(err.message.contains("must be typed as '&QueryMap'"));
+}
+
+#[test]
+fn test_103_codegen_dispatcher_passes_query_and_ctx() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("catalog")).unwrap();
+    fs::create_dir_all(app_dir.join("shop/[category]")).unwrap();
+    fs::create_dir_all(app_dir.join("admin")).unwrap();
+
+    fs::write(
+        app_dir.join("catalog/page.va"),
+        "import std::string::String;\nimport http::QueryMap;\npub fn render_page(query: &QueryMap) -> String { String::from_str(\"catalog\") }",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("shop/[category]/page.va"),
+        "import std::string::String;\nimport http::QueryMap;\npub fn render_page(category: &str, query: &QueryMap) -> String { String::from_str(category) }",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("admin/page.va"),
+        "import std::string::String;\nimport ssr::RenderContext;\npub fn render_page(ctx: &RenderContext) -> String { String::from_str(\"admin\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    // Static with query -> invoke_render_page(&ctx.query)
+    assert!(code.contains("invoke_render_page(&ctx.query);"));
+    // Dynamic with query -> invoke_render_page(val_category.as_str(), &ctx.query)
+    assert!(code.contains("invoke_render_page(val_category.as_str(), &ctx.query);"));
+    // ContextOnly -> invoke_render_page(ctx)
+    assert!(code.contains("invoke_render_page(ctx);"));
 }

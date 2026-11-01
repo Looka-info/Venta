@@ -1,5 +1,17 @@
 import std::string::String;
+import ssr::RenderContext;
+import std::option::Option;
 
-pub fn render_page() -> String {
-    String::from_str("<h2>Dashboard Overview</h2><p>Server Status: Operational | Active Routes: 8 | Memory Footprint: 86 KB</p>")
+pub fn render_page(ctx: &RenderContext) -> String {
+    let mut html = String::from_str("<h2>Dashboard Overview</h2><p>Server Status: Operational | Active Routes: 8 | Memory Footprint: 86 KB</p>");
+    let tab_opt = ctx.query.get("tab");
+    match tab_opt {
+        Option::Some(tab_val) => {
+            html.push_str("<p>Active Tab: ");
+            html.push_str(tab_val.as_str());
+            html.push_str("</p>");
+        }
+        Option::None => {}
+    }
+    html
 }

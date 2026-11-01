@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use vanta_diagnostics::{DiagnosticBag, Severity};
 use vanta_lexer::{Lexer, TokenKind};
-use vanta_parser::ast::{Item, PrimType, TypeExprKind};
+use vanta_parser::ast::{Item, PrimType, TypeExpr, TypeExprKind};
 use vanta_parser::Parser;
 use vanta_source::{FileId, SourceFile};
 
@@ -76,6 +76,21 @@ pub struct Segment {
     pub param_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PageHandlerKind {
+    #[default]
+    ParamsOnly,
+    ParamsWithQuery,
+    ContextOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedPageHandler {
+    pub param_names: Vec<String>,
+    pub kind: PageHandlerKind,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteMetadata {
     pub id: usize,
@@ -97,6 +112,8 @@ pub struct RouteMetadata {
     pub adapter_module_name: String,
     #[serde(default)]
     pub source_content: String,
+    #[serde(default)]
+    pub page_handler_kind: PageHandlerKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -597,16 +614,22 @@ fn parse_route_file(
         .filter_map(|s| s.param_name.clone())
         .collect();
 
-    let (methods, explicit_methods, has_generic_handler, source_content, adapter_module_name) =
-        if kind == RouteKind::Page {
-            let pattern_bytes = canonical_pattern.as_bytes().len();
-            let encoded_mod = sanitize_page_module_name(&canonical_pattern);
-            let encoded_filename = format!("{}.va", encoded_mod);
-            let actual_filename_len = encoded_filename.len();
-            if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
-                || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
-            {
-                return Err(RouteConflictError {
+    let (
+        methods,
+        explicit_methods,
+        has_generic_handler,
+        source_content,
+        adapter_module_name,
+        page_handler_kind,
+    ) = if kind == RouteKind::Page {
+        let pattern_bytes = canonical_pattern.as_bytes().len();
+        let encoded_mod = sanitize_page_module_name(&canonical_pattern);
+        let encoded_filename = format!("{}.va", encoded_mod);
+        let actual_filename_len = encoded_filename.len();
+        if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
+            || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
+        {
+            return Err(RouteConflictError {
                     message: format!(
                         "Page route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
                         canonical_pattern,
@@ -620,35 +643,37 @@ fn parse_route_file(
                     first_source: Some(full_path.to_path_buf()),
                     second_source: None,
                 });
-            }
+        }
 
-            let content = fs::read_to_string(full_path).map_err(|e| RouteConflictError {
-                message: format!("Failed to read page file {:?}: {}", full_path, e),
-                first_source: Some(full_path.to_path_buf()),
-                second_source: None,
-            })?;
+        let content = fs::read_to_string(full_path).map_err(|e| RouteConflictError {
+            message: format!("Failed to read page file {:?}: {}", full_path, e),
+            first_source: Some(full_path.to_path_buf()),
+            second_source: None,
+        })?;
 
-            validate_page_route_handlers(full_path, &content, &dynamic_params)?;
+        let validated = validate_page_route_handlers(full_path, &content, &dynamic_params)?;
 
-            (
-                vec!["GET".to_string(), "HEAD".to_string()],
-                Vec::new(),
-                false,
-                content,
-                encoded_mod,
-            )
-        } else {
-            let content = fs::read_to_string(full_path).unwrap_or_default();
-            let validated = validate_api_route_handlers(full_path, &content)?;
-            let encoded_mod = sanitize_module_name(&canonical_pattern);
-            (
-                validated.methods,
-                validated.explicit_methods,
-                validated.has_generic_handler,
-                content,
-                encoded_mod,
-            )
-        };
+        (
+            vec!["GET".to_string(), "HEAD".to_string()],
+            Vec::new(),
+            false,
+            content,
+            encoded_mod,
+            validated.kind,
+        )
+    } else {
+        let content = fs::read_to_string(full_path).unwrap_or_default();
+        let validated = validate_api_route_handlers(full_path, &content)?;
+        let encoded_mod = sanitize_module_name(&canonical_pattern);
+        (
+            validated.methods,
+            validated.explicit_methods,
+            validated.has_generic_handler,
+            content,
+            encoded_mod,
+            PageHandlerKind::ParamsOnly,
+        )
+    };
 
     let has_dynamic_segments = segments.iter().any(|s| {
         s.kind == SegmentKind::Dynamic
@@ -680,6 +705,7 @@ fn parse_route_file(
         explicit_methods,
         adapter_module_name,
         source_content,
+        page_handler_kind,
     })
 }
 
@@ -1089,11 +1115,6 @@ pub fn generate_api_adapter_code(route: &RouteMetadata, content: &str) -> String
 // 3.3. Static Page Route Handler Validation & Adapter Generation (Phase 1.4A)
 // ----------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidatedPageHandler {
-    pub param_names: Vec<String>,
-}
-
 /// Encodes a canonical page route pattern into a collision-resistant, deterministic Venta module identifier.
 ///
 /// Injective UTF-8 hexadecimal encoding ensures that every distinct canonical pattern
@@ -1269,40 +1290,26 @@ pub fn validate_page_route_handlers(
         });
     }
 
-    // Parameter count validation: must match dynamic segment count
-    if f.params.len() != dynamic_params.len() {
-        return Err(RouteConflictError {
-            message: format!(
-                "Parameter count mismatch in {:?}: route has {} dynamic parameter(s) ({:?}), but 'pub fn render_page' has {} parameter(s).",
-                file_path,
-                dynamic_params.len(),
-                dynamic_params,
-                f.params.len()
-            ),
-            first_source: Some(file_path.to_path_buf()),
-            second_source: None,
-        });
+    fn is_type_ref_named(ty: &TypeExpr, expected_names: &[&str]) -> bool {
+        match &ty.kind {
+            TypeExprKind::Reference { is_mut, inner, .. } => {
+                if *is_mut {
+                    false
+                } else {
+                    match &inner.kind {
+                        TypeExprKind::Named(name) => expected_names
+                            .iter()
+                            .any(|exp| name == *exp || name.ends_with(&format!("::{}", exp))),
+                        _ => false,
+                    }
+                }
+            }
+            _ => false,
+        }
     }
 
-    // Parameter names and types validation
-    let mut param_names = Vec::new();
-    for (idx, p) in f.params.iter().enumerate() {
-        let expected_name = &dynamic_params[idx];
-        if p.name.name != *expected_name {
-            return Err(RouteConflictError {
-                message: format!(
-                    "Parameter name mismatch at index {} in {:?}: expected parameter name '{}' matching route segment, but found '{}'.",
-                    idx,
-                    file_path,
-                    expected_name,
-                    p.name.name
-                ),
-                first_source: Some(file_path.to_path_buf()),
-                second_source: None,
-            });
-        }
-
-        let is_str_ref = match &p.ty.kind {
+    fn is_type_ref_str(ty: &TypeExpr) -> bool {
+        match &ty.kind {
             TypeExprKind::Reference { is_mut, inner, .. } => {
                 if *is_mut {
                     false
@@ -1315,24 +1322,135 @@ pub fn validate_page_route_handlers(
                 }
             }
             _ => false,
-        };
-
-        if !is_str_ref {
-            return Err(RouteConflictError {
-                message: format!(
-                    "Unsupported parameter type for parameter '{}' in {:?}: dynamic route parameters must be typed as '&str'.",
-                    p.name.name,
-                    file_path
-                ),
-                first_source: Some(file_path.to_path_buf()),
-                second_source: None,
-            });
         }
-
-        param_names.push(p.name.name.clone());
     }
 
-    Ok(ValidatedPageHandler { param_names })
+    // ContextOnly: single parameter typed as &RenderContext
+    if f.params.len() == 1 && is_type_ref_named(&f.params[0].ty, &["RenderContext"]) {
+        return Ok(ValidatedPageHandler {
+            param_names: vec![f.params[0].name.name.clone()],
+            kind: PageHandlerKind::ContextOnly,
+        });
+    }
+
+    // ParamsOnly: exact parameter count matching dynamic segments
+    if f.params.len() == dynamic_params.len() {
+        let mut param_names = Vec::new();
+        for (idx, p) in f.params.iter().enumerate() {
+            let expected_name = &dynamic_params[idx];
+            if p.name.name != *expected_name {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Parameter name mismatch at index {} in {:?}: expected parameter name '{}' matching route segment, but found '{}'.",
+                        idx,
+                        file_path,
+                        expected_name,
+                        p.name.name
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+
+            if !is_type_ref_str(&p.ty) {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Unsupported parameter type for parameter '{}' in {:?}: dynamic route parameters must be typed as '&str'.",
+                        p.name.name,
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+
+            param_names.push(p.name.name.clone());
+        }
+
+        return Ok(ValidatedPageHandler {
+            param_names,
+            kind: PageHandlerKind::ParamsOnly,
+        });
+    }
+
+    // ParamsWithQuery: dynamic segments + trailing &QueryMap
+    if f.params.len() == dynamic_params.len() + 1 {
+        let query_param = &f.params[dynamic_params.len()];
+        if !is_type_ref_named(&query_param.ty, &["QueryMap"]) {
+            if dynamic_params.is_empty() {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Parameter count mismatch in {:?}: route has 0 dynamic parameter(s) ([]), but 'pub fn render_page' has 1 parameter(s).",
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            } else {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Unsupported parameter type for parameter '{}' in {:?}: trailing query parameter must be typed as '&QueryMap'.",
+                        query_param.name.name,
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+        }
+
+        let mut param_names = Vec::new();
+        for (idx, p) in f.params[..dynamic_params.len()].iter().enumerate() {
+            let expected_name = &dynamic_params[idx];
+            if p.name.name != *expected_name {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Parameter name mismatch at index {} in {:?}: expected parameter name '{}' matching route segment, but found '{}'.",
+                        idx,
+                        file_path,
+                        expected_name,
+                        p.name.name
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+
+            if !is_type_ref_str(&p.ty) {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Unsupported parameter type for parameter '{}' in {:?}: dynamic route parameters must be typed as '&str'.",
+                        p.name.name,
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+
+            param_names.push(p.name.name.clone());
+        }
+
+        param_names.push(query_param.name.name.clone());
+
+        return Ok(ValidatedPageHandler {
+            param_names,
+            kind: PageHandlerKind::ParamsWithQuery,
+        });
+    }
+
+    // Parameter count mismatch fallback
+    Err(RouteConflictError {
+        message: format!(
+            "Parameter count mismatch in {:?}: route has {} dynamic parameter(s) ({:?}), but 'pub fn render_page' has {} parameter(s).",
+            file_path,
+            dynamic_params.len(),
+            dynamic_params,
+            f.params.len()
+        ),
+        first_source: Some(file_path.to_path_buf()),
+        second_source: None,
+    })
 }
 
 /// Generates the static adapter Venta module content for a page route.
@@ -1378,24 +1496,61 @@ pub fn generate_page_adapter_code(route: &RouteMetadata, content: &str) -> Strin
         .filter_map(|s| s.param_name.clone())
         .collect();
 
-    if dynamic_params.is_empty() {
-        out.push_str("pub fn invoke_render_page() -> String {\n");
-        out.push_str("    render_page()\n");
-        out.push_str("}\n");
-    } else {
-        let params_sig = dynamic_params
-            .iter()
-            .map(|p| format!("{}: &str", p))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let params_call = dynamic_params.join(", ");
+    match route.page_handler_kind {
+        PageHandlerKind::ContextOnly => {
+            if !content.contains("import ssr::RenderContext") && !content.contains("import ssr::{")
+            {
+                out.push_str("import ssr::RenderContext;\n\n");
+            }
+            out.push_str("pub fn invoke_render_page(ctx: &RenderContext) -> String {\n");
+            out.push_str("    render_page(ctx)\n");
+            out.push_str("}\n");
+        }
+        PageHandlerKind::ParamsWithQuery => {
+            if !content.contains("import http::QueryMap") && !content.contains("import http::{") {
+                out.push_str("import http::QueryMap;\n\n");
+            }
+            if dynamic_params.is_empty() {
+                out.push_str("pub fn invoke_render_page(query: &QueryMap) -> String {\n");
+                out.push_str("    render_page(query)\n");
+                out.push_str("}\n");
+            } else {
+                let params_sig = dynamic_params
+                    .iter()
+                    .map(|p| format!("{}: &str", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let params_call = dynamic_params.join(", ");
 
-        out.push_str(&format!(
-            "pub fn invoke_render_page({}) -> String {{\n",
-            params_sig
-        ));
-        out.push_str(&format!("    render_page({})\n", params_call));
-        out.push_str("}\n");
+                out.push_str(&format!(
+                    "pub fn invoke_render_page({}, query: &QueryMap) -> String {{\n",
+                    params_sig
+                ));
+                out.push_str(&format!("    render_page({}, query)\n", params_call));
+                out.push_str("}\n");
+            }
+        }
+        PageHandlerKind::ParamsOnly => {
+            if dynamic_params.is_empty() {
+                out.push_str("pub fn invoke_render_page() -> String {\n");
+                out.push_str("    render_page()\n");
+                out.push_str("}\n");
+            } else {
+                let params_sig = dynamic_params
+                    .iter()
+                    .map(|p| format!("{}: &str", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let params_call = dynamic_params.join(", ");
+
+                out.push_str(&format!(
+                    "pub fn invoke_render_page({}) -> String {{\n",
+                    params_sig
+                ));
+                out.push_str(&format!("    render_page({})\n", params_call));
+                out.push_str("}\n");
+            }
+        }
     }
 
     out
@@ -1692,44 +1847,106 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
 
             if r.adapter_module_name.is_empty() {
                 out.push_str("        return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");\n");
-            } else if dynamic_params.is_empty() {
-                out.push_str(&format!(
-                    "        let content = {}::invoke_render_page();\n        return response_html(content.as_str());\n",
-                    r.adapter_module_name
-                ));
             } else {
-                let mut indent = "        ".to_string();
-                let mut closing = Vec::new();
-                for p in &dynamic_params {
-                    out.push_str(&format!(
-                        "{}let p_opt_{} = ctx.params.get(\"{}\");\n",
-                        indent, p, p
-                    ));
-                    out.push_str(&format!("{}match p_opt_{} {{\n", indent, p));
-                    out.push_str(&format!("{}    Option::Some(val_{}) => {{\n", indent, p));
-                    closing.push(format!(
-                        "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_bad_request(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
-                        indent = indent
-                    ));
-                    indent.push_str("        ");
-                }
+                match r.page_handler_kind {
+                    PageHandlerKind::ContextOnly => {
+                        out.push_str(&format!(
+                            "        let content = {}::invoke_render_page(ctx);\n        return response_html(content.as_str());\n",
+                            r.adapter_module_name
+                        ));
+                    }
+                    PageHandlerKind::ParamsWithQuery => {
+                        if dynamic_params.is_empty() {
+                            out.push_str(&format!(
+                                "        let content = {}::invoke_render_page(&ctx.query);\n        return response_html(content.as_str());\n",
+                                r.adapter_module_name
+                            ));
+                        } else {
+                            let mut indent = "        ".to_string();
+                            let mut closing = Vec::new();
+                            for p in &dynamic_params {
+                                out.push_str(&format!(
+                                    "{}let p_opt_{} = ctx.params.get(\"{}\");\n",
+                                    indent, p, p
+                                ));
+                                out.push_str(&format!("{}match p_opt_{} {{\n", indent, p));
+                                out.push_str(&format!(
+                                    "{}    Option::Some(val_{}) => {{\n",
+                                    indent, p
+                                ));
+                                closing.push(format!(
+                                    "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_bad_request(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
+                                    indent = indent
+                                ));
+                                indent.push_str("        ");
+                            }
 
-                let args = dynamic_params
-                    .iter()
-                    .map(|p| format!("val_{}.as_str()", p))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                out.push_str(&format!(
-                    "{}let content = {}::invoke_render_page({});\n",
-                    indent, r.adapter_module_name, args
-                ));
-                out.push_str(&format!(
-                    "{}return response_html(content.as_str());\n",
-                    indent
-                ));
+                            let mut args = dynamic_params
+                                .iter()
+                                .map(|p| format!("val_{}.as_str()", p))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            args.push_str(", &ctx.query");
 
-                for close in closing.into_iter().rev() {
-                    out.push_str(&close);
+                            out.push_str(&format!(
+                                "{}let content = {}::invoke_render_page({});\n",
+                                indent, r.adapter_module_name, args
+                            ));
+                            out.push_str(&format!(
+                                "{}return response_html(content.as_str());\n",
+                                indent
+                            ));
+
+                            for close in closing.into_iter().rev() {
+                                out.push_str(&close);
+                            }
+                        }
+                    }
+                    PageHandlerKind::ParamsOnly => {
+                        if dynamic_params.is_empty() {
+                            out.push_str(&format!(
+                                "        let content = {}::invoke_render_page();\n        return response_html(content.as_str());\n",
+                                r.adapter_module_name
+                            ));
+                        } else {
+                            let mut indent = "        ".to_string();
+                            let mut closing = Vec::new();
+                            for p in &dynamic_params {
+                                out.push_str(&format!(
+                                    "{}let p_opt_{} = ctx.params.get(\"{}\");\n",
+                                    indent, p, p
+                                ));
+                                out.push_str(&format!("{}match p_opt_{} {{\n", indent, p));
+                                out.push_str(&format!(
+                                    "{}    Option::Some(val_{}) => {{\n",
+                                    indent, p
+                                ));
+                                closing.push(format!(
+                                    "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_bad_request(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
+                                    indent = indent
+                                ));
+                                indent.push_str("        ");
+                            }
+
+                            let args = dynamic_params
+                                .iter()
+                                .map(|p| format!("val_{}.as_str()", p))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            out.push_str(&format!(
+                                "{}let content = {}::invoke_render_page({});\n",
+                                indent, r.adapter_module_name, args
+                            ));
+                            out.push_str(&format!(
+                                "{}return response_html(content.as_str());\n",
+                                indent
+                            ));
+
+                            for close in closing.into_iter().rev() {
+                                out.push_str(&close);
+                            }
+                        }
+                    }
                 }
             }
             out.push_str("    }\n");

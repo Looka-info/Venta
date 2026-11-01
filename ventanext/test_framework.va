@@ -895,9 +895,10 @@ fn main() -> i64 {
     test_phase1_4a_real_page_handler_invocation();
     test_phase1_5_http_error_propagation_and_unsupported_routes();
     test_phase1_4b_catch_all_page_handler_invocation();
+    test_phase1_5_query_string_and_request_context_passing();
 
     print_str("============================================================\n");
-    print_str("   ALL 26 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 27 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1340,6 +1341,78 @@ fn test_phase1_4b_catch_all_page_handler_invocation() {
     let resp_missing_docs = generated_routes::dispatch_route(3, &ctx_empty);
     assert(resp_missing_docs.status == 400, "8. Expected 400 Bad Request for missing path parameter in /docs/[...path]");
     assert(str_contains(resp_missing_docs.body.as_str(), "400 — Missing required route parameter"), "8. Expected 400 missing parameter message");
+
+    print_str("OK\n");
+}
+
+fn test_phase1_5_query_string_and_request_context_passing() {
+    print_str("[27/27] Testing Phase 1.5 Query String & Request Context Passing (1-8)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /shop?sort=price_asc executes render_page(filter, query) with base path filter and active sort
+    let mut req_shop_sort = make_request("GET", "/shop", "sort=price_asc", make_header_map(), "");
+    let resp_shop_sort = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_sort);
+    assert(resp_shop_sort.status == 200, "1. Expected 200 OK for GET /shop?sort=price_asc");
+    assert(str_contains(resp_shop_sort.body.as_str(), "Shop Catalog"), "1. Body must contain 'Shop Catalog'");
+    assert(str_contains(resp_shop_sort.body.as_str(), "Active Filter: All Products (No Filter)"), "1. Body must contain empty filter indicator");
+    assert(str_contains(resp_shop_sort.body.as_str(), "Sort Order: price_asc"), "1. Body must contain query parameter 'Sort Order: price_asc'");
+    assert(str_contains(resp_shop_sort.body.as_str(), "<!DOCTYPE html>"), "1. Response must be wrapped in root layout");
+
+    // 2. GET /shop/electronics?sort=desc executes render_page(filter, query) with dynamic filter and sort
+    let mut req_shop_elec = make_request("GET", "/shop/electronics", "sort=desc", make_header_map(), "");
+    let resp_shop_elec = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_elec);
+    assert(resp_shop_elec.status == 200, "2. Expected 200 OK for GET /shop/electronics?sort=desc");
+    assert(str_contains(resp_shop_elec.body.as_str(), "Active Filter: electronics"), "2. Body must contain 'Active Filter: electronics'");
+    assert(str_contains(resp_shop_elec.body.as_str(), "Sort Order: desc"), "2. Body must contain 'Sort Order: desc'");
+
+    // 3. GET /shop/shoes/nike?sort=newest executes with multi-segment filter and sort query
+    let mut req_shop_shoes = make_request("GET", "/shop/shoes/nike", "sort=newest&currency=usd", make_header_map(), "");
+    let resp_shop_shoes = server::dispatch_request_with_manifest(&gen_manifest, &mut req_shop_shoes);
+    assert(resp_shop_shoes.status == 200, "3. Expected 200 OK for GET /shop/shoes/nike?sort=newest&currency=usd");
+    assert(str_contains(resp_shop_shoes.body.as_str(), "Active Filter: shoes/nike"), "3. Body must contain 'Active Filter: shoes/nike'");
+    assert(str_contains(resp_shop_shoes.body.as_str(), "Sort Order: newest"), "3. Body must contain 'Sort Order: newest'");
+
+    // 4. GET /dashboard?tab=analytics executes render_page(ctx: &RenderContext) and accesses ctx.query
+    let mut req_dash_tab = make_request("GET", "/dashboard", "tab=analytics", make_header_map(), "");
+    let resp_dash_tab = server::dispatch_request_with_manifest(&gen_manifest, &mut req_dash_tab);
+    assert(resp_dash_tab.status == 200, "4. Expected 200 OK for GET /dashboard?tab=analytics");
+    assert(str_contains(resp_dash_tab.body.as_str(), "Dashboard Overview"), "4. Body must contain 'Dashboard Overview'");
+    assert(str_contains(resp_dash_tab.body.as_str(), "Active Tab: analytics"), "4. Body must contain 'Active Tab: analytics'");
+    assert(str_contains(resp_dash_tab.body.as_str(), "Dashboard Section"), "4. Response must be wrapped in nested dashboard layout");
+    assert(str_contains(resp_dash_tab.body.as_str(), "<!DOCTYPE html>"), "4. Response must be wrapped in root layout");
+
+    // 5. GET /dashboard without query string executes render_page(ctx) cleanly without tab paragraph
+    let mut req_dash_clean = make_request("GET", "/dashboard", "", make_header_map(), "");
+    let resp_dash_clean = server::dispatch_request_with_manifest(&gen_manifest, &mut req_dash_clean);
+    assert(resp_dash_clean.status == 200, "5. Expected 200 OK for GET /dashboard");
+    assert(str_contains(resp_dash_clean.body.as_str(), "Dashboard Overview"), "5. Body must contain 'Dashboard Overview'");
+    assert(!str_contains(resp_dash_clean.body.as_str(), "Active Tab:"), "5. Body must NOT contain Active Tab when no query provided");
+
+    // 6. Full HTTP Request parsing with query string, custom headers, and cookies through server lifecycle
+    let raw_http = "GET /dashboard?tab=telemetry&period=30d HTTP/1.1\r\nHost: localhost:3000\r\nUser-Agent: VentaTest/1.0\r\nCookie: session_token=secret_abc123\r\n\r\n";
+    let mut parsed_req = parse_http_request(raw_http);
+    assert(parsed_req.raw_query.as_str().equals("tab=telemetry&period=30d"), "6. Request must parse raw_query correctly");
+    assert(parsed_req.query.get("tab").is_some(), "6. QueryMap must contain 'tab'");
+    assert(parsed_req.headers.get("user-agent").is_some(), "6. HeaderMap must contain 'user-agent'");
+    assert(parsed_req.cookies.get("session_token").is_some(), "6. CookieMap must contain 'session_token'");
+
+    let resp_parsed = server::dispatch_request_with_manifest(&gen_manifest, &mut parsed_req);
+    assert(resp_parsed.status == 200, "6. Expected 200 OK for parsed HTTP request");
+    assert(str_contains(resp_parsed.body.as_str(), "Active Tab: telemetry"), "6. Body must contain 'Active Tab: telemetry'");
+
+    // 7. HEAD request on query-accepting route preserves status 200, empty body, Content-Length matching GET body
+    let mut req_head_shop = make_request("HEAD", "/shop", "sort=price_asc", make_header_map(), "");
+    let resp_head_shop = server::dispatch_request_with_manifest(&gen_manifest, &mut req_head_shop);
+    assert(resp_head_shop.status == 200, "7. Expected 200 OK for HEAD /shop?sort=price_asc");
+    assert(resp_head_shop.body.len_bytes() == 0, "7. HEAD body must be suppressed (0 bytes)");
+    let head_cl = resp_head_shop.headers.get("content-length");
+    assert(head_cl.is_some(), "7. Expected Content-Length header for HEAD response");
+
+    // 8. Wire formatting check for query route response
+    let wire_shop_sort = to_wire_format(&resp_shop_sort);
+    assert(str_contains(wire_shop_sort.as_str(), "HTTP/1.1 200 OK"), "8. Wire format must contain 'HTTP/1.1 200 OK'");
+    assert(str_contains(wire_shop_sort.as_str(), "Content-Type: text/html; charset=utf-8"), "8. Wire format must contain Content-Type");
 
     print_str("OK\n");
 }

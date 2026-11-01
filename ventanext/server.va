@@ -8,7 +8,8 @@ import http::{
     response_not_found, response_bad_request, response_not_implemented, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
     add_header, i64_to_string,
-    to_wire_format, to_wire_format_ex, clone_param_map
+    to_wire_format, to_wire_format_ex, clone_param_map,
+    clone_query_map, clone_header_map, clone_cookie_map
 };
 import router::{
     RouteManifest, RouteMatch, make_route_manifest, match_route, normalize_request_path,
@@ -200,9 +201,9 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     title,
                     active_nav,
                     clone_param_map(&req.params),
-                    http::make_query_map(),
-                    http::make_header_map(),
-                    http::make_cookie_map(),
+                    clone_query_map(&req.query),
+                    clone_header_map(&req.headers),
+                    clone_cookie_map(&req.cookies),
                 );
 
                 if m_res.page_id < 100 {
