@@ -8,10 +8,11 @@ use std::fs;
 use std::path::Path;
 use ventanext_codegen::{
     adapter_filename_len_for_bytes, discover_api_methods, export_static_site,
-    generate_api_adapter_code, generate_manifest_json, generate_venta_code, parse_segment,
-    sanitize_module_name, scan_app_directory, validate_api_route_handlers, validate_conflicts,
-    write_generated_routes, DiscoveredApp, RenderMode, RouteKind, RouteMetadata, Segment,
-    SegmentKind, SpecialFilesMetadata, ADAPTER_FILENAME_WRAPPER_LEN,
+    generate_api_adapter_code, generate_manifest_json, generate_page_adapter_code,
+    generate_venta_code, parse_segment, sanitize_module_name, sanitize_page_module_name,
+    scan_app_directory, validate_api_route_handlers, validate_conflicts,
+    validate_page_route_handlers, write_generated_routes, DiscoveredApp, RenderMode, RouteKind,
+    RouteMetadata, Segment, SegmentKind, SpecialFilesMetadata, ADAPTER_FILENAME_WRAPPER_LEN,
     MAX_PORTABLE_ADAPTER_FILENAME_LEN, MAX_PORTABLE_ROUTE_PATTERN_BYTES,
 };
 
@@ -26,15 +27,31 @@ fn create_temp_app_tree(base: &Path) {
     fs::create_dir_all(base.join("api/users")).unwrap();
 
     fs::write(base.join("layout.va"), "pub fn render() {}").unwrap();
-    fs::write(base.join("page.va"), "pub fn render() {}").unwrap();
+    fs::write(
+        base.join("page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"root\") }",
+    )
+    .unwrap();
     fs::write(base.join("loading.va"), "pub fn render() {}").unwrap();
     fs::write(base.join("error.va"), "pub fn render() {}").unwrap();
     fs::write(base.join("not-found.va"), "pub fn render() {}").unwrap();
 
-    fs::write(base.join("about/page.va"), "pub fn render() {}").unwrap();
+    fs::write(
+        base.join("about/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"about\") }",
+    )
+    .unwrap();
     fs::write(base.join("dashboard/layout.va"), "pub fn render() {}").unwrap();
-    fs::write(base.join("dashboard/page.va"), "pub fn render() {}").unwrap();
-    fs::write(base.join("blog/[slug]/page.va"), "pub fn render() {}").unwrap();
+    fs::write(
+        base.join("dashboard/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"dashboard\") }",
+    )
+    .unwrap();
+    fs::write(
+        base.join("blog/[slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
     fs::write(base.join("docs/[...path]/page.va"), "pub fn render() {}").unwrap();
     fs::write(
         base.join("shop/[[...filter]]/page.va"),
@@ -43,7 +60,7 @@ fn create_temp_app_tree(base: &Path) {
     .unwrap();
     fs::write(
         base.join("(marketing)/pricing/page.va"),
-        "pub fn render() {}",
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"pricing\") }",
     )
     .unwrap();
 
@@ -216,8 +233,16 @@ fn test_10_duplicate_route_conflict() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("pricing")).unwrap();
     fs::create_dir_all(tmp.path().join("(marketing)/pricing")).unwrap();
-    fs::write(tmp.path().join("pricing/page.va"), "").unwrap();
-    fs::write(tmp.path().join("(marketing)/pricing/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("pricing/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"pricing\") }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("(marketing)/pricing/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"pricing\") }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(res.is_err(), "Must reject duplicate route collision");
@@ -241,8 +266,16 @@ fn test_12_route_group_collision() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("(team_a)/billing")).unwrap();
     fs::create_dir_all(tmp.path().join("(team_b)/billing")).unwrap();
-    fs::write(tmp.path().join("(team_a)/billing/page.va"), "").unwrap();
-    fs::write(tmp.path().join("(team_b)/billing/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("(team_a)/billing/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"billing\") }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("(team_b)/billing/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"billing\") }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -368,7 +401,11 @@ fn test_16_phase1_1_earlier_static_vs_later_static_sorting() {
     fs::create_dir_all(tmp.path().join("foo/[...rest]")).unwrap();
     fs::create_dir_all(tmp.path().join("[id]/bar")).unwrap();
     fs::write(tmp.path().join("foo/[...rest]/page.va"), "").unwrap();
-    fs::write(tmp.path().join("[id]/bar/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("[id]/bar/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
 
     let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
     assert_eq!(app.routes.len(), 2);
@@ -400,11 +437,27 @@ fn test_17_phase1_1_precedence_ordering() {
     fs::create_dir_all(tmp.path().join("shop")).unwrap();
     fs::create_dir_all(tmp.path().join("shop/[[...filter]]")).unwrap();
 
-    fs::write(tmp.path().join("users/new/page.va"), "").unwrap();
-    fs::write(tmp.path().join("users/[id]/page.va"), "").unwrap();
-    fs::write(tmp.path().join("posts/[id]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("users/new/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"new\") }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("users/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("posts/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
     fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
-    fs::write(tmp.path().join("shop/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("shop/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"shop\") }",
+    )
+    .unwrap();
     fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
 
     let app = scan_app_directory(tmp.path()).expect("Scan must succeed");
@@ -464,8 +517,16 @@ fn test_18_phase1_1_conflict_detection() {
     let tmp_conf = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp_conf.path().join("blog/[slug]")).unwrap();
     fs::create_dir_all(tmp_conf.path().join("blog/[id]")).unwrap();
-    fs::write(tmp_conf.path().join("blog/[slug]/page.va"), "").unwrap();
-    fs::write(tmp_conf.path().join("blog/[id]/page.va"), "").unwrap();
+    fs::write(
+        tmp_conf.path().join("blog/[slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_conf.path().join("blog/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
     let res_conf = scan_app_directory(tmp_conf.path());
     assert!(
         res_conf.is_err(),
@@ -476,8 +537,16 @@ fn test_18_phase1_1_conflict_detection() {
     let tmp_ok = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp_ok.path().join("blog/new")).unwrap();
     fs::create_dir_all(tmp_ok.path().join("blog/[id]")).unwrap();
-    fs::write(tmp_ok.path().join("blog/new/page.va"), "").unwrap();
-    fs::write(tmp_ok.path().join("blog/[id]/page.va"), "").unwrap();
+    fs::write(
+        tmp_ok.path().join("blog/new/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"new\") }",
+    )
+    .unwrap();
+    fs::write(
+        tmp_ok.path().join("blog/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
     let res_ok = scan_app_directory(tmp_ok.path());
     assert!(
         res_ok.is_ok(),
@@ -494,8 +563,16 @@ fn test_19_conflict_duplicate_dynamic_different_names() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("blog/[id]")).unwrap();
     fs::create_dir_all(tmp.path().join("blog/[slug]")).unwrap();
-    fs::write(tmp.path().join("blog/[id]/page.va"), "").unwrap();
-    fs::write(tmp.path().join("blog/[slug]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("blog/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("blog/[slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -569,8 +646,16 @@ fn test_24_valid_static_vs_dynamic() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("blog/new")).unwrap();
     fs::create_dir_all(tmp.path().join("blog/[id]")).unwrap();
-    fs::write(tmp.path().join("blog/new/page.va"), "").unwrap();
-    fs::write(tmp.path().join("blog/[id]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("blog/new/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"new\") }",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("blog/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
 
     let res = scan_app_directory(tmp.path());
     assert!(
@@ -584,7 +669,11 @@ fn test_25_valid_dynamic_vs_required_catch_all() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("posts/[id]")).unwrap();
     fs::create_dir_all(tmp.path().join("posts/[...slug]")).unwrap();
-    fs::write(tmp.path().join("posts/[id]/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("posts/[id]/page.va"),
+        "import std::string::String;\npub fn render_page(id: &str) -> String { String::from_str(id) }",
+    )
+    .unwrap();
     fs::write(tmp.path().join("posts/[...slug]/page.va"), "").unwrap();
 
     let res = scan_app_directory(tmp.path());
@@ -614,7 +703,11 @@ fn test_27_valid_exact_route_vs_optional_catch_all() {
     let tmp = tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("shop")).unwrap();
     fs::create_dir_all(tmp.path().join("shop/[[...filter]]")).unwrap();
-    fs::write(tmp.path().join("shop/page.va"), "").unwrap();
+    fs::write(
+        tmp.path().join("shop/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"shop\") }",
+    )
+    .unwrap();
     fs::write(tmp.path().join("shop/[[...filter]]/page.va"), "").unwrap();
 
     let res = scan_app_directory(tmp.path());
@@ -2195,4 +2288,433 @@ fn test_77_collision_resistant_module_identifiers_remain_deterministic() {
     assert_eq!(MAX_PORTABLE_ROUTE_PATTERN_BYTES, 123);
     assert_eq!(MAX_PORTABLE_ADAPTER_FILENAME_LEN, 255);
     assert_eq!(ADAPTER_FILENAME_WRAPPER_LEN, 9);
+}
+
+// ----------------------------------------------------------------------------
+// Phase 1.4A: Real Page Handler Invocation Tests (78-92)
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_78_valid_static_page_handler() {
+    let content = r#"
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Static Home</h1>")
+}
+"#;
+    let validated = validate_page_route_handlers(Path::new("page.va"), content, &[])
+        .expect("Valid static page handler must pass validation");
+    assert!(validated.param_names.is_empty());
+
+    let route = RouteMetadata {
+        id: 0,
+        canonical_pattern: "/".to_string(),
+        normalized_url: "/".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Static,
+        revalidate_seconds: None,
+        source_file: "app/page.va".to_string(),
+        segments: vec![],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 10000,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_2f".to_string(),
+        source_content: content.to_string(),
+    };
+    let adapter = generate_page_adapter_code(&route, content);
+    assert!(adapter.contains("pub fn invoke_render_page() -> String"));
+    assert!(adapter.contains("render_page()"));
+}
+
+#[test]
+fn test_79_valid_dynamic_page_handler() {
+    let content = r#"
+import std::string::String;
+
+pub fn render_page(slug: &str) -> String {
+    let mut s = String::from_str("Blog: ");
+    s.push_str(slug);
+    s
+}
+"#;
+    let validated = validate_page_route_handlers(
+        Path::new("app/blog/[slug]/page.va"),
+        content,
+        &["slug".to_string()],
+    )
+    .expect("Valid dynamic page handler must pass validation");
+    assert_eq!(validated.param_names, vec!["slug".to_string()]);
+
+    let route = RouteMetadata {
+        id: 1,
+        canonical_pattern: "/blog/[slug]".to_string(),
+        normalized_url: "/blog/[slug]".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/blog/[slug]/page.va".to_string(),
+        segments: vec![
+            Segment {
+                raw: "blog".to_string(),
+                kind: SegmentKind::Static,
+                param_name: None,
+            },
+            Segment {
+                raw: "[slug]".to_string(),
+                kind: SegmentKind::Dynamic,
+                param_name: Some("slug".to_string()),
+            },
+        ],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 1102,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_2f626c6f672f5b736c75675d".to_string(),
+        source_content: content.to_string(),
+    };
+    let adapter = generate_page_adapter_code(&route, content);
+    assert!(adapter.contains("pub fn invoke_render_page(slug: &str) -> String"));
+    assert!(adapter.contains("render_page(slug)"));
+}
+
+#[test]
+fn test_80_valid_multi_param_dynamic_page_handler() {
+    let content = r#"
+import std::string::String;
+
+pub fn render_page(org: &str, repo: &str) -> String {
+    let mut s = String::from_str("Repo: ");
+    s.push_str(org);
+    s.push_str("/");
+    s.push_str(repo);
+    s
+}
+"#;
+    let validated = validate_page_route_handlers(
+        Path::new("app/[org]/[repo]/page.va"),
+        content,
+        &["org".to_string(), "repo".to_string()],
+    )
+    .expect("Valid multi-parameter dynamic page handler must pass validation");
+    assert_eq!(
+        validated.param_names,
+        vec!["org".to_string(), "repo".to_string()]
+    );
+
+    let route = RouteMetadata {
+        id: 2,
+        canonical_pattern: "/[org]/[repo]".to_string(),
+        normalized_url: "/[org]/[repo]".to_string(),
+        route_kind: RouteKind::Page,
+        render_mode: RenderMode::Dynamic,
+        revalidate_seconds: None,
+        source_file: "app/[org]/[repo]/page.va".to_string(),
+        segments: vec![
+            Segment {
+                raw: "[org]".to_string(),
+                kind: SegmentKind::Dynamic,
+                param_name: Some("org".to_string()),
+            },
+            Segment {
+                raw: "[repo]".to_string(),
+                kind: SegmentKind::Dynamic,
+                param_name: Some("repo".to_string()),
+            },
+        ],
+        layout_chain: vec![],
+        methods: vec!["GET".to_string(), "HEAD".to_string()],
+        specificity: 202,
+        has_generic_handler: false,
+        explicit_methods: vec![],
+        adapter_module_name: "page_multi".to_string(),
+        source_content: content.to_string(),
+    };
+    let adapter = generate_page_adapter_code(&route, content);
+    assert!(adapter.contains("pub fn invoke_render_page(org: &str, repo: &str) -> String"));
+    assert!(adapter.contains("render_page(org, repo)"));
+}
+
+#[test]
+fn test_81_missing_render_page() {
+    let content = r#"
+import std::string::String;
+
+pub fn helper() -> String {
+    String::from_str("helper")
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &[]);
+    assert!(res.is_err(), "Missing render_page must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("No valid page handler found"));
+    assert!(err.message.contains("pub fn render_page"));
+}
+
+#[test]
+fn test_82_private_render_page() {
+    let content = r#"
+import std::string::String;
+
+fn render_page() -> String {
+    String::from_str("private")
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &[]);
+    assert!(res.is_err(), "Private render_page must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Private handler found"));
+    assert!(err.message.contains("not exported"));
+}
+
+#[test]
+fn test_83_wrong_return_type() {
+    let content = r#"
+pub fn render_page() -> i64 {
+    42
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &[]);
+    assert!(res.is_err(), "Wrong return type must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Unsupported return type"));
+    assert!(err.message.contains("must return 'String'"));
+}
+
+#[test]
+fn test_84_missing_return_type() {
+    let content = r#"
+pub fn render_page() {
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &[]);
+    assert!(res.is_err(), "Missing return type must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Missing return type"));
+    assert!(err.message.contains("must explicitly return 'String'"));
+}
+
+#[test]
+fn test_85_wrong_parameter_count() {
+    // Dynamic route with [slug], but render_page has 0 params
+    let content_zero = r#"
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("zero params")
+}
+"#;
+    let res_zero =
+        validate_page_route_handlers(Path::new("page.va"), content_zero, &["slug".to_string()]);
+    assert!(res_zero.is_err(), "Zero params on dynamic route must fail");
+    let err_zero = res_zero.unwrap_err();
+    assert!(err_zero.message.contains("Parameter count mismatch"));
+
+    // Static route, but render_page has 1 param
+    let content_extra = r#"
+import std::string::String;
+
+pub fn render_page(extra: &str) -> String {
+    String::from_str(extra)
+}
+"#;
+    let res_extra = validate_page_route_handlers(Path::new("page.va"), content_extra, &[]);
+    assert!(res_extra.is_err(), "Extra params on static route must fail");
+    let err_extra = res_extra.unwrap_err();
+    assert!(err_extra.message.contains("Parameter count mismatch"));
+}
+
+#[test]
+fn test_86_wrong_parameter_name() {
+    // Route segment is [slug], but function param is id: &str
+    let content = r#"
+import std::string::String;
+
+pub fn render_page(id: &str) -> String {
+    String::from_str(id)
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &["slug".to_string()]);
+    assert!(res.is_err(), "Wrong parameter name must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Parameter name mismatch at index 0"));
+    assert!(err.message.contains("expected parameter name 'slug'"));
+    assert!(err.message.contains("found 'id'"));
+}
+
+#[test]
+fn test_87_wrong_parameter_type() {
+    // Route parameter is slug: String (owned) instead of slug: &str
+    let content = r#"
+import std::string::String;
+
+pub fn render_page(slug: String) -> String {
+    slug
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &["slug".to_string()]);
+    assert!(res.is_err(), "Owned String param must fail validation");
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Unsupported parameter type"));
+    assert!(err.message.contains("must be typed as '&str'"));
+}
+
+#[test]
+fn test_88_duplicate_render_page() {
+    let content = r#"
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("one")
+}
+
+pub fn render_page() -> String {
+    String::from_str("two")
+}
+"#;
+    let res = validate_page_route_handlers(Path::new("page.va"), content, &[]);
+    assert!(res.is_err(), "Duplicate render_page must fail validation");
+    let err = res.unwrap_err();
+    assert!(err
+        .message
+        .contains("Duplicate 'render_page' definition found"));
+}
+
+#[test]
+fn test_89_filename_limit_page_route() {
+    // Canonical pattern: "/" + 123 ASCII bytes = 124 bytes (> 123 max limit)
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    let seg123 = "p".repeat(123);
+    let route_dir = app_dir.join(&seg123);
+    fs::create_dir_all(&route_dir).unwrap();
+    fs::write(
+        route_dir.join("page.va"),
+        "import std::string::String;\n\npub fn render_page() -> String {\n    String::from_str(\"overflow\")\n}\n",
+    )
+    .unwrap();
+
+    let res = scan_app_directory(&app_dir);
+    assert!(
+        res.is_err(),
+        "Page route exceeding 123 bytes canonical pattern must be rejected"
+    );
+    let err = res.unwrap_err();
+    assert!(err.message.contains("Page route pattern"));
+    assert!(err
+        .message
+        .contains("exceeds portable filesystem filename limit"));
+    assert!(err
+        .message
+        .contains("Maximum permitted pattern length is 123 UTF-8 bytes"));
+
+    // Route at exactly 123 bytes succeeds
+    let tmp_ok = tempfile::tempdir().unwrap();
+    let app_ok = tmp_ok.path().join("app");
+    let seg122 = "p".repeat(122);
+    let route_ok = app_ok.join(&seg122);
+    fs::create_dir_all(&route_ok).unwrap();
+    fs::write(
+        route_ok.join("page.va"),
+        "import std::string::String;\n\npub fn render_page() -> String {\n    String::from_str(\"ok\")\n}\n",
+    )
+    .unwrap();
+
+    let res_ok = scan_app_directory(&app_ok);
+    assert!(
+        res_ok.is_ok(),
+        "Page route at exactly 123 bytes must pass validation"
+    );
+}
+
+#[test]
+fn test_90_injective_encoding_page_routes() {
+    let patterns = vec![
+        "/",
+        "/about",
+        "/blog/[slug]",
+        "/pricing",
+        "/[id]/bar",
+        "/shop",
+    ];
+
+    let mut seen_ids = BTreeSet::new();
+    for p in &patterns {
+        let page_id = sanitize_page_module_name(p);
+        let api_id = sanitize_module_name(p);
+
+        assert!(page_id.starts_with("page_"));
+        assert!(api_id.starts_with("route_"));
+        assert_ne!(
+            page_id, api_id,
+            "Page and API IDs must have distinct prefixes"
+        );
+
+        assert!(
+            seen_ids.insert(page_id.clone()),
+            "Injective encoding: each distinct pattern must produce unique ID"
+        );
+    }
+}
+
+#[test]
+fn test_91_dispatcher_invokes_actual_page_adapter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("about")).unwrap();
+    fs::create_dir_all(app_dir.join("blog/[slug]")).unwrap();
+
+    fs::write(
+        app_dir.join("about/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Real About\") }",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("blog/[slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    // Verify adapter module declarations
+    assert!(code.contains("mod page_2f61626f7574;"));
+    assert!(code.contains("mod page_2f626c6f672f5b736c75675d;"));
+
+    // Verify static page handler invocation
+    assert!(code.contains("page_2f61626f7574::invoke_render_page()"));
+
+    // Verify dynamic page handler invocation with extracted parameter
+    assert!(code.contains("page_2f626c6f672f5b736c75675d::invoke_render_page(val_slug.as_str())"));
+
+    // Verify NO generic placeholder strings
+    assert!(!code.contains("<h1>Page "));
+    assert!(!code.contains("Pattern: /about"));
+}
+
+#[test]
+fn test_92_dynamic_parameter_extraction_in_dispatcher() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("blog/[slug]")).unwrap();
+    fs::write(
+        app_dir.join("blog/[slug]/page.va"),
+        "import std::string::String;\npub fn render_page(slug: &str) -> String { String::from_str(slug) }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert!(code.contains("let p_opt_slug = ctx.params.get(\"slug\");"));
+    assert!(code.contains("match p_opt_slug {"));
+    assert!(code.contains("Option::Some(val_slug) => {"));
+    assert!(code.contains("Option::None => {"));
+    assert!(code.contains(
+        "return response_not_found(\"<h1>400 — Missing required route parameter</h1>\");"
+    ));
 }

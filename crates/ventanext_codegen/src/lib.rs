@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use vanta_diagnostics::{DiagnosticBag, Severity};
 use vanta_lexer::{Lexer, TokenKind};
-use vanta_parser::ast::{Item, TypeExprKind};
+use vanta_parser::ast::{Item, PrimType, TypeExprKind};
 use vanta_parser::Parser;
 use vanta_source::{FileId, SourceFile};
 
@@ -587,22 +587,78 @@ fn parse_route_file(
         }
     }
 
-    let (methods, explicit_methods, has_generic_handler, source_content) =
+    let has_catch_all = segments
+        .iter()
+        .any(|s| s.kind == SegmentKind::CatchAll || s.kind == SegmentKind::OptionalCatchAll);
+
+    let ordinary_dynamic_params: Vec<String> = segments
+        .iter()
+        .filter(|s| s.kind == SegmentKind::Dynamic)
+        .filter_map(|s| s.param_name.clone())
+        .collect();
+
+    let (methods, explicit_methods, has_generic_handler, source_content, adapter_module_name) =
         if kind == RouteKind::Page {
-            (
-                vec!["GET".to_string(), "HEAD".to_string()],
-                Vec::new(),
-                false,
-                String::new(),
-            )
+            if has_catch_all {
+                // Catch-all and optional catch-all page handlers are outside Phase 1.4A.
+                // Do not create adapters or generate fake content for them.
+                (
+                    vec!["GET".to_string(), "HEAD".to_string()],
+                    Vec::new(),
+                    false,
+                    String::new(),
+                    String::new(),
+                )
+            } else {
+                let pattern_bytes = canonical_pattern.as_bytes().len();
+                let encoded_mod = sanitize_page_module_name(&canonical_pattern);
+                let encoded_filename = format!("{}.va", encoded_mod);
+                let actual_filename_len = encoded_filename.len();
+                if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES
+                    || actual_filename_len > MAX_PORTABLE_ADAPTER_FILENAME_LEN
+                {
+                    return Err(RouteConflictError {
+                        message: format!(
+                            "Page route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                            canonical_pattern,
+                            full_path.to_string_lossy(),
+                            pattern_bytes,
+                            encoded_filename,
+                            actual_filename_len,
+                            MAX_PORTABLE_ROUTE_PATTERN_BYTES,
+                            MAX_PORTABLE_ADAPTER_FILENAME_LEN,
+                        ),
+                        first_source: Some(full_path.to_path_buf()),
+                        second_source: None,
+                    });
+                }
+
+                let content = fs::read_to_string(full_path).map_err(|e| RouteConflictError {
+                    message: format!("Failed to read page file {:?}: {}", full_path, e),
+                    first_source: Some(full_path.to_path_buf()),
+                    second_source: None,
+                })?;
+
+                validate_page_route_handlers(full_path, &content, &ordinary_dynamic_params)?;
+
+                (
+                    vec!["GET".to_string(), "HEAD".to_string()],
+                    Vec::new(),
+                    false,
+                    content,
+                    encoded_mod,
+                )
+            }
         } else {
             let content = fs::read_to_string(full_path).unwrap_or_default();
             let validated = validate_api_route_handlers(full_path, &content)?;
+            let encoded_mod = sanitize_module_name(&canonical_pattern);
             (
                 validated.methods,
                 validated.explicit_methods,
                 validated.has_generic_handler,
                 content,
+                encoded_mod,
             )
         };
 
@@ -618,12 +674,6 @@ fn parse_route_file(
         RenderMode::Dynamic
     } else {
         RenderMode::Static
-    };
-
-    let adapter_module_name = if kind == RouteKind::Api {
-        sanitize_module_name(&canonical_pattern)
-    } else {
-        String::new()
     };
 
     Ok(RouteMetadata {
@@ -1048,6 +1098,318 @@ pub fn generate_api_adapter_code(route: &RouteMetadata, content: &str) -> String
 }
 
 // ----------------------------------------------------------------------------
+// 3.3. Static Page Route Handler Validation & Adapter Generation (Phase 1.4A)
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedPageHandler {
+    pub param_names: Vec<String>,
+}
+
+/// Encodes a canonical page route pattern into a collision-resistant, deterministic Venta module identifier.
+///
+/// Injective UTF-8 hexadecimal encoding ensures that every distinct canonical pattern
+/// maps to a distinct identifier.
+/// Identifiers always begin with the valid alphabetic prefix `page_` followed by lowercase hexadecimal characters.
+pub fn sanitize_page_module_name(canonical_pattern: &str) -> String {
+    let hex = canonical_pattern
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
+    format!("page_{}", hex)
+}
+
+/// Validates page route handlers against the Phase 1.4A signature contract.
+///
+/// Contract:
+/// - Static pages: `pub fn render_page() -> String` (zero parameters, explicit String return type).
+/// - Dynamic pages: `pub fn render_page([param]: &str, ...) -> String` with parameters corresponding
+///   to the ordinary `[param]` route segments in route-segment order, each typed as `&str`, returning `String`.
+/// - Fail-closed: Lexer or parser errors immediately halt with diagnostics and reject generation.
+/// - Only exported functions (`pub fn`) are valid handlers. Private `fn render_page` is rejected.
+/// - Unrelated exported helpers alone are rejected if `render_page` is missing.
+/// - Duplicate definitions of `render_page` in the same file are rejected.
+pub fn validate_page_route_handlers(
+    file_path: &Path,
+    content: &str,
+    dynamic_params: &[String],
+) -> Result<ValidatedPageHandler, RouteConflictError> {
+    let source_file = SourceFile::new(
+        FileId(0),
+        file_path.to_string_lossy().to_string(),
+        content.to_string(),
+    );
+    let mut diags = DiagnosticBag::new();
+    let mut lexer = Lexer::new(&source_file);
+    let tokens = lexer.tokenize(&mut diags);
+
+    if diags.has_errors() {
+        let err_msgs: Vec<String> = diags
+            .diagnostics()
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| {
+                if let Some(span) = d.primary_span {
+                    let (line, col) = source_file.line_col(span.start);
+                    format!("{}:{}: {}", line, col, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .collect();
+        return Err(RouteConflictError {
+            message: format!(
+                "Lexer error in page route file {:?}: {}",
+                file_path,
+                err_msgs.join("; ")
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    let mut parser = Parser::new(tokens);
+    let program = parser.parse_program(&mut diags);
+
+    if diags.has_errors() {
+        let err_msgs: Vec<String> = diags
+            .diagnostics()
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| {
+                if let Some(span) = d.primary_span {
+                    let (line, col) = source_file.line_col(span.start);
+                    format!("{}:{}: {}", line, col, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .collect();
+        return Err(RouteConflictError {
+            message: format!(
+                "Parse error in page route file {:?}: {}",
+                file_path,
+                err_msgs.join("; ")
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    let mut render_page_count = 0;
+    let mut has_private_render_page = false;
+    let mut valid_render_page = None;
+
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            if f.name.name == "render_page" {
+                render_page_count += 1;
+                if !f.is_pub {
+                    has_private_render_page = true;
+                } else if valid_render_page.is_none() {
+                    valid_render_page = Some(f);
+                }
+            }
+        }
+    }
+
+    if render_page_count > 1 {
+        return Err(RouteConflictError {
+            message: format!(
+                "Duplicate 'render_page' definition found in {:?}. Multiple definitions of 'render_page' in the same page file are not permitted.",
+                file_path
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    let f = match valid_render_page {
+        Some(f) => f,
+        None => {
+            if has_private_render_page {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Private handler found in {:?}: 'fn render_page' is not exported. Page handlers must be exported as 'pub fn render_page'.",
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            } else {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "No valid page handler found in {:?}. A page route file must export 'pub fn render_page'.",
+                        file_path
+                    ),
+                    first_source: Some(file_path.to_path_buf()),
+                    second_source: None,
+                });
+            }
+        }
+    };
+
+    // Return type validation: must explicitly return String
+    if f.ret_type.is_none() {
+        return Err(RouteConflictError {
+            message: format!(
+                "Missing return type in {:?}: handler 'render_page' must explicitly return 'String'.",
+                file_path
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    let returns_string = match &f.ret_type {
+        Some(type_expr) => match &type_expr.kind {
+            TypeExprKind::Named(name) => name == "String" || name == "std::string::String",
+            _ => false,
+        },
+        None => false,
+    };
+
+    if !returns_string {
+        return Err(RouteConflictError {
+            message: format!(
+                "Unsupported return type in {:?}: handler 'render_page' must return 'String', found unsupported return type.",
+                file_path
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    // Parameter count validation: must match dynamic segment count
+    if f.params.len() != dynamic_params.len() {
+        return Err(RouteConflictError {
+            message: format!(
+                "Parameter count mismatch in {:?}: route has {} dynamic parameter(s) ({:?}), but 'pub fn render_page' has {} parameter(s).",
+                file_path,
+                dynamic_params.len(),
+                dynamic_params,
+                f.params.len()
+            ),
+            first_source: Some(file_path.to_path_buf()),
+            second_source: None,
+        });
+    }
+
+    // Parameter names and types validation
+    let mut param_names = Vec::new();
+    for (idx, p) in f.params.iter().enumerate() {
+        let expected_name = &dynamic_params[idx];
+        if p.name.name != *expected_name {
+            return Err(RouteConflictError {
+                message: format!(
+                    "Parameter name mismatch at index {} in {:?}: expected parameter name '{}' matching route segment, but found '{}'.",
+                    idx,
+                    file_path,
+                    expected_name,
+                    p.name.name
+                ),
+                first_source: Some(file_path.to_path_buf()),
+                second_source: None,
+            });
+        }
+
+        let is_str_ref = match &p.ty.kind {
+            TypeExprKind::Reference { is_mut, inner, .. } => {
+                if *is_mut {
+                    false
+                } else {
+                    match &inner.kind {
+                        TypeExprKind::Primitive(PrimType::Str) => true,
+                        TypeExprKind::Named(s) => s == "str",
+                        _ => false,
+                    }
+                }
+            }
+            _ => false,
+        };
+
+        if !is_str_ref {
+            return Err(RouteConflictError {
+                message: format!(
+                    "Unsupported parameter type for parameter '{}' in {:?}: dynamic route parameters must be typed as '&str'.",
+                    p.name.name,
+                    file_path
+                ),
+                first_source: Some(file_path.to_path_buf()),
+                second_source: None,
+            });
+        }
+
+        param_names.push(p.name.name.clone());
+    }
+
+    Ok(ValidatedPageHandler { param_names })
+}
+
+/// Generates the static adapter Venta module content for a page route.
+///
+/// Wraps the user's route source and appends a lowercase static invocation bridge function
+/// (`invoke_render_page`) so that generated dispatch code can invoke the page handler.
+pub fn generate_page_adapter_code(route: &RouteMetadata, content: &str) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "// ============================================================================\n",
+    );
+    out.push_str(&format!(
+        "// ⚡ VentaNext Framework — Static Page Adapter for {}\n",
+        route.canonical_pattern
+    ));
+    out.push_str("// Auto-Generated Module — DO NOT EDIT MANUALLY\n");
+    out.push_str(
+        "// ============================================================================\n\n",
+    );
+
+    out.push_str(content);
+    if !content.ends_with('\n') {
+        out.push('\n');
+    }
+
+    out.push_str("\n");
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n",
+    );
+    out.push_str("// Static Invocation Bridge\n");
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n\n",
+    );
+
+    let dynamic_params: Vec<String> = route
+        .segments
+        .iter()
+        .filter(|s| s.kind == SegmentKind::Dynamic)
+        .filter_map(|s| s.param_name.clone())
+        .collect();
+
+    if dynamic_params.is_empty() {
+        out.push_str("pub fn invoke_render_page() -> String {\n");
+        out.push_str("    render_page()\n");
+        out.push_str("}\n");
+    } else {
+        let params_sig = dynamic_params
+            .iter()
+            .map(|p| format!("{}: &str", p))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params_call = dynamic_params.join(", ");
+
+        out.push_str(&format!(
+            "pub fn invoke_render_page({}) -> String {{\n",
+            params_sig
+        ));
+        out.push_str(&format!("    render_page({})\n", params_call));
+        out.push_str("}\n");
+    }
+
+    out
+}
+
+// ----------------------------------------------------------------------------
 // 4. Collision & Conflict Detection
 // ----------------------------------------------------------------------------
 
@@ -1119,14 +1481,18 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
         }
     }
 
-    // Validate adapter filename length for API routes
+    // Validate adapter filename length for API and Page routes
     for r in routes {
-        if r.route_kind == RouteKind::Api {
+        if r.route_kind == RouteKind::Api
+            || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
+        {
             let pattern_bytes = r.canonical_pattern.as_bytes().len();
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
-            } else {
+            } else if r.route_kind == RouteKind::Api {
                 sanitize_module_name(&r.canonical_pattern)
+            } else {
+                sanitize_page_module_name(&r.canonical_pattern)
             };
             let adapter_filename = format!("{}.va", mod_name);
             let actual_filename_len = adapter_filename.len();
@@ -1138,9 +1504,15 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
                 } else {
                     r.source_file.clone()
                 };
+                let kind_str = if r.route_kind == RouteKind::Api {
+                    "API"
+                } else {
+                    "Page"
+                };
                 return Err(RouteConflictError {
                     message: format!(
-                        "API route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        "{} route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        kind_str,
                         r.canonical_pattern,
                         source_display,
                         pattern_bytes,
@@ -1160,19 +1532,33 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
         }
     }
 
-    // Validate uniqueness of API adapter module identifiers
+    // Validate uniqueness of adapter module identifiers
     let mut seen_adapters: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
     for r in routes {
-        if r.route_kind == RouteKind::Api {
+        if r.route_kind == RouteKind::Api
+            || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
+        {
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
-            } else {
+            } else if r.route_kind == RouteKind::Api {
                 sanitize_module_name(&r.canonical_pattern)
+            } else {
+                sanitize_page_module_name(&r.canonical_pattern)
             };
             if let Some(prev) = seen_adapters.get(&mod_name) {
+                let kind_str = if prev.route_kind == RouteKind::Api
+                    && r.route_kind == RouteKind::Api
+                {
+                    "API"
+                } else if prev.route_kind == RouteKind::Page && r.route_kind == RouteKind::Page {
+                    "Page"
+                } else {
+                    "Route"
+                };
                 return Err(RouteConflictError {
                     message: format!(
-                        "API adapter module name collision: module '{}' is generated for both '{}' ({:?}) and '{}' ({:?})",
+                        "{} adapter module name collision: module '{}' is generated for both '{}' ({:?}) and '{}' ({:?})",
+                        kind_str,
                         mod_name,
                         prev.canonical_pattern,
                         prev.source_file,
@@ -1223,6 +1609,13 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out.push_str("import std::string::String;\n");
     out.push_str("import std::option::Option;\n\n");
 
+    let mut page_adapter_routes: Vec<&RouteMetadata> = app
+        .routes
+        .iter()
+        .filter(|r| r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
+        .collect();
+    page_adapter_routes.sort_by_key(|r| r.id);
+
     let mut api_routes: Vec<&RouteMetadata> = app
         .routes
         .iter()
@@ -1230,15 +1623,18 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
         .collect();
     api_routes.sort_by_key(|r| r.id);
 
-    if !api_routes.is_empty() {
-        for r in &api_routes {
-            let mod_name = if !r.adapter_module_name.is_empty() {
-                r.adapter_module_name.clone()
-            } else {
-                sanitize_module_name(&r.canonical_pattern)
-            };
-            out.push_str(&format!("mod {};\n", mod_name));
-        }
+    for r in &page_adapter_routes {
+        out.push_str(&format!("mod {};\n", r.adapter_module_name));
+    }
+    for r in &api_routes {
+        let mod_name = if !r.adapter_module_name.is_empty() {
+            r.adapter_module_name.clone()
+        } else {
+            sanitize_module_name(&r.canonical_pattern)
+        };
+        out.push_str(&format!("mod {};\n", mod_name));
+    }
+    if !page_adapter_routes.is_empty() || !api_routes.is_empty() {
         out.push_str("\n");
     }
 
@@ -1290,31 +1686,59 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     for r in &app.routes {
         if r.route_kind == RouteKind::Page {
             out.push_str(&format!("    if route_id == {} {{\n", r.id));
-            let mut params = Vec::new();
-            for seg in &r.segments {
-                if let Some(ref p) = seg.param_name {
-                    if seg.kind != SegmentKind::Group {
-                        params.push(p);
-                    }
-                }
-            }
-            if params.is_empty() {
+
+            let dynamic_params: Vec<String> = r
+                .segments
+                .iter()
+                .filter(|s| s.kind == SegmentKind::Dynamic)
+                .filter_map(|s| s.param_name.clone())
+                .collect();
+
+            let has_catch_all = r.segments.iter().any(|s| {
+                s.kind == SegmentKind::CatchAll || s.kind == SegmentKind::OptionalCatchAll
+            });
+
+            if has_catch_all || r.adapter_module_name.is_empty() {
+                out.push_str("        return response_not_found(\"<h1>501 — Page handler not supported</h1>\");\n");
+            } else if dynamic_params.is_empty() {
                 out.push_str(&format!(
-                    "        return response_html(\"<h1>Page {}</h1><p>Pattern: {}</p>\");\n",
-                    r.id, r.canonical_pattern
+                    "        let content = {}::invoke_render_page();\n        return response_html(content.as_str());\n",
+                    r.adapter_module_name
                 ));
             } else {
-                out.push_str(&format!(
-                    "        let mut body = String::from_str(\"<h1>Route: {}</h1>\");\n",
-                    r.canonical_pattern
-                ));
-                for p in &params {
+                let mut indent = "        ".to_string();
+                let mut closing = Vec::new();
+                for p in &dynamic_params {
                     out.push_str(&format!(
-                        "        let p_opt_{} = ctx.params.get(\"{}\");\n        body.push_str(\"<p>{} = \");\n        match p_opt_{} {{\n            Option::Some(val) => {{ body.push_str(val.as_str()); }}\n            Option::None => {{}}\n        }}\n        body.push_str(\"</p>\");\n",
-                        p, p, p, p
+                        "{}let p_opt_{} = ctx.params.get(\"{}\");\n",
+                        indent, p, p
                     ));
+                    out.push_str(&format!("{}match p_opt_{} {{\n", indent, p));
+                    out.push_str(&format!("{}    Option::Some(val_{}) => {{\n", indent, p));
+                    closing.push(format!(
+                        "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_not_found(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
+                        indent = indent
+                    ));
+                    indent.push_str("        ");
                 }
-                out.push_str("        return response_html(body.as_str());\n");
+
+                let args = dynamic_params
+                    .iter()
+                    .map(|p| format!("val_{}.as_str()", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!(
+                    "{}let content = {}::invoke_render_page({});\n",
+                    indent, r.adapter_module_name, args
+                ));
+                out.push_str(&format!(
+                    "{}return response_html(content.as_str());\n",
+                    indent
+                ));
+
+                for close in closing.into_iter().rev() {
+                    out.push_str(&close);
+                }
             }
             out.push_str("    }\n");
         }
@@ -1369,25 +1793,29 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     out
 }
 
-/// Writes both the main generated routes module and all child API route adapter modules.
+/// Writes both the main generated routes module and all child API and Page route adapter modules.
 ///
 /// Directory layout:
 /// - `{out_va_path}` (e.g. `ventanext/generated_routes.va`)
 /// - `{out_va_path.stem()}/` (e.g. `ventanext/generated_routes/`)
 ///   - `{adapter_mod_1}.va` (e.g. `route_2f6170692f6865616c7468.va`)
-///   - `{adapter_mod_2}.va` (e.g. `route_2f6170692f7573657273.va`)
+///   - `{adapter_mod_2}.va` (e.g. `page_2f61626f7574.va`)
 pub fn write_generated_routes(
     discovered: &DiscoveredApp,
     out_va_path: &Path,
 ) -> std::io::Result<()> {
     // 1. Enforce filename length limits before ANY filesystem operations
     for r in &discovered.routes {
-        if r.route_kind == RouteKind::Api {
+        if r.route_kind == RouteKind::Api
+            || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
+        {
             let pattern_bytes = r.canonical_pattern.as_bytes().len();
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
-            } else {
+            } else if r.route_kind == RouteKind::Api {
                 sanitize_module_name(&r.canonical_pattern)
+            } else {
+                sanitize_page_module_name(&r.canonical_pattern)
             };
             let adapter_filename = format!("{}.va", mod_name);
             let actual_filename_len = adapter_filename.len();
@@ -1399,10 +1827,16 @@ pub fn write_generated_routes(
                 } else {
                     r.source_file.clone()
                 };
+                let kind_str = if r.route_kind == RouteKind::Api {
+                    "API"
+                } else {
+                    "Page"
+                };
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!(
-                        "API route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        "{} route pattern '{}' in \"{}\" exceeds portable filesystem filename limit: canonical pattern is {} UTF-8 bytes which encodes to adapter filename '{}' ({} bytes). Maximum permitted pattern length is {} UTF-8 bytes (max adapter filename length is {} bytes).",
+                        kind_str,
                         r.canonical_pattern,
                         source_display,
                         pattern_bytes,
@@ -1430,11 +1864,15 @@ pub fn write_generated_routes(
     let mut seen_files: BTreeMap<String, &RouteMetadata> = BTreeMap::new();
 
     for r in &discovered.routes {
-        if r.route_kind == RouteKind::Api {
+        if r.route_kind == RouteKind::Api
+            || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
+        {
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
-            } else {
+            } else if r.route_kind == RouteKind::Api {
                 sanitize_module_name(&r.canonical_pattern)
+            } else {
+                sanitize_page_module_name(&r.canonical_pattern)
             };
 
             if let Some(prev) = seen_mods.get(&mod_name) {
@@ -1490,6 +1928,20 @@ pub fn write_generated_routes(
             };
 
             let adapter_code = generate_api_adapter_code(r, &content);
+            fs::write(&adapter_path, adapter_code)?;
+        } else if r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty() {
+            let mod_name = r.adapter_module_name.clone();
+            let adapter_filename = format!("{}.va", mod_name);
+            let adapter_path = adapter_dir.join(&adapter_filename);
+            expected_files.insert(adapter_filename);
+
+            let content = if !r.source_content.is_empty() {
+                r.source_content.clone()
+            } else {
+                fs::read_to_string(&r.source_file).unwrap_or_default()
+            };
+
+            let adapter_code = generate_page_adapter_code(r, &content);
             fs::write(&adapter_path, adapter_code)?;
         }
     }

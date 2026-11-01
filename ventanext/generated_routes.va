@@ -9,6 +9,12 @@ import ssr::{RenderContext};
 import std::string::String;
 import std::option::Option;
 
+mod page_2f626c6f672f5b736c75675d;
+mod page_2f61626f7574;
+mod page_2f64617368626f617264;
+mod page_2f70726963696e67;
+mod page_2f5b69645d2f626172;
+mod page_2f;
 mod route_2f6170692f6865616c7468;
 mod route_2f6170692f7573657273;
 
@@ -45,71 +51,53 @@ pub fn build_generated_manifest() -> RouteManifest {
 
 pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
     if route_id == 2 {
-        let mut body = String::from_str("<h1>Route: /blog/[slug]</h1>");
         let p_opt_slug = ctx.params.get("slug");
-        body.push_str("<p>slug = ");
         match p_opt_slug {
-            Option::Some(val) => { body.push_str(val.as_str()); }
-            Option::None => {}
+            Option::Some(val_slug) => {
+                let content = page_2f626c6f672f5b736c75675d::invoke_render_page(val_slug.as_str());
+                return response_html(content.as_str());
+            }
+            Option::None => {
+                return response_not_found("<h1>400 — Missing required route parameter</h1>");
+            }
         }
-        body.push_str("</p>");
-        return response_html(body.as_str());
     }
     if route_id == 3 {
-        let mut body = String::from_str("<h1>Route: /docs/[...path]</h1>");
-        let p_opt_path = ctx.params.get("path");
-        body.push_str("<p>path = ");
-        match p_opt_path {
-            Option::Some(val) => { body.push_str(val.as_str()); }
-            Option::None => {}
-        }
-        body.push_str("</p>");
-        return response_html(body.as_str());
+        return response_not_found("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 4 {
-        let mut body = String::from_str("<h1>Route: /foo/[...rest]</h1>");
-        let p_opt_rest = ctx.params.get("rest");
-        body.push_str("<p>rest = ");
-        match p_opt_rest {
-            Option::Some(val) => { body.push_str(val.as_str()); }
-            Option::None => {}
-        }
-        body.push_str("</p>");
-        return response_html(body.as_str());
+        return response_not_found("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 5 {
-        return response_html("<h1>Page 5</h1><p>Pattern: /about</p>");
+        let content = page_2f61626f7574::invoke_render_page();
+        return response_html(content.as_str());
     }
     if route_id == 6 {
-        return response_html("<h1>Page 6</h1><p>Pattern: /dashboard</p>");
+        let content = page_2f64617368626f617264::invoke_render_page();
+        return response_html(content.as_str());
     }
     if route_id == 7 {
-        return response_html("<h1>Page 7</h1><p>Pattern: /pricing</p>");
+        let content = page_2f70726963696e67::invoke_render_page();
+        return response_html(content.as_str());
     }
     if route_id == 8 {
-        let mut body = String::from_str("<h1>Route: /shop/[[...filter]]</h1>");
-        let p_opt_filter = ctx.params.get("filter");
-        body.push_str("<p>filter = ");
-        match p_opt_filter {
-            Option::Some(val) => { body.push_str(val.as_str()); }
-            Option::None => {}
-        }
-        body.push_str("</p>");
-        return response_html(body.as_str());
+        return response_not_found("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 9 {
-        let mut body = String::from_str("<h1>Route: /[id]/bar</h1>");
         let p_opt_id = ctx.params.get("id");
-        body.push_str("<p>id = ");
         match p_opt_id {
-            Option::Some(val) => { body.push_str(val.as_str()); }
-            Option::None => {}
+            Option::Some(val_id) => {
+                let content = page_2f5b69645d2f626172::invoke_render_page(val_id.as_str());
+                return response_html(content.as_str());
+            }
+            Option::None => {
+                return response_not_found("<h1>400 — Missing required route parameter</h1>");
+            }
         }
-        body.push_str("</p>");
-        return response_html(body.as_str());
     }
     if route_id == 10 {
-        return response_html("<h1>Page 10</h1><p>Pattern: /</p>");
+        let content = page_2f::invoke_render_page();
+        return response_html(content.as_str());
     }
     response_not_found("<h1>404 — Page Not Found</h1>")
 }

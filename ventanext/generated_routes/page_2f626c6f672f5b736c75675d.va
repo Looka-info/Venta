@@ -1,0 +1,21 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Page Adapter for /blog/[slug]
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn render_page(slug: &str) -> String {
+    let mut html = String::from_str("<h1>Blog Post: ");
+    html.push_str(slug);
+    html.push_str("</h1><p>Dynamic route parameter successfully extracted and rendered server-side.</p>");
+    html
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridge
+// ----------------------------------------------------------------------------
+
+pub fn invoke_render_page(slug: &str) -> String {
+    render_page(slug)
+}

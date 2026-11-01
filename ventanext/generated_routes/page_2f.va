@@ -1,0 +1,18 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Static Page Adapter for /
+// Auto-Generated Module — DO NOT EDIT MANUALLY
+// ============================================================================
+
+import std::string::String;
+
+pub fn render_page() -> String {
+    String::from_str("<h1>Welcome to VentaNext</h1><p>Next.js-Class Full-Stack Framework for the Venta Language.</p>")
+}
+
+// ----------------------------------------------------------------------------
+// Static Invocation Bridge
+// ----------------------------------------------------------------------------
+
+pub fn invoke_render_page() -> String {
+    render_page()
+}

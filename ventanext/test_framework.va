@@ -886,9 +886,10 @@ fn main() -> i64 {
     test_phase1_1_route_resolution_correctness_gate();
     test_phase1_2_http_method_dispatch_and_allow_headers();
     test_phase1_3a_static_api_handler_invocation();
+    test_phase1_4a_real_page_handler_invocation();
 
     print_str("============================================================\n");
-    print_str("   ALL 23 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 24 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1078,6 +1079,79 @@ fn test_phase1_3a_static_api_handler_invocation() {
 
     // 6. Verify that dispatch_api contains actual handler invocation (no placeholder)
     assert(!str_contains(resp_users_get.body.as_str(), "\"endpoint\":\"/api/users\""), "6. Response must NOT be placeholder");
+
+    print_str("OK\n");
+}
+
+fn test_phase1_4a_real_page_handler_invocation() {
+    print_str("[24/24] Testing Phase 1.4A Real Page Handler Invocation (1-7)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET / executes real render_page() from app/page.va and is wrapped in root layout
+    let mut req_home = make_request("GET", "/", "", make_header_map(), "");
+    let resp_home = server::dispatch_request_with_manifest(&gen_manifest, &mut req_home);
+    assert(resp_home.status == 200, "1. Expected 200 OK for GET /");
+    assert(str_contains(resp_home.body.as_str(), "Welcome to VentaNext"), "1. Body must contain 'Welcome to VentaNext'");
+    assert(str_contains(resp_home.body.as_str(), "Next.js-Class Full-Stack Framework"), "1. Body must contain 'Next.js-Class Full-Stack Framework'");
+    assert(str_contains(resp_home.body.as_str(), "<!DOCTYPE html>"), "1. Response must be wrapped in root layout");
+    assert(!str_contains(resp_home.body.as_str(), "Pattern: /"), "1. Response must not be placeholder");
+
+    // 2. GET /about executes real render_page() from app/about/page.va
+    let mut req_about = make_request("GET", "/about", "", make_header_map(), "");
+    let resp_about = server::dispatch_request_with_manifest(&gen_manifest, &mut req_about);
+    assert(resp_about.status == 200, "2. Expected 200 OK for GET /about");
+    assert(str_contains(resp_about.body.as_str(), "About VentaNext"), "2. Body must contain 'About VentaNext'");
+    assert(str_contains(resp_about.body.as_str(), "High-performance, pure Venta full-stack"), "2. Body must contain 'High-performance, pure Venta full-stack'");
+    assert(str_contains(resp_about.body.as_str(), "<!DOCTYPE html>"), "2. Response must be wrapped in root layout");
+    assert(!str_contains(resp_about.body.as_str(), "Pattern: /about"), "2. Response must not be placeholder");
+
+    // 3. GET /blog/venta executes real render_page(slug: &str) from app/blog/[slug]/page.va
+    let mut req_blog = make_request("GET", "/blog/venta", "", make_header_map(), "");
+    let resp_blog = server::dispatch_request_with_manifest(&gen_manifest, &mut req_blog);
+    assert(resp_blog.status == 200, "3. Expected 200 OK for GET /blog/venta");
+    assert(str_contains(resp_blog.body.as_str(), "Blog Post: venta"), "3. Body must contain 'Blog Post: venta'");
+    assert(str_contains(resp_blog.body.as_str(), "Dynamic route parameter successfully extracted and rendered"), "3. Dynamic parameter must be rendered");
+    assert(str_contains(resp_blog.body.as_str(), "<!DOCTYPE html>"), "3. Response must be wrapped in root layout");
+    assert(!str_contains(resp_blog.body.as_str(), "slug = "), "3. Response must not be placeholder");
+
+    // 4. GET /pricing executes real render_page() from app/(marketing)/pricing/page.va
+    let mut req_pricing = make_request("GET", "/pricing", "", make_header_map(), "");
+    let resp_pricing = server::dispatch_request_with_manifest(&gen_manifest, &mut req_pricing);
+    assert(resp_pricing.status == 200, "4. Expected 200 OK for GET /pricing");
+    assert(str_contains(resp_pricing.body.as_str(), "Pricing Plans"), "4. Body must contain 'Pricing Plans'");
+    assert(str_contains(resp_pricing.body.as_str(), "Tier 1: Community (Free)"), "4. Body must contain 'Tier 1: Community (Free)'");
+    assert(str_contains(resp_pricing.body.as_str(), "<!DOCTYPE html>"), "4. Response must be wrapped in root layout");
+
+    // 5. GET /dashboard executes real render_page() from app/dashboard/page.va with nested dashboard layout
+    let mut req_dash = make_request("GET", "/dashboard", "", make_header_map(), "");
+    let resp_dash = server::dispatch_request_with_manifest(&gen_manifest, &mut req_dash);
+    assert(resp_dash.status == 200, "5. Expected 200 OK for GET /dashboard");
+    assert(str_contains(resp_dash.body.as_str(), "Dashboard Overview"), "5. Body must contain 'Dashboard Overview'");
+    assert(str_contains(resp_dash.body.as_str(), "Server Status: Operational"), "5. Body must contain 'Server Status: Operational'");
+    assert(str_contains(resp_dash.body.as_str(), "<!DOCTYPE html>"), "5. Response must be wrapped in root layout");
+    assert(str_contains(resp_dash.body.as_str(), "Dashboard Section"), "5. Response must be wrapped in dashboard layout");
+
+    // 6. GET /123/bar executes real render_page(id: &str) from app/[id]/bar/page.va
+    let mut req_bar = make_request("GET", "/123/bar", "", make_header_map(), "");
+    let resp_bar = server::dispatch_request_with_manifest(&gen_manifest, &mut req_bar);
+    assert(resp_bar.status == 200, "6. Expected 200 OK for GET /123/bar");
+    assert(str_contains(resp_bar.body.as_str(), "Route: /[id]/bar"), "6. Body must contain 'Route: /[id]/bar'");
+    assert(str_contains(resp_bar.body.as_str(), "id = 123"), "6. Body must contain dynamic param 'id = 123'");
+
+    // 7. Dispatching route with missing dynamic parameter returns safe error response
+    let ctx_empty = ssr::make_render_context(
+        "/blog/[slug]",
+        "Blog Post",
+        "home",
+        http::make_param_map(),
+        http::make_query_map(),
+        http::make_header_map(),
+        http::make_cookie_map(),
+    );
+    let resp_missing_param = generated_routes::dispatch_route(2, &ctx_empty);
+    assert(resp_missing_param.status == 404, "7. Expected error status for missing dynamic parameter in dispatch_route");
+    assert(str_contains(resp_missing_param.body.as_str(), "Missing required route parameter"), "7. Expected missing parameter error message");
 
     print_str("OK\n");
 }
