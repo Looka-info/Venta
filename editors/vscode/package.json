@@ -4,6 +4,7 @@
   "description": "Official syntax highlighting, bracket matching, and editor support for the Venta Systems Programming Language",
   "version": "1.0.0",
   "publisher": "venta-lang",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.70.0"
   },
