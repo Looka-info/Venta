@@ -1603,7 +1603,7 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
     );
     out.push_str("import router::{RouteManifest, make_route_manifest};\n");
     out.push_str(
-        "import http::{Request, Response, response_html, response_json, response_not_found};\n",
+        "import http::{Request, Response, response_html, response_json, response_not_found, response_bad_request, response_not_implemented};\n",
     );
     out.push_str("import ssr::{RenderContext};\n");
     out.push_str("import std::string::String;\n");
@@ -1699,7 +1699,7 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
             });
 
             if has_catch_all || r.adapter_module_name.is_empty() {
-                out.push_str("        return response_not_found(\"<h1>501 — Page handler not supported</h1>\");\n");
+                out.push_str("        return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");\n");
             } else if dynamic_params.is_empty() {
                 out.push_str(&format!(
                     "        let content = {}::invoke_render_page();\n        return response_html(content.as_str());\n",
@@ -1716,7 +1716,7 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
                     out.push_str(&format!("{}match p_opt_{} {{\n", indent, p));
                     out.push_str(&format!("{}    Option::Some(val_{}) => {{\n", indent, p));
                     closing.push(format!(
-                        "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_not_found(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
+                        "{indent}    }}\n{indent}    Option::None => {{\n{indent}        return response_bad_request(\"<h1>400 — Missing required route parameter</h1>\");\n{indent}    }}\n{indent}}}\n",
                         indent = indent
                     ));
                     indent.push_str("        ");

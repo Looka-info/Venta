@@ -4,7 +4,7 @@
 // ============================================================================
 
 import router::{RouteManifest, make_route_manifest};
-import http::{Request, Response, response_html, response_json, response_not_found};
+import http::{Request, Response, response_html, response_json, response_not_found, response_bad_request, response_not_implemented};
 import ssr::{RenderContext};
 import std::string::String;
 import std::option::Option;
@@ -58,15 +58,15 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
                 return response_html(content.as_str());
             }
             Option::None => {
-                return response_not_found("<h1>400 — Missing required route parameter</h1>");
+                return response_bad_request("<h1>400 — Missing required route parameter</h1>");
             }
         }
     }
     if route_id == 3 {
-        return response_not_found("<h1>501 — Page handler not supported</h1>");
+        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 4 {
-        return response_not_found("<h1>501 — Page handler not supported</h1>");
+        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 5 {
         let content = page_2f61626f7574::invoke_render_page();
@@ -81,7 +81,7 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
         return response_html(content.as_str());
     }
     if route_id == 8 {
-        return response_not_found("<h1>501 — Page handler not supported</h1>");
+        return response_not_implemented("<h1>501 — Page handler not supported</h1>");
     }
     if route_id == 9 {
         let p_opt_id = ctx.params.get("id");
@@ -91,7 +91,7 @@ pub fn dispatch_route(route_id: i64, ctx: &RenderContext) -> Response {
                 return response_html(content.as_str());
             }
             Option::None => {
-                return response_not_found("<h1>400 — Missing required route parameter</h1>");
+                return response_bad_request("<h1>400 — Missing required route parameter</h1>");
             }
         }
     }

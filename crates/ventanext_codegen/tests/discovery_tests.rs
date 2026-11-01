@@ -2715,6 +2715,63 @@ fn test_92_dynamic_parameter_extraction_in_dispatcher() {
     assert!(code.contains("Option::Some(val_slug) => {"));
     assert!(code.contains("Option::None => {"));
     assert!(code.contains(
-        "return response_not_found(\"<h1>400 — Missing required route parameter</h1>\");"
+        "return response_bad_request(\"<h1>400 — Missing required route parameter</h1>\");"
+    ));
+}
+
+#[test]
+fn test_93_codegen_imports_bad_request_and_not_implemented() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        app_dir.join("page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Home\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert!(code.contains(
+        "import http::{Request, Response, response_html, response_json, response_not_found, response_bad_request, response_not_implemented};"
+    ));
+}
+
+#[test]
+fn test_94_catch_all_route_emits_response_not_implemented() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("docs/[...path]")).unwrap();
+    fs::write(
+        app_dir.join("docs/[...path]/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Docs\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert!(code.contains(
+        "return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");"
+    ));
+}
+
+#[test]
+fn test_95_optional_catch_all_route_emits_response_not_implemented() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app_dir = tmp.path().join("app");
+    fs::create_dir_all(app_dir.join("shop/[[...filter]]")).unwrap();
+    fs::write(
+        app_dir.join("shop/[[...filter]]/page.va"),
+        "import std::string::String;\npub fn render_page() -> String { String::from_str(\"Shop\") }",
+    )
+    .unwrap();
+
+    let discovered = scan_app_directory(&app_dir).unwrap();
+    let code = generate_venta_code(&discovered);
+
+    assert!(code.contains(
+        "return response_not_implemented(\"<h1>501 — Page handler not supported</h1>\");"
     ));
 }

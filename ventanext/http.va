@@ -778,6 +778,10 @@ pub fn response_bad_request(body: &str) -> Response {
     make_response(400, "text/html; charset=utf-8", body)
 }
 
+pub fn response_not_implemented(body: &str) -> Response {
+    make_response(501, "text/html; charset=utf-8", body)
+}
+
 pub fn response_method_not_allowed(allowed_methods: &str) -> Response {
     let mut resp = make_response(405, "text/plain; charset=utf-8", "Method Not Allowed");
     add_header(&mut resp, "Allow", allowed_methods);

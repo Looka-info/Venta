@@ -5,7 +5,7 @@
 
 import http::{
     Request, Response, parse_http_request, response_html, response_json,
-    response_not_found, response_bad_request, response_method_not_allowed,
+    response_not_found, response_bad_request, response_not_implemented, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
     add_header, i64_to_string,
     to_wire_format, to_wire_format_ex, clone_param_map
@@ -205,51 +205,58 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     http::make_cookie_map(),
                 );
 
-                let mut page_markup = String::new();
                 if m_res.page_id < 100 {
                     let gen_resp = dispatch_route(m_res.page_id, &ctx);
-                    page_markup.push_str(gen_resp.body.as_str());
-                } else if m_res.page_id == 100 {
-                    page_markup = render_home_page(&ctx);
-                } else if m_res.page_id == 101 {
-                    page_markup = render_dashboard_page(&ctx);
-                } else if m_res.page_id == 102 {
-                    page_markup = render_docs_page(&ctx);
-                } else if m_res.page_id == 103 {
-                    page_markup = render_post_detail_page(&ctx);
-                } else if m_res.page_id == 104 {
-                    page_markup = render_about_page(&ctx);
-                } else if m_res.page_id == 105 {
-                    page_markup = render_blog_slug_page(&ctx);
-                } else if m_res.page_id == 106 {
-                    page_markup = render_docs_path_page(&ctx);
-                } else if m_res.page_id == 110 {
-                    let mut s = String::from_str("<h1>Route: /foo/[...rest]</h1><p>rest = ");
-                    let rest_opt = req.params.get("rest");
-                    match rest_opt {
-                        Option::Some(r) => { s.push_str(r.as_str()); }
-                        Option::None => {}
+                    if gen_resp.status == 200 {
+                        let final_html = resolve_layout(m_res.layout_id, &ctx, gen_resp.body.as_str());
+                        resp = response_html(final_html.as_str());
+                    } else {
+                        resp = gen_resp;
                     }
-                    s.push_str("</p>");
-                    page_markup = s;
-                } else if m_res.page_id == 111 {
-                    let mut s = String::from_str("<h1>Route: /[id]/bar</h1><p>id = ");
-                    let id_opt = req.params.get("id");
-                    match id_opt {
-                        Option::Some(id_val) => { s.push_str(id_val.as_str()); }
-                        Option::None => {}
-                    }
-                    s.push_str("</p>");
-                    page_markup = s;
                 } else {
-                    let mut s = String::from_str("<h1>Page ");
-                    s.push_str(i64_to_string(m_res.page_id).as_str());
-                    s.push_str("</h1>");
-                    page_markup = s;
-                }
+                    let mut page_markup = String::new();
+                    if m_res.page_id == 100 {
+                        page_markup = render_home_page(&ctx);
+                    } else if m_res.page_id == 101 {
+                        page_markup = render_dashboard_page(&ctx);
+                    } else if m_res.page_id == 102 {
+                        page_markup = render_docs_page(&ctx);
+                    } else if m_res.page_id == 103 {
+                        page_markup = render_post_detail_page(&ctx);
+                    } else if m_res.page_id == 104 {
+                        page_markup = render_about_page(&ctx);
+                    } else if m_res.page_id == 105 {
+                        page_markup = render_blog_slug_page(&ctx);
+                    } else if m_res.page_id == 106 {
+                        page_markup = render_docs_path_page(&ctx);
+                    } else if m_res.page_id == 110 {
+                        let mut s = String::from_str("<h1>Route: /foo/[...rest]</h1><p>rest = ");
+                        let rest_opt = req.params.get("rest");
+                        match rest_opt {
+                            Option::Some(r) => { s.push_str(r.as_str()); }
+                            Option::None => {}
+                        }
+                        s.push_str("</p>");
+                        page_markup = s;
+                    } else if m_res.page_id == 111 {
+                        let mut s = String::from_str("<h1>Route: /[id]/bar</h1><p>id = ");
+                        let id_opt = req.params.get("id");
+                        match id_opt {
+                            Option::Some(id_val) => { s.push_str(id_val.as_str()); }
+                            Option::None => {}
+                        }
+                        s.push_str("</p>");
+                        page_markup = s;
+                    } else {
+                        let mut s = String::from_str("<h1>Page ");
+                        s.push_str(i64_to_string(m_res.page_id).as_str());
+                        s.push_str("</h1>");
+                        page_markup = s;
+                    }
 
-                let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
-                resp = response_html(final_html.as_str());
+                    let final_html = resolve_layout(m_res.layout_id, &ctx, page_markup.as_str());
+                    resp = response_html(final_html.as_str());
+                }
             }
 
             // Cache-Control Policy based on RenderMode
