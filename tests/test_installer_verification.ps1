@@ -189,7 +189,16 @@ class MockDriver {
     }
 }
 "@
-    Add-Type -TypeDefinition $csharpCode -OutputAssembly $mockDriverExe -OutputType ConsoleApplication
+    if ($PSVersionTable.PSEdition -eq "Core") {
+        # PowerShell Core does not support -OutputAssembly on Add-Type; invoke Windows PowerShell 5.1
+        $srcFile = Join-Path $TestRoot "mock_driver.cs"
+        Set-Content -Path $srcFile -Value $csharpCode -Encoding UTF8
+        $compileScript = "Add-Type -TypeDefinition (Get-Content -Raw '$srcFile') -OutputAssembly '$mockDriverExe' -OutputType ConsoleApplication"
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($compileScript))
+        & powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded
+    } else {
+        Add-Type -TypeDefinition $csharpCode -OutputAssembly $mockDriverExe -OutputType ConsoleApplication
+    }
 
     Copy-Item "scripts\install.ps1" (Join-Path $MockDist "install.ps1") -Force
     Copy-Item "scripts\uninstall.ps1" (Join-Path $MockDist "uninstall.ps1") -Force
