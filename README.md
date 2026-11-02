@@ -297,7 +297,11 @@ curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/insta
 irm https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.ps1 | iex
 ```
 
-### Option 3: Pre-built Release Archives (GitHub Releases)
+### Option 3: Pre-built Release Archives (GitHub Releases & CI Artifacts)
+
+> [!IMPORTANT]
+> **Pre-Release Evaluation Phase Note**:
+> Public GitHub Releases are **not published** during this candidate evaluation phase. Verified release packages (such as `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip`) are available for download as GitHub Actions workflow artifacts (`vanta-windows-x86_64-v1.0-RC2`) from the [Release Package Workflow Runs](https://github.com/Looka-info/Venta/actions/workflows/windows-package.yml). Direct release download URLs shown below represent future endpoints that activate upon final tag publication.
 
 Standalone pre-compiled release packages are published for all supported tier-1 platforms:
 

@@ -209,6 +209,32 @@ impl<'a> ModuleLoader<'a> {
             }
         }
 
+        // Automatic discovery relative to the running compiler executable (installed layout: bin/../lib/vanta/std)
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                let cand0 = parent.join("..").join("lib").join("vanta").join("std");
+                if cand0.join("mod.va").is_file() {
+                    return Some(std::fs::canonicalize(&cand0).unwrap_or(cand0));
+                }
+                let cand0b = parent.join("lib").join("vanta").join("std");
+                if cand0b.join("mod.va").is_file() {
+                    return Some(std::fs::canonicalize(&cand0b).unwrap_or(cand0b));
+                }
+                let cand1 = parent.join("library").join("std");
+                if cand1.join("mod.va").is_file() {
+                    return Some(std::fs::canonicalize(&cand1).unwrap_or(cand1));
+                }
+                let cand2 = parent.join("..").join("library").join("std");
+                if cand2.join("mod.va").is_file() {
+                    return Some(std::fs::canonicalize(&cand2).unwrap_or(cand2));
+                }
+                let cand3 = parent.join("..").join("..").join("library").join("std");
+                if cand3.join("mod.va").is_file() {
+                    return Some(std::fs::canonicalize(&cand3).unwrap_or(cand3));
+                }
+            }
+        }
+
         if let Some(user_home) =
             std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
         {
@@ -243,31 +269,6 @@ impl<'a> ModuleLoader<'a> {
         let cwd_lib_candidate = Path::new("lib").join("vanta").join("std");
         if cwd_lib_candidate.join("mod.va").is_file() {
             return Some(cwd_lib_candidate);
-        }
-
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                let cand0 = parent.join("..").join("lib").join("vanta").join("std");
-                if cand0.join("mod.va").is_file() {
-                    return Some(cand0);
-                }
-                let cand0b = parent.join("lib").join("vanta").join("std");
-                if cand0b.join("mod.va").is_file() {
-                    return Some(cand0b);
-                }
-                let cand1 = parent.join("library").join("std");
-                if cand1.join("mod.va").is_file() {
-                    return Some(cand1);
-                }
-                let cand2 = parent.join("..").join("library").join("std");
-                if cand2.join("mod.va").is_file() {
-                    return Some(cand2);
-                }
-                let cand3 = parent.join("..").join("..").join("library").join("std");
-                if cand3.join("mod.va").is_file() {
-                    return Some(cand3);
-                }
-            }
         }
 
         let manifest_candidate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../library/std");

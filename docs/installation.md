@@ -80,9 +80,14 @@ The Windows PowerShell installer automatically:
 
 ---
 
-## 📥 Method 3: Pre-compiled Standalone Release Archives (GitHub Releases)
+## 📥 Method 3: Pre-compiled Standalone Release Archives (GitHub Releases & CI Artifacts)
 
-Download pre-compiled release packages directly from [GitHub Releases](https://github.com/Looka-info/Venta/releases):
+> [!IMPORTANT]
+> **Pre-Release Candidate Evaluation & Artifact Availability**:
+> Public GitHub Releases are **not published** during this pre-release candidate evaluation phase. Pre-compiled standalone release packages (such as `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip`) are built, cryptographically validated, and downloadable as GitHub Actions workflow artifacts (`vanta-windows-x86_64-v1.0-RC2`) directly from the [GitHub Actions Runs](https://github.com/Looka-info/Venta/actions/workflows/windows-package.yml).
+> Direct `https://github.com/Looka-info/Venta/releases/download/...` URLs documented below represent future release distribution endpoints that activate upon final publication of release tags (conforming to the `v1.0-RC2` naming convention).
+
+Download pre-compiled release packages directly from CI Artifacts or future [GitHub Releases](https://github.com/Looka-info/Venta/releases):
 
 ### Linux x86-64:
 ```bash

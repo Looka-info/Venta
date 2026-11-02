@@ -298,14 +298,40 @@ Write-Host ("--> Wrote release-manifest.json with {0} tracked payload files" -f 
 if (-not (Test-Path $DistDir)) { New-Item -ItemType Directory -Path $DistDir -Force | Out-Null }
 Copy-Item -Path $ManifestPath -Destination (Join-Path $DistDir "release-manifest.json") -Force
 
-# 6. Compress into ZIP archive
-Write-Host "--> Creating ZIP package: $ZipPath..." -ForegroundColor Cyan
+# 6. Compress into ZIP archive with normalized forward-slash entry separators
+Write-Host "--> Creating ZIP package with normalized forward-slash separators: $ZipPath..." -ForegroundColor Cyan
 if (Test-Path $ZipPath) {
     Remove-Item -Force $ZipPath
 }
 
+[System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem") | Out-Null
-[System.IO.Compression.ZipFile]::CreateFromDirectory($StageDir, $ZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+$zipStream = [System.IO.File]::Open($ZipPath, [System.IO.FileMode]::Create)
+$zipArchive = [System.IO.Compression.ZipArchive]::new($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+
+try {
+    $stagePrefix = $StageDir.TrimEnd('\', '/')
+    Get-ChildItem -Path $StageDir -Recurse -File | ForEach-Object {
+        $fullPath = $_.FullName
+        $relPath = $fullPath.Substring($stagePrefix.Length).TrimStart('\', '/')
+        # Standards compliance: force forward slashes for all ZIP entry paths
+        $entryName = $relPath.Replace('\', '/')
+        
+        $entry = $zipArchive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        $fileStream = [System.IO.File]::OpenRead($fullPath)
+        try {
+            $fileStream.CopyTo($entryStream)
+        } finally {
+            $fileStream.Dispose()
+            $entryStream.Dispose()
+        }
+    }
+} finally {
+    $zipArchive.Dispose()
+    $zipStream.Dispose()
+}
 
 $ZipSize = (Get-Item $ZipPath).Length
 Write-Host ("--> Created {0} ({1} bytes)" -f $ZipPath, $ZipSize) -ForegroundColor Green
@@ -325,6 +351,20 @@ $RecomputedZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowe
 if ($RecomputedZipHash -ne $ZipHash) {
     Write-Error "ZIP checksum verification failed: recomputed hash does not match sidecar!"
     exit 1
+}
+
+# Verify that all ZIP entry names strictly use forward slashes (no Windows backslashes)
+$zipInspect = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+try {
+    foreach ($entry in $zipInspect.Entries) {
+        if ($entry.FullName.Contains('\')) {
+            Write-Error ("Archive entry contains Windows backslash: '{0}'" -f $entry.FullName)
+            exit 1
+        }
+    }
+    Write-Host ("--> ZIP entry separator check passed: all {0} entries use forward slashes" -f $zipInspect.Entries.Count) -ForegroundColor Green
+} finally {
+    $zipInspect.Dispose()
 }
 
 $VerifyDir = Join-Path $env:TEMP ("vanta_pkg_verify_" + $PID)

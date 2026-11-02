@@ -27,6 +27,11 @@ jobs:
         with:
           toolchain: 1.93.1
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Check Code Formatting
+        run: cargo fmt --check
+        shell: bash
 
       - name: Build Release Binaries (vantac, vanta)
         run: cargo build --release --bin vantac --bin vanta
@@ -44,7 +49,7 @@ jobs:
           powershell -ExecutionPolicy Bypass -File scripts/package_release_windows.ps1 -Tag v1.0-RC2 -Target x86_64-pc-windows-msvc
         shell: cmd
 
-      - name: Run Uninstaller Data-Safety & Preservation Tests
+      - name: Run Uninstaller Data-Safety & Containment Tests
         run: |
           powershell -ExecutionPolicy Bypass -File tests/test_uninstaller_safety.ps1
         shell: cmd
@@ -60,6 +65,7 @@ jobs:
         shell: cmd
 
       - name: Upload Windows Distribution Artifact
+        id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
           name: vanta-windows-x86_64-v1.0-RC2
@@ -68,3 +74,46 @@ jobs:
             dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256
             dist/release-manifest.json
           if-no-files-found: error
+
+      - name: Generate Authoritative Release Artifact Summary
+        if: always()
+        run: |
+          powershell -ExecutionPolicy Bypass -Command @"
+            `$zipPath = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip"
+            `$sha256Path = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256"
+            `$manifestPath = "dist/release-manifest.json"
+
+            `$zipSize = if (Test-Path `$zipPath) { (Get-Item `$zipPath).Length } else { 0 }
+            `$zipHash = if (Test-Path `$zipPath) { (Get-FileHash -Path `$zipPath -Algorithm SHA256).Hash.ToLower() } else { "N/A" }
+            `$sidecarContent = if (Test-Path `$sha256Path) { (Get-Content -Path `$sha256Path -Raw).Trim() } else { "N/A" }
+            `$manifestSize = if (Test-Path `$manifestPath) { (Get-Item `$manifestPath).Length } else { 0 }
+            `$manifestObj = if (Test-Path `$manifestPath) { Get-Content -Raw `$manifestPath | ConvertFrom-Json } else { `$null }
+            `$payloadCount = if (`$manifestObj -and `$manifestObj.files) { `$manifestObj.files.Count } else { 0 }
+
+            `$summary = @"
+          ## Vanta Windows x86-64 Release Verification Summary (Milestone 27C)
+
+          > [!NOTE]
+          > This distribution package is a verified GitHub Actions CI workflow artifact. It is not currently published as a public GitHub Release.
+
+          | Property | Authoritative CI Value |
+          | :--- | :--- |
+          | **Commit SHA** | `${{ github.sha }}` |
+          | **Branch** | `${{ github.ref_name }}` |
+          | **Workflow Run ID** | `${{ github.run_id }}` (Run #${{ github.run_number }}) |
+          | **Package Filename** | `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip` |
+          | **Package Byte Size** | `$zipSize bytes` |
+          | **Package SHA-256** | ``$zipHash`` |
+          | **Sidecar Filename** | `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256` |
+          | **Sidecar Contents** | ``$sidecarContent`` |
+          | **Manifest Byte Size** | `$manifestSize bytes` |
+          | **Tracked Payload Files**| `$payloadCount` |
+          | **Artifact Name** | `vanta-windows-x86_64-v1.0-RC2` |
+          | **Artifact ID** | `${{ steps.upload-artifact.outputs.artifact-id }}` |
+          | **Artifact URL** | `${{ steps.upload-artifact.outputs.artifact-url }}` |
+          "@
+
+            `$summary | Out-File -FilePath `$env:GITHUB_STEP_SUMMARY -Append -Encoding UTF8
+            Write-Host `$summary
+          "@
+        shell: cmd

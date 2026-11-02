@@ -1,9 +1,12 @@
-# Test Suite: Vanta Installer Verification & Version Matching
+# Test Suite: Vanta Installer Verification & Version Matching (Milestone 27C)
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  🧪 Running Vanta Installer Verification Tests           " -ForegroundColor Yellow
+Write-Host "  [TEST] Running Vanta Installer Verification Tests        " -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Cyan
+
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+$RepoRoot = if ($ScriptDir) { Split-Path -Parent $ScriptDir } else { $PWD }
 
 $TestRoot = Join-Path $env:TEMP ("vanta_installer_test_" + (Get-Random))
 New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
@@ -59,10 +62,6 @@ try {
     if ($proc3.ExitCode -eq 0) {
         throw "Scenario 3 failed: install.ps1 should have failed on version mismatch, but returned exit code 0"
     }
-    $errOutput3 = if (Test-Path $errFile3) { Get-Content -Raw $errFile3 } else { "" }
-    if ($errOutput3 -notlike "*Version mismatch*") {
-        Write-Warning ("Scenario 3: Error output did not contain 'Version mismatch': {0}" -f $errOutput3)
-    }
     Write-Host ("    Scenario 3 Passed: Version mismatch rejected with exit code {0}." -f $proc3.ExitCode) -ForegroundColor Green
 
     # -------------------------------------------------------------
@@ -113,6 +112,75 @@ try {
     }
     Write-Host "    Scenario 5 Passed: PATH successfully added, tracked, and safely removed by uninstaller." -ForegroundColor Green
 
+    # -------------------------------------------------------------
+    # Scenario 6: Driver-Version Mismatch (Valid Compiler, Wrong Driver Version)
+    # -------------------------------------------------------------
+    Write-Host "--> Scenario 6: Testing driver-version mismatch rejection (valid compiler, wrong driver)..." -ForegroundColor Cyan
+    $MockDist = Join-Path $TestRoot "mock_driver_mismatch_dist"
+    $MockBin = Join-Path $MockDist "bin"
+    New-Item -ItemType Directory -Path $MockBin -Force | Out-Null
+
+    # Copy real vantac.exe (which reports 1.0.0-rc.2)
+    $realVantac = Join-Path $RepoRoot "target\release\vantac.exe"
+    if (-not (Test-Path $realVantac)) { $realVantac = "target\release\vantac.exe" }
+    Copy-Item $realVantac (Join-Path $MockBin "vantac.exe") -Force
+
+    # Compile a mock vanta.exe that reports "vanta 2.0.0"
+    $mockDriverExe = Join-Path $MockBin "vanta.exe"
+    $csharpCode = @"
+using System;
+class MockDriver {
+    public static void Main(string[] args) {
+        Console.WriteLine("vanta 2.0.0");
+    }
+}
+"@
+    Add-Type -TypeDefinition $csharpCode -OutputAssembly $mockDriverExe -OutputType ConsoleApplication
+
+    # Copy install.ps1 and uninstall.ps1 into mock dist
+    Copy-Item "scripts\install.ps1" (Join-Path $MockDist "install.ps1") -Force
+    Copy-Item "scripts\uninstall.ps1" (Join-Path $MockDist "uninstall.ps1") -Force
+
+    $Prefix6 = Join-Path $TestRoot "prefix_6"
+    $errFile6 = Join-Path $TestRoot "err6.txt"
+    $proc6 = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File `"$MockDist\install.ps1`" -Prefix `"$Prefix6`" -Version `"v1.0-RC2`" -NoPathUpdate" -Wait -PassThru -NoNewWindow -RedirectStandardError $errFile6
+
+    if ($proc6.ExitCode -eq 0) {
+        throw "Scenario 6 failed: installer should have rejected driver version mismatch, but returned exit code 0"
+    }
+    $errOutput6 = if (Test-Path $errFile6) { Get-Content -Raw $errFile6 } else { "" }
+    if ($errOutput6 -notlike "*Driver version mismatch*" -and $errOutput6 -notlike "*Version discrepancy*") {
+        throw ("Scenario 6 failed: Error output did not contain driver version mismatch: {0}" -f $errOutput6)
+    }
+    if (Test-Path (Join-Path $Prefix6 "install-manifest.json")) {
+        throw "Scenario 6 failed: install-manifest.json was created despite version mismatch!"
+    }
+    Write-Host ("    Scenario 6 Passed: Driver-version mismatch rejected with exit code {0}." -f $proc6.ExitCode) -ForegroundColor Green
+
+    # -------------------------------------------------------------
+    # Scenario 7: Untracked User File Overwrite Protection
+    # -------------------------------------------------------------
+    Write-Host "--> Scenario 7: Testing protection against overwriting untracked user files in prefix..." -ForegroundColor Cyan
+    $Prefix7 = Join-Path $TestRoot "prefix_7"
+    $Bin7 = Join-Path $Prefix7 "bin"
+    New-Item -ItemType Directory -Path $Bin7 -Force | Out-Null
+
+    # Place an untracked user file at bin/vantac.exe without an install-manifest.json
+    $UserUntrackedBinary = Join-Path $Bin7 "vantac.exe"
+    Set-Content -Path $UserUntrackedBinary -Value "USER_CUSTOM_TOOL_NOT_VANTA"
+
+    $errFile7 = Join-Path $TestRoot "err7.txt"
+    $proc7 = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File scripts\install.ps1 -Prefix `"$Prefix7`" -Version `"v1.0-RC2`" -NoPathUpdate" -Wait -PassThru -NoNewWindow -RedirectStandardError $errFile7
+
+    if ($proc7.ExitCode -eq 0) {
+        throw "Scenario 7 failed: installer silently overwrote untracked user file in prefix!"
+    }
+    $fileContent7 = Get-Content -Raw $UserUntrackedBinary
+    if ($fileContent7 -notlike "*USER_CUSTOM_TOOL_NOT_VANTA*") {
+        throw "Catastrophic data-loss: user custom binary was overwritten during failed installation!"
+    }
+    Write-Host "    Scenario 7 Passed: Untracked user file in prefix protected against silent overwrite." -ForegroundColor Green
+
 } finally {
     Remove-Item -Recurse -Force $TestRoot -ErrorAction SilentlyContinue
     if ($origUserPath) {
@@ -122,5 +190,5 @@ try {
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  ✅ All Installer Verification Tests Passed!               " -ForegroundColor Green
+Write-Host "  [OK] All 7 Installer Verification Tests Passed!           " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green

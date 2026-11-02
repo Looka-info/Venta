@@ -220,13 +220,14 @@ fn main() -> i64 {
     [System.IO.File]::WriteAllText($SourceFile, $VantaProgram, [System.Text.UTF8Encoding]::new($false))
     Write-Host "--> Step 8: Compiling standard library test program in isolated workspace..." -ForegroundColor Cyan
 
-    # Compile using installed vantac.exe with VANTA_STD_PATH set to installed std
+    # Step 8: Compile using installed vantac.exe with AUTOMATIC standard library discovery
+    # VANTA_STD_PATH and VANTA_HOME are explicitly unset; no --std-path argument is passed.
     $compileOut = Join-Path $WorkDir "compile_out.txt"
     $compileErr = Join-Path $WorkDir "compile_err.txt"
 
-    # Invoke installed compiler from the isolated workspace
-    $compileCmd = "& `"$InstalledVantac`" `"$SourceFile`" -o `"$ExeFile`" --target x86_64-pc-windows-msvc"
-    $compProc = Start-Process -FilePath "powershell.exe" -ArgumentList "-Command `"`$env:VANTA_STD_PATH = '$InstalledStdDir'; $compileCmd`"" -WorkingDirectory $WorkDir -Wait -PassThru -NoNewWindow -RedirectStandardOutput $compileOut -RedirectStandardError $compileErr
+    Write-Host "--> Step 8: Compiling standard library test program with automatic stdlib discovery..." -ForegroundColor Cyan
+    $compileCmd = "Remove-Item Env:\VANTA_STD_PATH -ErrorAction SilentlyContinue; Remove-Item Env:\VANTA_HOME -ErrorAction SilentlyContinue; & `"$InstalledVantac`" `"$SourceFile`" -o `"$ExeFile`" --target x86_64-pc-windows-msvc"
+    $compProc = Start-Process -FilePath "powershell.exe" -ArgumentList "-Command `"$compileCmd`"" -WorkingDirectory $WorkDir -Wait -PassThru -NoNewWindow -RedirectStandardOutput $compileOut -RedirectStandardError $compileErr
 
     if ($compProc.ExitCode -ne 0) {
         $errText = if (Test-Path $compileErr) { Get-Content -Raw $compileErr } else { "" }

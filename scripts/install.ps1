@@ -31,8 +31,34 @@ function Normalize-VantaVersion([string]$v) {
     return $clean.ToLower()
 }
 
+$InstalledFiles = [System.Collections.Generic.List[string]]::new()
+
+function Rollback-Installation([System.Collections.Generic.List[string]]$files, [string]$prefixDir) {
+    Write-Host "--> Rolling back partial installation..." -ForegroundColor Yellow
+    foreach ($rel in $files) {
+        $p = Join-Path $prefixDir ($rel.Replace('/', '\'))
+        if (Test-Path -LiteralPath $p -PathType Leaf) {
+            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if (Test-Path -LiteralPath $prefixDir) {
+        $dirs = Get-ChildItem -LiteralPath $prefixDir -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+            Sort-Object -Property { $_.FullName.Length } -Descending
+        foreach ($d in $dirs) {
+            $rem = Get-ChildItem -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue
+            if ($null -eq $rem -or $rem.Count -eq 0) {
+                Remove-Item -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $rootRem = Get-ChildItem -LiteralPath $prefixDir -Force -ErrorAction SilentlyContinue
+        if ($null -eq $rootRem -or $rootRem.Count -eq 0) {
+            Remove-Item -LiteralPath $prefixDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host ("  ⚡ Vanta Toolchain Windows Installer ({0})" -f $Version) -ForegroundColor Yellow
+Write-Host ("  [INSTALL] Vanta Toolchain Windows Installer ({0})" -f $Version) -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 1. Architecture Check (Strictly require 64-bit AMD64)
@@ -50,10 +76,42 @@ $BinDest = Join-Path $Prefix "bin"
 $LibDest = Join-Path $Prefix "lib\vanta"
 $StdDest = Join-Path $LibDest "std"
 
+# Check for existing manifest to protect untracked user files
+$existingManifestPath = Join-Path $Prefix "install-manifest.json"
+$existingTracked = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$hasExistingManifest = Test-Path -LiteralPath $existingManifestPath
+
+if ($hasExistingManifest) {
+    try {
+        $prevM = Get-Content -Raw -LiteralPath $existingManifestPath -Encoding UTF8 | ConvertFrom-Json
+        if ($prevM.files) {
+            foreach ($f in $prevM.files) {
+                $existingTracked.Add($f.Replace('/', '\')) | Out-Null
+            }
+        }
+    } catch {}
+}
+
+function Safe-CopyFile([string]$srcFile, [string]$destFile, [string]$relPath) {
+    if (Test-Path -LiteralPath $destFile -PathType Leaf) {
+        $relNorm = $relPath.Replace('/', '\')
+        if (-not $existingTracked.Contains($relNorm) -and -not $hasExistingManifest) {
+            # Destination has pre-existing untracked files and no manifest
+            Rollback-Installation $InstalledFiles $Prefix
+            Write-Error ("Installation refused to overwrite untracked file at '{0}'. Prefix '{1}' contains untracked user files without an install manifest." -f $destFile, $Prefix)
+            exit 1
+        }
+    }
+    $parentDir = [System.IO.Path]::GetDirectoryName($destFile)
+    if (-not (Test-Path -LiteralPath $parentDir)) {
+        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+    }
+    Copy-Item -LiteralPath $srcFile -Destination $destFile -Force
+    $InstalledFiles.Add($relPath.Replace('\', '/'))
+}
+
 New-Item -ItemType Directory -Path $BinDest -Force | Out-Null
 New-Item -ItemType Directory -Path $StdDest -Force | Out-Null
-
-$InstalledFiles = [System.Collections.Generic.List[string]]::new()
 
 $VantacSrc = $null
 $VantaSrc = $null
@@ -88,12 +146,10 @@ foreach ($cand in $LocalBinCandidates) {
 
 if ($VantacSrc -and $VantaSrc) {
     Write-Host ("--> Found local Windows binaries in {0}..." -f (Split-Path -Parent $VantacSrc)) -ForegroundColor Green
-    Copy-Item -Path $VantacSrc -Destination (Join-Path $BinDest "vantac.exe") -Force
-    $InstalledFiles.Add("bin/vantac.exe")
-    Copy-Item -Path $VantaSrc -Destination (Join-Path $BinDest "vanta.exe") -Force
-    $InstalledFiles.Add("bin/vanta.exe")
+    Safe-CopyFile $VantacSrc (Join-Path $BinDest "vantac.exe") "bin/vantac.exe"
+    Safe-CopyFile $VantaSrc (Join-Path $BinDest "vanta.exe") "bin/vanta.exe"
 } else {
-    # Remote download from GitHub Releases
+    # Remote download fallback
     $ZipName = "vanta-$Version-x86_64-pc-windows-msvc.zip"
     $ReleaseUrl = "https://github.com/Looka-info/Venta/releases/download/$Version/$ZipName"
     $TempZip = Join-Path $env:TEMP $ZipName
@@ -113,7 +169,8 @@ if ($VantacSrc -and $VantaSrc) {
             $InstalledFiles.Add("bin/vanta.exe")
         }
     } catch {
-        Write-Error ("Failed to install Vanta: could not find local binaries and failed to download release archive from {0} ({1})" -f $ReleaseUrl, $_.Exception.Message)
+        Write-Error ("Failed to install Vanta: could not find local binaries, and remote release asset '{0}' is not yet published to GitHub Releases for version '{1}'. To install Vanta during the pre-release phase, download the build artifact from GitHub Actions (workflow 'windows-package.yml') or build from source with 'cargo build --release --bin vantac --bin vanta'." -f $ZipName, $Version)
+        Rollback-Installation $InstalledFiles $Prefix
         exit 1
     }
 }
@@ -123,6 +180,7 @@ $VantacInstalled = Join-Path $BinDest "vantac.exe"
 $VantaInstalled = Join-Path $BinDest "vanta.exe"
 
 if (-not (Test-Path $VantacInstalled) -or -not (Test-Path $VantaInstalled)) {
+    Rollback-Installation $InstalledFiles $Prefix
     Write-Error ("Installation failed: required binaries vantac.exe or vanta.exe were not placed in {0}." -f $BinDest)
     exit 1
 }
@@ -142,10 +200,11 @@ foreach ($stdCand in $StdCandidates) {
             $rel = $_.FullName.Substring($stdCand.Length).TrimStart('\', '/')
             $dest = Join-Path $StdDest $rel
             if ($_.PSIsContainer) {
-                New-Item -ItemType Directory -Path $dest -Force | Out-Null
+                if (-not (Test-Path $dest)) {
+                    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+                }
             } else {
-                Copy-Item -Path $_.FullName -Destination $dest -Force
-                $InstalledFiles.Add("lib/vanta/std/$($rel.Replace('\', '/'))")
+                Safe-CopyFile $_.FullName $dest ("lib/vanta/std/$($rel.Replace('\', '/'))")
             }
         }
         $InstalledStd = $true
@@ -163,8 +222,7 @@ if (-not (Test-Path $UninstallSrc)) {
     $UninstallSrc = Join-Path $RepoRoot "scripts\uninstall.ps1"
 }
 if (Test-Path $UninstallSrc) {
-    Copy-Item -Path $UninstallSrc -Destination (Join-Path $Prefix "uninstall.ps1") -Force
-    $InstalledFiles.Add("uninstall.ps1")
+    Safe-CopyFile $UninstallSrc (Join-Path $Prefix "uninstall.ps1") "uninstall.ps1"
 }
 
 # 5. Copy license files and documentation if available
@@ -173,8 +231,7 @@ foreach ($lic in $LicenseCandidates) {
     $cand = Join-Path $ScriptDir $lic
     if (-not (Test-Path $cand)) { $cand = Join-Path $RepoRoot $lic }
     if (Test-Path $cand) {
-        Copy-Item -Path $cand -Destination (Join-Path $Prefix $lic) -Force
-        $InstalledFiles.Add($lic)
+        Safe-CopyFile $cand (Join-Path $Prefix $lic) $lic
     }
 }
 
@@ -183,20 +240,20 @@ $ExamplesSrc = Join-Path $ScriptDir "examples"
 if (-not (Test-Path $ExamplesSrc)) { $ExamplesSrc = Join-Path $RepoRoot "examples" }
 if (Test-Path $ExamplesSrc) {
     $ExamplesDest = Join-Path $Prefix "examples"
-    New-Item -ItemType Directory -Path $ExamplesDest -Force | Out-Null
     Get-ChildItem -Path $ExamplesSrc -Recurse | ForEach-Object {
         $rel = $_.FullName.Substring($ExamplesSrc.Length).TrimStart('\', '/')
         $dest = Join-Path $ExamplesDest $rel
         if ($_.PSIsContainer) {
-            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            if (-not (Test-Path $dest)) {
+                New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            }
         } else {
-            Copy-Item -Path $_.FullName -Destination $dest -Force
-            $InstalledFiles.Add("examples/$($rel.Replace('\', '/'))")
+            Safe-CopyFile $_.FullName $dest ("examples/$($rel.Replace('\', '/'))")
         }
     }
 }
 
-# 7. Verification of Installed Executables (Exit code inspection and version validation)
+# 7. Verification of Installed Executables (BOTH compiler and driver validated)
 Write-Host "--> Verifying installed executables..." -ForegroundColor Cyan
 
 $vantacOutFile = Join-Path $env:TEMP ("vantac_ver_" + $PID + ".txt")
@@ -207,6 +264,7 @@ $vantacVerOutput = if (Test-Path $vantacOutFile) { (Get-Content -Path $vantacOut
 Remove-Item $vantacOutFile, $vantacErrFile -Force -ErrorAction SilentlyContinue
 
 if ($vantacExit -ne 0 -or [string]::IsNullOrWhiteSpace($vantacVerOutput)) {
+    Rollback-Installation $InstalledFiles $Prefix
     Write-Error ("Verification failed: vantac.exe --version failed with exit code {0}. Output: '{1}'" -f $vantacExit, $vantacVerOutput)
     exit 1
 }
@@ -219,13 +277,15 @@ $vantaVerOutput = if (Test-Path $vantaOutFile) { (Get-Content -Path $vantaOutFil
 Remove-Item $vantaOutFile, $vantaErrFile -Force -ErrorAction SilentlyContinue
 
 if ($vantaExit -ne 0 -or [string]::IsNullOrWhiteSpace($vantaVerOutput)) {
+    Rollback-Installation $InstalledFiles $Prefix
     Write-Error ("Verification failed: vanta.exe --version failed with exit code {0}. Output: '{1}'" -f $vantaExit, $vantaVerOutput)
     exit 1
 }
 
-# Parse version token from "vantac <version>" and "vanta <version>"
+# Parse version tokens from "vantac <version>" and "vanta <version>"
 $vMatch = [regex]::Match($vantacVerOutput, '^(?:vantac|ventac)\s+([^\s]+)$')
 if (-not $vMatch.Success) {
+    Rollback-Installation $InstalledFiles $Prefix
     Write-Error ("Malformed version string from vantac.exe: '{0}'" -f $vantacVerOutput)
     exit 1
 }
@@ -233,17 +293,32 @@ $vantacReportedVersion = $vMatch.Groups[1].Value
 
 $vantaMatch = [regex]::Match($vantaVerOutput, '^(?:vanta|venta)\s+([^\s]+)$')
 if (-not $vantaMatch.Success) {
+    Rollback-Installation $InstalledFiles $Prefix
     Write-Error ("Malformed version string from vanta.exe: '{0}'" -f $vantaVerOutput)
     exit 1
 }
 $vantaReportedVersion = $vantaMatch.Groups[1].Value
 
-# Validate against requested Version
+# Validate BOTH reported versions against requested Version and against each other
 $normExpected = Normalize-VantaVersion $Version
-$normReported = Normalize-VantaVersion $vantacReportedVersion
+$normVantac = Normalize-VantaVersion $vantacReportedVersion
+$normVanta = Normalize-VantaVersion $vantaReportedVersion
 
-if ($normReported -ne $normExpected) {
-    Write-Error ("Version mismatch: requested version '{0}' (normalized '{1}'), but installed binary reported '{2}' (normalized '{3}')" -f $Version, $normExpected, $vantacReportedVersion, $normReported)
+if ($normVantac -ne $normExpected) {
+    Rollback-Installation $InstalledFiles $Prefix
+    Write-Error ("Compiler version mismatch: requested version '{0}' (normalized '{1}'), but vantac.exe reported '{2}' (normalized '{3}')" -f $Version, $normExpected, $vantacReportedVersion, $normVantac)
+    exit 1
+}
+
+if ($normVanta -ne $normExpected) {
+    Rollback-Installation $InstalledFiles $Prefix
+    Write-Error ("Driver version mismatch: requested version '{0}' (normalized '{1}'), but vanta.exe reported '{2}' (normalized '{3}')" -f $Version, $normExpected, $vantaReportedVersion, $normVanta)
+    exit 1
+}
+
+if ($normVantac -ne $normVanta) {
+    Rollback-Installation $InstalledFiles $Prefix
+    Write-Error ("Version discrepancy between compiler and driver: vantac.exe reported '{0}', vanta.exe reported '{1}'" -f $vantacReportedVersion, $vantaReportedVersion)
     exit 1
 }
 
@@ -273,7 +348,7 @@ if (-not $NoPathUpdate) {
     }
 }
 
-# 9. Write install-manifest.json
+# 9. Write install-manifest.json ONLY after all verification has passed
 $ManifestPath = Join-Path $Prefix "install-manifest.json"
 $ManifestObj = [PSCustomObject]@{
     name = "vanta"
@@ -291,7 +366,7 @@ Write-Host ("--> Wrote installation manifest: {0}" -f $ManifestPath) -Foreground
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  ⚡ Vanta Toolchain Installed Successfully on Windows!     " -ForegroundColor Green
+Write-Host "  [OK] Vanta Toolchain Installed Successfully on Windows!    " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host ("Installation prefix: {0}" -f $Prefix)
 Write-Host ("Binaries path:       {0}" -f $BinDest)
