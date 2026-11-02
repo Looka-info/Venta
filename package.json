@@ -1,21 +1,21 @@
 {
-  "name": "venta-lang",
+  "name": "vanta-lang",
   "version": "1.0.0-rc.2",
   "description": "Venta - Performance-first, memory-safe systems programming language with a custom SSA optimizer, multi-platform native backends (Linux, Windows, macOS ARM64), and a pure-Rust linker",
-  "main": "packages/vanta-lang/bin/venta.js",
+  "main": "packages/vanta-lang/bin/vanta.js",
   "bin": {
-    "venta": "packages/vanta-lang/bin/venta.js",
-    "ventac": "packages/vanta-lang/bin/ventac.js",
+
+
     "vanta": "packages/vanta-lang/bin/vanta.js",
     "vantac": "packages/vanta-lang/bin/vantac.js"
   },
   "scripts": {
-    "start": "node packages/vanta-lang/bin/venta.js run www/server.va",
-    "serve": "node packages/vanta-lang/bin/venta.js run www/server.va",
-    "page": "node packages/vanta-lang/bin/venta.js run www/main.va",
-    "ventanext": "node packages/vanta-lang/bin/venta.js run ventanext/main.va",
+    "start": "node packages/vanta-lang/bin/vanta.js run www/server.va",
+    "serve": "node packages/vanta-lang/bin/vanta.js run www/server.va",
+    "page": "node packages/vanta-lang/bin/vanta.js run www/main.va",
+    "ventanext": "node packages/vanta-lang/bin/vanta.js run ventanext/main.va",
     "postinstall": "node packages/vanta-lang/scripts/install-binary.js",
-    "test": "node packages/vanta-lang/bin/venta.js --version"
+    "test": "node packages/vanta-lang/bin/vanta.js --version"
   },
   "keywords": [
     "venta",

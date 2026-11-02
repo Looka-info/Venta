@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Legacy CLI Wrappers & Redundant Package**:
   - Removed legacy root CLI wrapper scripts (`venta.cmd`, `venta.ps1`, `ventac.cmd`, `ventac.ps1`) in favor of canonical `vanta` and `vantac` wrappers.
   - Removed duplicate `packages/venta-lang/` directory; `packages/vanta-lang/` serves as the single source for the npm package.
+  - Removed legacy wrapper entrypoints (`venta.js`, `ventac.js`) from `packages/vanta-lang/bin/`.
+
+### Changed
+- **NPM Package Identity**:
+  - Renamed package identity in root `package.json` and `packages/vanta-lang/package.json` to canonical `vanta-lang` with unified `vanta` and `vantac` binaries and scripts.
 
 ### Added
 - **Build Configuration & Dynamic Compiler Identity (crates/vanta_build/src/fingerprint.rs, uild.rs)**:
