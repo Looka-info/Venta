@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -68,15 +68,24 @@ jobs:
           cp -r www/*.png dist/ 2>/dev/null || true
           cp -r www/*.ico dist/ 2>/dev/null || true
 
+      - name: Deploy to gh-pages Branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          commit_message: "deploy(gh-pages): automated build from pure Venta engine"
+
       - name: Upload GitHub Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
-    name: Deploy to GitHub Pages
+    name: Deploy to GitHub Pages (Actions Mode)
     needs: build
     runs-on: ubuntu-24.04
+    continue-on-error: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
