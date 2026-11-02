@@ -2,19 +2,21 @@ name: Deploy Venta Showcase to GitHub Pages
 
 on:
   push:
-    branches: [ main, feature/ventanext-foundation ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
-    name: Build & Deploy Showcase (Pure Venta Engine)
+  build:
+    name: Build Showcase (Pure Venta Engine)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Source
@@ -73,3 +75,20 @@ jobs:
           publish_dir: ./dist
           publish_branch: gh-pages
           commit_message: "deploy(gh-pages): automated build from pure Venta engine"
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
