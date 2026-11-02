@@ -93,11 +93,11 @@ if ($FoundLocal) {
         Write-Host "--> Deploying CLI wrappers and local assets..." -ForegroundColor Cyan
 
         # Deploy .cmd and .ps1 wrappers to $BinDest if repo wrappers are available
-        $CmdSource = Join-Path $RepoRoot "ventac.cmd"
+        $CmdSource = Join-Path $RepoRoot "vantac.cmd"
         if (Test-Path $CmdSource) {
-            Copy-Item (Join-Path $RepoRoot "vent*.cmd") $BinDest -Force -ErrorAction SilentlyContinue
+
             Copy-Item (Join-Path $RepoRoot "vant*.cmd") $BinDest -Force -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $RepoRoot "vent*.ps1") $BinDest -Force -ErrorAction SilentlyContinue
+
             Copy-Item (Join-Path $RepoRoot "vant*.ps1") $BinDest -Force -ErrorAction SilentlyContinue
         }
     }

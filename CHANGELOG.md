@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - Milestone 32.5 (Venta Incremental Build Correctness, Complete Dependency Fingerprinting & Function-Level Cache Integration)
 
+### Removed
+- **Legacy CLI Wrappers & Redundant Package**:
+  - Removed legacy root CLI wrapper scripts (`venta.cmd`, `venta.ps1`, `ventac.cmd`, `ventac.ps1`) in favor of canonical `vanta` and `vantac` wrappers.
+  - Removed duplicate `packages/venta-lang/` directory; `packages/vanta-lang/` serves as the single source for the npm package.
+
 ### Added
 - **Build Configuration & Dynamic Compiler Identity (crates/vanta_build/src/fingerprint.rs, uild.rs)**:
   - Implemented dynamic git commit detection and source tree digest fallback in anta_build/build.rs, exporting cargo:rustc-env=VENTA_BUILD_GIT_REV.
