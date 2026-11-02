@@ -37,3 +37,6 @@ editors/** linguist-vendored
 docs/** linguist-documentation
 *.md linguist-documentation
 LICENSE* linguist-documentation
+
+# Line ending normalization for cross-platform portability
+*.sh text eol=lf
