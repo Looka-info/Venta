@@ -4,7 +4,7 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
-$icoPath = Join-Path $repoRoot "editors\vscode\icons\venta-file-icon.ico"
+$icoPath = Join-Path $repoRoot "editors\vscode\icons\vanta-file-icon.ico"
 
 if (-not (Test-Path $icoPath)) {
     Write-Error "Icon file not found at: $icoPath"

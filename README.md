@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/VANTA Gold Lightning Mark.png" width="220" alt="Vanta Gold Lightning Mark" /><br>
+<img src="images/vanta-gold-lightning-mark.png" width="220" alt="Vanta Gold Lightning Mark" /><br>
 
 # ⚡ Vanta Programming Language
 

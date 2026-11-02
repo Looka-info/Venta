@@ -22,7 +22,7 @@
     "type": "git",
     "url": "https://github.com/Looka-info/Venta.git"
   },
-  "icon": "./icons/venta-logo-512.png",
+  "icon": "./icons/vanta-logo-512.png",
   "contributes": {
     "languages": [
       {
@@ -40,8 +40,8 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/venta-file-icon-light.svg",
-          "dark": "./icons/venta-file-icon-dark.svg"
+          "light": "./icons/vanta-file-icon-light.svg",
+          "dark": "./icons/vanta-file-icon-dark.svg"
         }
       }
     ],
@@ -54,9 +54,9 @@
     ],
     "iconThemes": [
       {
-        "id": "venta-icons",
-        "label": "Venta File Icons",
-        "path": "./icons/venta-icon-theme.json"
+        "id": "vanta-icons",
+        "label": "Vanta File Icons",
+        "path": "./icons/vanta-icon-theme.json"
       }
     ]
   }
