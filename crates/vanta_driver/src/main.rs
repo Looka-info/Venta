@@ -153,7 +153,10 @@ fn main() {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
-    let mut linker = LinkerKind::Internal;
+    let mut linker = match std::env::var("VANTA_LINKER").as_deref() {
+        Ok("system") => LinkerKind::System,
+        _ => LinkerKind::Internal,
+    };
     let mut linker_flags: Vec<String> = Vec::new();
     let mut link_archives: Vec<PathBuf> = Vec::new();
     let mut additional_inputs: Vec<PathBuf> = Vec::new();

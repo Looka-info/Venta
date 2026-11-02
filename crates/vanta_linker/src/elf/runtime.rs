@@ -26,9 +26,14 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let mut symbols: Vec<Symbol> = Vec::new();
 
     let mut add_symbol = |name: &str, offset: usize, size: usize| {
+        let visibility = if name == "_start" {
+            SymbolVisibility::Global
+        } else {
+            SymbolVisibility::Weak
+        };
         symbols.push(Symbol {
             name: name.to_string(),
-            visibility: SymbolVisibility::Global,
+            visibility,
             kind: SymbolKind::Function,
             section_index: Some(1), // index 1 is .text
             value: offset as u64,
@@ -342,6 +347,22 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         "vanta_cpu_has_avx512f",
         cpu_offset,
         text_bytes.len() - cpu_offset,
+    );
+
+    // =========================================================================
+    // 11. vanta_str_init(str: *mut VantaString)
+    // =========================================================================
+    let str_init_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0xC7, 0x07, 0x00, 0x00, 0x00, 0x00, // movq $0, (%rdi)
+        0x48, 0xC7, 0x47, 0x08, 0x00, 0x00, 0x00, 0x00, // movq $0, 8(%rdi)
+        0x48, 0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00, // movq $0, 16(%rdi)
+        0xC3, // ret
+    ]);
+    add_symbol(
+        "vanta_str_init",
+        str_init_offset,
+        text_bytes.len() - str_init_offset,
     );
 
     // Create the .text section

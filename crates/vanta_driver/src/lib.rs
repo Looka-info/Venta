@@ -901,7 +901,11 @@ impl CompilerSession {
                 }
             }
             LinkerKind::Internal => {
-                if let Some(ref rt_path) = options.runtime_path {
+                let rt_path_opt = match options.runtime_path {
+                    Some(ref p) => Some(p.clone()),
+                    None => Self::find_runtime_archive(options).ok(),
+                };
+                if let Some(ref rt_path) = rt_path_opt {
                     let rt_input =
                         ResolvedLinkInput::from_path(LinkInputKind::RuntimeArchive, rt_path)?;
                     plan.runtime_archive = Some(rt_input);
