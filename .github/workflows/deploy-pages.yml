@@ -35,8 +35,11 @@ jobs:
       - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Build Venta Compiler & Toolchain
+      - name: Build Static Runtime Library & Venta Compiler
         run: |
+          gcc -c -O2 -fPIC runtime/vanta_rt.c -o runtime/vanta_rt.o
+          ar rcs runtime/libvanta_rt.a runtime/vanta_rt.o
+          rm -f runtime/vanta_rt.o
           cargo build -p vanta_driver --release
           mkdir -p packages/vanta-lang/dist/bin packages/vanta-lang/dist/lib/vanta
           cp target/release/vanta packages/vanta-lang/dist/bin/vanta
