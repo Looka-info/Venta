@@ -95,7 +95,7 @@ impl MachOExecutableWriter {
             + cmd_main_size
             + cmd_dylib_size;
 
-        let header_and_cmds_size = 32 + sizeofcmds;
+        let _header_and_cmds_size = 32 + sizeofcmds;
 
         // Calculate __TEXT segment layout
         // All text sections are mapped congruent to their virtual address:
