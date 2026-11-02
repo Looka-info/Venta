@@ -7,7 +7,7 @@ assignees: []
 ---
 
 ## 1. Evaluator Host Environment
-- **Operating System**: (e.g., Ubuntu 22.04 LTS, Debian 12, Arch Linux, WSL2)
+- **Operating System**: (e.g., Ubuntu 22.04 LTS, Debian 12, Arch Linux, Windows 11 / Server 2022, macOS Sonoma / Sequoia, WSL2)
 - **Kernel Version (`uname -srm`)**: 
 - **Linker & Toolchain**: (e.g., `gcc --version` or `clang --version`, `ld --version`)
 
@@ -60,6 +60,6 @@ Paste full console output, including stdout, stderr, or --json diagnostic payloa
 
 ## 10. Severity Assessment (Preliminary)
 - [ ] **P0**: Crash, ICE (Internal Compiler Error), silent bad-code generation, memory safety violation, privilege escalation. (GA Blocker)
-- [ ] **P1**: CLI option failure, installation/discovery failure on standard Linux, false positive rejection blocking valid code. (RC Blocker)
+- [ ] **P1**: CLI option failure, installation/discovery failure on supported platforms (Linux, Windows, macOS), false positive rejection blocking valid code. (RC Blocker)
 - [ ] **P2**: Non-blocking diagnostic formatting anomaly, minor performance regression, non-standard OS quirk. (Point Release)
 - [ ] **P3**: Feature request, non-x86-64 target support, vectorization / SIMD optimization. (Post-v1.0 Roadmap)
