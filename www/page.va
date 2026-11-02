@@ -1,93 +1,103 @@
 // ============================================================================
-// ⚡ Venta Web Page Root Module (in Pure Venta)
-// Composes the entire Awwwards-winning showcase web page in pure Venta
+// ⚡ Venta Web Page Root Module (100% Pure Venta)
+// Composes the showcase web page matching the official design specification
 // ============================================================================
 
 import std::string::String;
 import dom::{Element, div, main_elem};
-import styles::get_luxury_styles;
+import styles::get_showcase_styles;
 import scripts::get_client_scripts;
 import components::{
-    render_navbar,
+    render_nav,
     render_hero,
-    render_bento_grid,
-    render_code_studio,
-    render_benchmark_arena,
-    render_cli_simulator,
-    render_vscode_section,
+    render_statement,
+    render_marquee,
+    render_horizontal_track,
+    render_code_section,
+    render_benchmarks,
+    render_pipeline,
+    render_optimizer,
+    render_ecosystem,
+    render_start_steps,
     render_footer
 };
 
 pub fn render_showcase_document() -> String {
     let mut doc = String::from_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
-    doc.push_str("    <meta charset=\"UTF-8\">\n");
-    doc.push_str("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-    doc.push_str("    <title>⚡ Venta — Velocity. Safety. Zero Overhead.</title>\n");
-    doc.push_str("    <meta name=\"description\" content=\"A performance-first, memory-safe systems programming language featuring a 14-pass SSA optimizer, native x86-64 backend, and affine borrow semantics. Compiles in 0.24 seconds with zero LLVM bloat.\">\n");
-    doc.push_str("    <link rel=\"icon\" type=\"image/svg+xml\" href=\"vanta-file-icon.svg\">\n");
-    doc.push_str("    <link rel=\"alternate icon\" type=\"image/png\" href=\"favicon.png\">\n");
+    doc.push_str("    <meta charset=\"utf-8\">\n");
+    doc.push_str("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n");
+    doc.push_str("    <title>Venta: a systems language that compiles in 0.24 seconds</title>\n");
     doc.push_str("    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n");
     doc.push_str("    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n");
-    doc.push_str("    <link href=\"https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Syne:wght@700;800;900&display=swap\" rel=\"stylesheet\">\n");
-    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js\"></script>\n");
-    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js\"></script>\n");
-    doc.push_str("    <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/TextPlugin.min.js\"></script>\n");
+    doc.push_str("    <link href=\"https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;800&family=Geist+Mono:wght@400;500&display=swap\" rel=\"stylesheet\">\n");
 
-    // Inject Luxury Styles from pure Venta styles module
-    let css = get_luxury_styles();
+    // Inject exact CSS styling from styles.va
+    let css = get_showcase_styles();
     doc.push_str(css.as_str());
 
     doc.push_str("</head>\n<body>\n");
 
-    // Trailing Custom Cursor & Background Canvas
-    doc.push_str("    <div class=\"custom-cursor\" id=\"cursor-dot\"></div>\n");
-    doc.push_str("    <div class=\"cursor-follower\" id=\"cursor-follower\"></div>\n");
-    doc.push_str("    <canvas id=\"bg-canvas\"></canvas>\n");
-    doc.push_str("    <div class=\"ambient-glow glow-1\"></div>\n");
-    doc.push_str("    <div class=\"ambient-glow glow-2\"></div>\n");
-    doc.push_str("    <div class=\"ambient-glow glow-3\"></div>\n");
+    // 1. Navigation
+    let nav_el = render_nav();
+    let nav_str = nav_el.render();
+    doc.push_str(nav_str.as_str());
 
-    // Render Navigation
-    let navbar = render_navbar();
-    let navbar_str = navbar.render();
-    doc.push_str(navbar_str.as_str());
-
-    // Main Container
-    let mut main_container = main_elem();
-
-    // Hero Section
+    // 2. Hero Header
     let hero = render_hero();
-    main_container.add_child(&hero);
+    let hero_str = hero.render();
+    doc.push_str(hero_str.as_str());
 
-    // Bento Grid Section
-    let bento = render_bento_grid();
-    main_container.add_child(&bento);
+    // 3. Statement Pinned Section
+    let stmt = render_statement();
+    let stmt_str = stmt.render();
+    doc.push_str(stmt_str.as_str());
 
-    // Code Studio Section
-    let studio = render_code_studio();
-    main_container.add_child(&studio);
+    // 4. Marquee Banner
+    let mq = render_marquee();
+    let mq_str = mq.render();
+    doc.push_str(mq_str.as_str());
 
-    // Benchmark Arena Section
-    let bench = render_benchmark_arena();
-    main_container.add_child(&bench);
+    // 5. Horizontal Scroll Track
+    let hs = render_horizontal_track();
+    let hs_str = hs.render();
+    doc.push_str(hs_str.as_str());
 
-    // CLI Simulator Section
-    let cli = render_cli_simulator();
-    main_container.add_child(&cli);
+    // 6. Code Mistakes Section
+    let code_sec = render_code_section();
+    let code_str = code_sec.render();
+    doc.push_str(code_str.as_str());
 
-    // VS Code Section
-    let vscode = render_vscode_section();
-    main_container.add_child(&vscode);
+    // 7. Benchmarks & Workload Explorer
+    let bench = render_benchmarks();
+    let bench_str = bench.render();
+    doc.push_str(bench_str.as_str());
 
-    let main_str = main_container.render();
-    doc.push_str(main_str.as_str());
+    // 8. Pipeline Pinned Section
+    let pipe = render_pipeline();
+    let pipe_str = pipe.render();
+    doc.push_str(pipe_str.as_str());
 
-    // Footer Section
-    let footer_elem = render_footer();
-    let footer_str = footer_elem.render();
+    // 9. 14-Pass Optimizer Grid
+    let opt = render_optimizer();
+    let opt_str = opt.render();
+    doc.push_str(opt_str.as_str());
+
+    // 10. Ecosystem Cards
+    let eco = render_ecosystem();
+    let eco_str = eco.render();
+    doc.push_str(eco_str.as_str());
+
+    // 11. Start Steps
+    let start = render_start_steps();
+    let start_str = start.render();
+    doc.push_str(start_str.as_str());
+
+    // 12. Footer
+    let footer_el = render_footer();
+    let footer_str = footer_el.render();
     doc.push_str(footer_str.as_str());
 
-    // Inject Client GSAP & Canvas Scripts from pure Venta scripts module
+    // Scripts: GSAP 3.12+, ScrollTrigger, Lenis, Tabs & Interactivity
     let js = get_client_scripts();
     doc.push_str(js.as_str());
 

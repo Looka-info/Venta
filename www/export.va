@@ -1,0 +1,40 @@
+// ============================================================================
+// ⚡ Venta Static Export Engine (100% Pure Venta)
+// Evaluates the Venta DOM tree in memory and outputs the static site for CI/CD
+// ============================================================================
+
+mod dom;
+mod styles;
+mod scripts;
+mod components;
+mod page;
+
+import page::render_showcase_document;
+import std::fs;
+import std::result::Result;
+
+fn main() -> i64 {
+    print_str("====================================================================\n");
+    print_str("   ⚡ Venta Site Exporter — CI/CD Static Generator in Pure Venta    \n");
+    print_str("====================================================================\n");
+    print_str("Evaluating www/page.va in pure memory...\n");
+    let doc = render_showcase_document();
+    print_str("Rendering complete (");
+    print_i64(doc.len_bytes());
+    print_str(" bytes).\n");
+
+    let res = fs::write("dist/index.html", doc.as_str());
+    match res {
+        Result::Ok(_) => {
+            print_str("✨ Successfully exported dist/index.html via Venta std::fs!\n");
+            print_str("====================================================================\n");
+            0
+        }
+        Result::Err(code) => {
+            print_str("[Error] Failed to write dist/index.html. Code: ");
+            print_i64(code);
+            print_str("\n");
+            1
+        }
+    }
+}

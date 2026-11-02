@@ -21,7 +21,7 @@ import ssr::{
     RenderContext, make_render_context, resolve_layout,
     layout_root, layout_root_and_dashboard, layout_root_and_docs,
     render_home_page, render_dashboard_page, render_docs_page, render_post_detail_page,
-    render_about_page, render_blog_slug_page, render_docs_path_page, render_404_page,
+    render_about_page, render_blog_slug_page, render_docs_path_page, render_showcase_page, render_404_page,
     get_venta_file_icon_svg
 };
 
@@ -39,6 +39,7 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_page_route("/docs", layout_root_and_docs(), 102);
     m.add_page_route("/posts/[id]", layout_root(), 103);
     m.add_page_route("/about", layout_root(), 104);
+    m.add_page_route("/showcase", layout_root(), 107);
     m.add_page_route("/blog/[slug]", layout_root(), 105);
     m.add_page_route("/docs/[...path]", layout_root_and_docs(), 106);
     m.add_page_route("/foo/[...rest]", layout_root(), 110);
@@ -219,6 +220,9 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 } else if m_res.page_id == 106 {
                     title = "Documentation";
                     active_nav = "docs";
+                } else if m_res.page_id == 107 {
+                    title = "Showcase";
+                    active_nav = "showcase";
                 } else if m_res.page_id == 110 {
                     title = "Foo Catch-All";
                     active_nav = "home";
@@ -261,6 +265,8 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                         page_markup = render_blog_slug_page(&ctx);
                     } else if m_res.page_id == 106 {
                         page_markup = render_docs_path_page(&ctx);
+                    } else if m_res.page_id == 107 {
+                        page_markup = render_showcase_page(&ctx);
                     } else if m_res.page_id == 110 {
                         let mut s = String::from_str("<h1>Route: /foo/[...rest]</h1><p>rest = ");
                         let rest_opt = req.params.get("rest");

@@ -1,0 +1,59 @@
+name: Deploy Venta Showcase to GitHub Pages
+
+on:
+  push:
+    branches: [ main, feature/ventanext-foundation ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Showcase with Pure Venta Engine
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Create Ephemeral Dist Directory
+        run: mkdir -p dist
+
+      - name: Compile and Evaluate Venta Site
+        run: |
+          chmod +x packages/vanta-lang/dist/bin/vanta packages/vanta-lang/dist/bin/vantac packages/vanta-lang/dist/bin/venta packages/vanta-lang/dist/bin/ventac
+          node packages/vanta-lang/bin/vanta.js run www/export.va
+
+      - name: Copy Static Favicons and Media
+        run: |
+          cp -r www/*.svg dist/ 2>/dev/null || true
+          cp -r www/*.png dist/ 2>/dev/null || true
+          cp -r www/*.ico dist/ 2>/dev/null || true
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
