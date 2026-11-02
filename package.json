@@ -1,7 +1,7 @@
 {
   "name": "venta-lang",
   "version": "1.0.0-rc.2",
-  "description": "Venta - Performance-first, memory-safe systems programming language with a custom SSA optimizer and native x86-64 backend (no LLVM)",
+  "description": "Venta - Performance-first, memory-safe systems programming language with a custom SSA optimizer, multi-platform native backends (Linux, Windows, macOS ARM64), and a pure-Rust linker",
   "main": "packages/vanta-lang/bin/venta.js",
   "bin": {
     "venta": "packages/vanta-lang/bin/venta.js",
@@ -23,6 +23,12 @@
     "compiler",
     "systems-programming",
     "x86-64",
+    "aarch64",
+    "arm64",
+    "windows",
+    "macos",
+    "linux",
+    "apple-silicon",
     "native",
     "no-llvm",
     "no-gc",
