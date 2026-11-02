@@ -324,3 +324,36 @@ fn compute() -> i64 {
         "All eligible slots must be promoted out of func.slots"
     );
 }
+
+#[test]
+fn test_mem2reg_parameter_promotion_reassignment_branches_loops() {
+    let source = r#"
+fn param_branch_loop(mut x: i64, mut y: i64, cond: bool) -> i64 {
+    if cond {
+        x = x + 10;
+    } else {
+        x = x + 20;
+    }
+
+    let mut i: i64 = 0;
+    while i < 5 {
+        y = y + x;
+        x = x + 1;
+        i = i + 1;
+    }
+
+    return x + y;
+}
+
+fn main() -> i64 {
+    let r1 = param_branch_loop(5, 10, true);
+    let r2 = param_branch_loop(5, 10, false);
+    print_i64(r1);
+    print_str(" ");
+    print_i64(r2);
+    print_str("\n");
+    return 0;
+}
+"#;
+    run_differential_test("diff_param_promotion", source, 0, "115 175\n");
+}

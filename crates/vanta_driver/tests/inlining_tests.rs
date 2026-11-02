@@ -667,3 +667,63 @@ fn test_inline_end_to_end_execution_equivalence() {
 
     let _ = fs::remove_dir_all(&target_dir);
 }
+
+#[test]
+fn test_aggregate_inlining_candidate_verification() {
+    let src = r#"
+    struct Point {
+        x: i64,
+        y: i64,
+    }
+
+    // 1. Positive: Immutable aggregate ref, leaf, no writes, returns scalar
+    fn manhattan_distance(p: &Point) -> i64 {
+        return p.x + p.y;
+    }
+
+    // 2. Negative: Mutable aggregate ref
+    fn mutate_point(p: &mut Point) -> i64 {
+        p.x = p.x + 1;
+        return p.x;
+    }
+
+    // 3. Negative: Returns aggregate struct by value
+    fn make_point(a: i64, b: i64) -> Point {
+        return Point { x: a, y: b };
+    }
+
+    pub fn main() -> i64 {
+        let mut pt = Point { x: 10, y: 20 };
+        let d = manhattan_distance(&pt);
+        let m = mutate_point(&mut pt);
+        let pt2 = make_point(d, m);
+        print_i64(pt2.x + pt2.y);
+        print_str("\n");
+        return 0;
+    }
+    "#;
+
+    let (mir, _sm) = compile_src_to_mir(src);
+    let cg = vanta_mir::opt::CallGraph::build(&mir);
+
+    let (pos_cand, pos_reason) = cg.is_inlining_candidate("manhattan_distance");
+    assert!(
+        pos_cand,
+        "Immutable aggregate ref leaf must be eligible! Reason: {}",
+        pos_reason
+    );
+
+    let (mut_cand, mut_reason) = cg.is_inlining_candidate("mutate_point");
+    assert!(
+        !mut_cand,
+        "Mutable aggregate ref must be rejected! Got: {}",
+        mut_reason
+    );
+
+    let (ret_cand, ret_reason) = cg.is_inlining_candidate("make_point");
+    assert!(
+        !ret_cand,
+        "Memory-return aggregate function must be rejected! Got: {}",
+        ret_reason
+    );
+}

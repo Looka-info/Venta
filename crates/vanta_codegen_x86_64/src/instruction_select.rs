@@ -6,7 +6,7 @@ use crate::machine_ir::{ConditionCode, MachineInst, Operand, SimdOperand};
 use crate::reg_alloc::{AllocationResult, Location};
 use crate::register::{Reg, SimdReg, VectorWidth};
 use crate::simd_alloc::{SimdAllocResult, SimdLocation, SimdRegisterAllocator, SimdValueId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use vanta_mir::{BlockId, Instruction, MirBinaryOp, MirFunction, MirUnaryOp, Terminator, ValueId};
 use vanta_sema::{EnumDef, StructDef, Type};
 use vanta_target::TargetAbi;
@@ -23,9 +23,11 @@ pub struct InstructionSelector<'a> {
     epilogue_label: String,
     enable_tail_calls: bool,
     enable_block_layout: bool,
-    stack_ptrs: std::collections::HashSet<ValueId>,
+    stack_ptrs: HashSet<ValueId>,
     source_map: Option<&'a vanta_source::SourceMap>,
     const_ints: HashMap<ValueId, i64>,
+    loop_headers: HashSet<BlockId>,
+    value_use_counts: HashMap<ValueId, usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -132,6 +134,34 @@ impl<'a> InstructionSelector<'a> {
             }
         }
 
+        let mut loop_headers = HashSet::new();
+        if let Some(dom_tree) = vanta_mir::opt::DominatorTree::compute(func) {
+            let loops = vanta_mir::opt::NaturalLoop::discover_loops(func, &dom_tree);
+            for lp in loops {
+                loop_headers.insert(lp.header);
+            }
+        }
+
+        let mut value_use_counts = HashMap::new();
+        for b in &func.blocks {
+            for inst in &b.instructions {
+                for op in Self::extract_operands(inst) {
+                    *value_use_counts.entry(op).or_insert(0) += 1;
+                }
+            }
+            if let Some(ref term) = b.terminator {
+                match term {
+                    Terminator::CondBranch { cond, .. } => {
+                        *value_use_counts.entry(*cond).or_insert(0) += 1;
+                    }
+                    Terminator::Return(Some(val)) => {
+                        *value_use_counts.entry(*val).or_insert(0) += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Self {
             func,
             frame,
@@ -147,6 +177,36 @@ impl<'a> InstructionSelector<'a> {
             stack_ptrs,
             source_map: None,
             const_ints,
+            loop_headers,
+            value_use_counts,
+        }
+    }
+
+    fn extract_operands(inst: &Instruction) -> Vec<ValueId> {
+        match inst {
+            Instruction::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
+            Instruction::Unary { operand, .. } => vec![*operand],
+            Instruction::Store { val, .. } => vec![*val],
+            Instruction::StoreIndirect { addr, val }
+            | Instruction::StoreIndirect32 { addr, val } => vec![*addr, *val],
+            Instruction::LoadIndirect { addr, .. } => vec![*addr],
+            Instruction::IndexAddr { index, .. } => vec![*index],
+            Instruction::IndexPtrAddr {
+                base_ptr, index, ..
+            } => vec![*base_ptr, *index],
+            Instruction::FieldAddr { base_ptr, .. } => vec![*base_ptr],
+            Instruction::Call { args, .. } => args.clone(),
+            Instruction::CallIndirect {
+                callee_ptr, args, ..
+            } => {
+                let mut u = vec![*callee_ptr];
+                u.extend_from_slice(args);
+                u
+            }
+            Instruction::Copy { src, .. } => vec![*src],
+            Instruction::Phi { inputs, .. } => inputs.iter().map(|(_, v)| *v).collect(),
+            Instruction::StoreSlice { ptr, len, .. } => vec![*ptr, *len],
+            _ => Vec::new(),
         }
     }
 
@@ -262,7 +322,7 @@ impl<'a> InstructionSelector<'a> {
             let label_name = format!(".L_{}_bb{}", self.func.name, block.id.0);
 
             // Align loop headers to 16-byte boundaries
-            if block.name.contains("head") || block.name.contains("loop") {
+            if self.loop_headers.contains(&block.id) {
                 insts.push(MachineInst::Align(16));
             }
 
@@ -906,7 +966,7 @@ impl<'a> InstructionSelector<'a> {
                     MirBinaryOp::Rem => {
                         let const_divisor = self.const_ints.get(rhs).copied();
                         if let Some(c) = const_divisor {
-                            if c == 1 || c == -1 {
+                            if c == 1 {
                                 match dest_op {
                                     Operand::Reg(dst) => {
                                         out.push(MachineInst::Xor {
@@ -4073,9 +4133,12 @@ impl<'a> InstructionSelector<'a> {
                 }
 
                 if let Some(cc) = fused_cc {
-                    // Eliminate redundant Setcc and Movzx
-                    out.pop();
-                    out.pop();
+                    // Eliminate redundant Setcc and Movzx only if cond has no other uses
+                    let use_count = self.value_use_counts.get(cond).copied().unwrap_or(0);
+                    if use_count <= 1 {
+                        out.pop();
+                        out.pop();
+                    }
 
                     if Some(*then_block) == next_block_id {
                         out.push(MachineInst::Jcc {

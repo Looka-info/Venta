@@ -72,6 +72,15 @@ fn test_signed_division_and_modulo_by_power_of_two() {
         pub fn rem_by_16(x: i64) -> i64 {
             return x % 16;
         }
+        pub fn rem_by_one(x: i64) -> i64 {
+            return x % 1;
+        }
+        pub fn rem_by_neg_one(x: i64) -> i64 {
+            return x % -1;
+        }
+        pub fn div_by_non_power(x: i64) -> i64 {
+            return x / 5;
+        }
         "#
         .into(),
     );
@@ -93,6 +102,35 @@ fn test_signed_division_and_modulo_by_power_of_two() {
     let elf_bytes = X86_64Backend::compile_to_elf(&mir);
     assert!(elf_bytes.len() > 64);
     assert_eq!(&elf_bytes[0..4], &[0x7F, b'E', b'L', b'F']);
+
+    for func in &mir.functions {
+        let structs = std::collections::HashMap::new();
+        let enums = std::collections::HashMap::new();
+        let frame = vanta_codegen_x86_64::frame::FrameLayout::compute(func, &structs, &enums, None);
+        let selector = vanta_codegen_x86_64::instruction_select::InstructionSelector::new(
+            func, &frame, &structs, &enums, None,
+        );
+        let insts = selector.select_instructions();
+        let has_idiv = insts.iter().any(|i| matches!(i, MachineInst::Idiv(_)));
+        let has_sar = insts.iter().any(|i| matches!(i, MachineInst::Sar { .. }));
+
+        if func.name == "div_by_2" || func.name == "div_by_16" {
+            assert!(!has_idiv, "{} must NOT use IDIV!", func.name);
+            assert!(has_sar, "{} must use SAR!", func.name);
+        } else if func.name == "rem_by_2" || func.name == "rem_by_16" {
+            assert!(!has_idiv, "{} must NOT use IDIV!", func.name);
+            assert!(has_sar, "{} must use SAR!", func.name);
+        } else if func.name == "rem_by_one" {
+            assert!(!has_idiv, "rem_by_one must NOT use IDIV!");
+        } else if func.name == "rem_by_neg_one" {
+            assert!(
+                has_idiv,
+                "rem_by_neg_one MUST retain IDIV for i64::MIN trap semantics!"
+            );
+        } else if func.name == "div_by_non_power" {
+            assert!(has_idiv, "div_by_non_power must retain IDIV!");
+        }
+    }
 }
 
 #[test]

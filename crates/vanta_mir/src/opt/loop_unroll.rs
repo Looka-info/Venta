@@ -207,7 +207,7 @@ impl LoopUnrolling {
             } else if body_inst_count <= Self::MAX_PARTIAL_UNROLL_INSTRUCTIONS {
                 // Case C: DYNAMIC BOUND PARTIAL UNROLLING (Factor 2 with Remainder Loop)
                 let mut unrolled = false;
-                for (dest, _, latch_val, _) in &phi_nodes {
+                for (dest, init_val, latch_val, _) in &phi_nodes {
                     if let Some(step) =
                         Self::find_latch_step(func, latch_id, *dest, *latch_val, &const_map)
                     {
@@ -215,6 +215,23 @@ impl LoopUnrolling {
                             if let Some(bound_val) =
                                 Self::find_dynamic_bound(func, loop_info.header, cond_val, *dest)
                             {
+                                // A. Bound invariance verification:
+                                if !Self::verify_bound_invariance(
+                                    func,
+                                    loop_info,
+                                    preheader_id,
+                                    bound_val,
+                                    &dom_tree,
+                                ) {
+                                    continue;
+                                }
+
+                                // B. Initial value must be a known constant
+                                let init_c = match const_map.get(init_val).copied() {
+                                    Some(c) => c,
+                                    None => continue,
+                                };
+
                                 let changed = Self::apply_dynamic_partial_unroll_2(
                                     func,
                                     loop_info,
@@ -223,6 +240,7 @@ impl LoopUnrolling {
                                     latch_id,
                                     *dest,
                                     bound_val,
+                                    init_c,
                                     &phi_nodes,
                                 );
                                 if changed {
@@ -299,6 +317,119 @@ impl LoopUnrolling {
             {
                 if *dest == cond_val && *lhs == phi_dest {
                     return Some(*rhs);
+                }
+            }
+        }
+        None
+    }
+
+    /// Verifies that `bound_val` is invariant across the loop:
+    /// - It is not defined in any block of the loop.
+    /// - Its defining block strictly dominates the preheader.
+    /// - If loaded from a local slot, no instruction in the loop stores to that slot or writes memory.
+    fn verify_bound_invariance(
+        func: &MirFunction,
+        loop_info: &NaturalLoop,
+        preheader_id: BlockId,
+        bound_val: ValueId,
+        dom_tree: &DominatorTree,
+    ) -> bool {
+        // 1. Bound value must not be defined inside any loop block
+        for &b_id in &loop_info.blocks {
+            if let Some(block) = func.blocks.iter().find(|b| b.id == b_id) {
+                for inst in &block.instructions {
+                    if Self::inst_defines_val(inst, bound_val) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // 2. Find the defining block of bound_val
+        let def_block = match Self::find_defining_block(func, bound_val) {
+            Some(b) => b,
+            None => return false,
+        };
+
+        // 3. Defining block must dominate the preheader and not be in the loop
+        if loop_info.blocks.contains(&def_block) {
+            return false;
+        }
+        if !dom_tree.dominates(def_block, preheader_id) && def_block != preheader_id {
+            return false;
+        }
+
+        // 4. If loaded from a slot, verify no instruction inside the loop stores to that slot or memory
+        let def_inst = func
+            .blocks
+            .iter()
+            .find(|b| b.id == def_block)
+            .and_then(|b| {
+                b.instructions
+                    .iter()
+                    .find(|i| Self::inst_defines_val(i, bound_val))
+            });
+
+        if let Some(Instruction::Load { slot, .. }) = def_inst {
+            let loaded_slot = *slot;
+            for &b_id in &loop_info.blocks {
+                if let Some(block) = func.blocks.iter().find(|b| b.id == b_id) {
+                    for inst in &block.instructions {
+                        match inst {
+                            Instruction::Store { slot: s, .. } => {
+                                if *s == loaded_slot {
+                                    return false;
+                                }
+                            }
+                            Instruction::StoreIndirect { .. }
+                            | Instruction::StoreIndirect32 { .. }
+                            | Instruction::StoreSlice { .. } => {
+                                return false;
+                            }
+                            Instruction::Call { .. } | Instruction::CallIndirect { .. } => {
+                                return false;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    fn inst_defines_val(inst: &Instruction, val: ValueId) -> bool {
+        match inst {
+            Instruction::ConstInt { dest, .. }
+            | Instruction::ConstBool { dest, .. }
+            | Instruction::SlotAddr { dest, .. }
+            | Instruction::Load { dest, .. }
+            | Instruction::Binary { dest, .. }
+            | Instruction::Unary { dest, .. }
+            | Instruction::IndexAddr { dest, .. }
+            | Instruction::IndexPtrAddr { dest, .. }
+            | Instruction::FieldAddr { dest, .. }
+            | Instruction::LoadIndirect { dest, .. }
+            | Instruction::Phi { dest, .. }
+            | Instruction::Copy { dest, .. } => *dest == val,
+            Instruction::Call { dest: Some(d), .. }
+            | Instruction::CallIndirect { dest: Some(d), .. } => *d == val,
+            Instruction::StrSlice {
+                dest_ptr, dest_len, ..
+            }
+            | Instruction::LoadSlice {
+                dest_ptr, dest_len, ..
+            } => *dest_ptr == val || *dest_len == val,
+            _ => false,
+        }
+    }
+
+    fn find_defining_block(func: &MirFunction, val: ValueId) -> Option<BlockId> {
+        for block in &func.blocks {
+            for inst in &block.instructions {
+                if Self::inst_defines_val(inst, val) {
+                    return Some(block.id);
                 }
             }
         }
@@ -851,6 +982,7 @@ impl LoopUnrolling {
         latch_id: BlockId,
         iv_dest: ValueId,
         bound_val: ValueId,
+        init_c: i64,
         phi_nodes: &[(ValueId, ValueId, ValueId, Type)],
     ) -> bool {
         let body_block_ids: Vec<BlockId> = func
@@ -897,6 +1029,13 @@ impl LoopUnrolling {
             }
         }
 
+        // Underflow protection: compute safe threshold for factor-2 unrolling.
+        // At least 2 iterations are needed: bound must exceed init_c + 1.
+        let threshold = match init_c.checked_add(1) {
+            Some(t) => t,
+            None => return false,
+        };
+
         let unroll_block_ids: Vec<BlockId> = func
             .blocks
             .iter()
@@ -907,7 +1046,69 @@ impl LoopUnrolling {
         let mut next_val_id = func.max_value_id() + 1;
         let mut next_block_id = func.max_block_id() + 1;
 
-        // 1. Compute unroll_bound = bound - 1 in preheader
+        // 1. Emit runtime guard in preheader:
+        // If bound_val <= threshold (including i64::MIN), branch to bypass_block.
+        // Otherwise, branch to unroll_preheader.
+        // We create dedicated edge-splitting blocks (bypass_block and unroll_exit_block)
+        // to eliminate critical edges into loop_info.header, ensuring parallel phi transfers lower correctly.
+        let bypass_block_id = BlockId(next_block_id);
+        next_block_id += 1;
+        let unroll_preheader_id = BlockId(next_block_id);
+        next_block_id += 1;
+        let unroll_exit_block_id = BlockId(next_block_id);
+        next_block_id += 1;
+
+        let thresh_val = ValueId(next_val_id);
+        next_val_id += 1;
+        let guard_cond_val = ValueId(next_val_id);
+        next_val_id += 1;
+
+        let const_thresh = Instruction::ConstInt {
+            dest: thresh_val,
+            val: threshold,
+            ty: Type::I64,
+        };
+        let cmp_guard = Instruction::Binary {
+            dest: guard_cond_val,
+            op: MirBinaryOp::Gt,
+            lhs: bound_val,
+            rhs: thresh_val,
+            ty: Type::Bool,
+        };
+
+        let preheader_name = func
+            .blocks
+            .iter()
+            .find(|b| b.id == preheader_id)
+            .unwrap()
+            .name
+            .clone();
+
+        let p_block = func
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == preheader_id)
+            .unwrap();
+        p_block.instructions.push(const_thresh);
+        p_block.instructions.push(cmp_guard);
+        p_block.terminator = Some(Terminator::CondBranch {
+            cond: guard_cond_val,
+            then_block: unroll_preheader_id,
+            else_block: bypass_block_id,
+        });
+
+        let bypass_block = BasicBlock {
+            id: bypass_block_id,
+            name: format!("{}_bypass", preheader_name),
+            instructions: Vec::new(),
+            terminator: Some(Terminator::Branch(loop_info.header)),
+        };
+
+        // 2. Build unroll_preheader: safely compute unroll_bound = bound - 1
+        // (safe because bound > init_c + 1 >= i64::MIN + 1, so bound - 1 cannot underflow or overflow)
+        let unroll_header_id = BlockId(next_block_id);
+        next_block_id += 1;
+
         let one_val = ValueId(next_val_id);
         next_val_id += 1;
         let unroll_bound_val = ValueId(next_val_id);
@@ -925,18 +1126,22 @@ impl LoopUnrolling {
             rhs: one_val,
             ty: Type::I64,
         };
-        let p_block = func
+
+        let preheader_name = func
             .blocks
-            .iter_mut()
+            .iter()
             .find(|b| b.id == preheader_id)
-            .unwrap();
-        p_block.instructions.push(const_one);
-        p_block.instructions.push(sub_bound);
+            .unwrap()
+            .name
+            .clone();
+        let unroll_preheader_block = BasicBlock {
+            id: unroll_preheader_id,
+            name: format!("{}_upre", preheader_name),
+            instructions: vec![const_one, sub_bound],
+            terminator: Some(Terminator::Branch(unroll_header_id)),
+        };
 
-        // 2. Build unroll_header
-        let unroll_header_id = BlockId(next_block_id);
-        next_block_id += 1;
-
+        // 3. Build unroll_header
         let mut unroll_phi_defs: HashMap<ValueId, ValueId> = HashMap::new();
         let mut unroll_phis: Vec<Instruction> = Vec::new();
 
@@ -946,7 +1151,7 @@ impl LoopUnrolling {
             unroll_phi_defs.insert(*phi_dest, u_phi_dest);
             unroll_phis.push(Instruction::Phi {
                 dest: u_phi_dest,
-                inputs: vec![(preheader_id, *init_val)],
+                inputs: vec![(unroll_preheader_id, *init_val)],
                 ty: ty.clone(),
             });
         }
@@ -962,7 +1167,7 @@ impl LoopUnrolling {
             ty: Type::Bool,
         };
 
-        // 3. Duplicate body for Iteration 1
+        // 4. Duplicate body for Iteration 1
         let mut iter1_val_map: HashMap<ValueId, ValueId> = HashMap::new();
         for (phi_dest, _, _, _) in phi_nodes {
             iter1_val_map.insert(*phi_dest, unroll_phi_defs[phi_dest]);
@@ -979,7 +1184,7 @@ impl LoopUnrolling {
             }
         }
 
-        // 4. Duplicate body for Iteration 2
+        // 5. Duplicate body for Iteration 2
         let mut iter2_val_map: HashMap<ValueId, ValueId> = HashMap::new();
         for (phi_dest, _, latch_val, _) in phi_nodes {
             let iter1_out = iter1_val_map.get(latch_val).copied().unwrap_or(*latch_val);
@@ -1080,19 +1285,18 @@ impl LoopUnrolling {
             terminator: Some(Terminator::CondBranch {
                 cond: u_cond,
                 then_block: iter1_entry_id,
-                else_block: loop_info.header,
+                else_block: unroll_exit_block_id,
             }),
         };
 
-        // Preheader now branches to unroll_header
-        let p_block = func
-            .blocks
-            .iter_mut()
-            .find(|b| b.id == preheader_id)
-            .unwrap();
-        p_block.terminator = Some(Terminator::Branch(unroll_header_id));
+        let unroll_exit_block = BasicBlock {
+            id: unroll_exit_block_id,
+            name: format!("{}_uexit", header_name),
+            instructions: Vec::new(),
+            terminator: Some(Terminator::Branch(loop_info.header)),
+        };
 
-        // Original loop header Phis receive input from unroll_header instead of preheader
+        // Original loop header Phis receive inputs from bypass_block and unroll_exit_block
         let orig_header = func
             .blocks
             .iter_mut()
@@ -1100,13 +1304,13 @@ impl LoopUnrolling {
             .unwrap();
         for inst in &mut orig_header.instructions {
             if let Instruction::Phi { dest, inputs, .. } = inst {
-                for (pred, val) in inputs {
+                for (pred, _) in inputs.iter_mut() {
                     if *pred == preheader_id {
-                        *pred = unroll_header_id;
-                        if let Some(&u_phi_val) = unroll_phi_defs.get(dest) {
-                            *val = u_phi_val;
-                        }
+                        *pred = bypass_block_id;
                     }
+                }
+                if let Some(&u_phi_val) = unroll_phi_defs.get(dest) {
+                    inputs.push((unroll_exit_block_id, u_phi_val));
                 }
             }
         }
@@ -1118,6 +1322,10 @@ impl LoopUnrolling {
             .position(|b| b.id == preheader_id)
             .unwrap();
         let mut insert_pos = p_idx + 1;
+        func.blocks.insert(insert_pos, bypass_block);
+        insert_pos += 1;
+        func.blocks.insert(insert_pos, unroll_preheader_block);
+        insert_pos += 1;
         func.blocks.insert(insert_pos, unroll_header_block);
         insert_pos += 1;
         for b in iter1_blocks {
@@ -1128,6 +1336,7 @@ impl LoopUnrolling {
             func.blocks.insert(insert_pos, b);
             insert_pos += 1;
         }
+        func.blocks.insert(insert_pos, unroll_exit_block);
 
         true
     }

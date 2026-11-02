@@ -1732,3 +1732,49 @@ fn test_compile_fail_mutating_array_while_borrowed_by_slice() {
     assert!(json_report.contains("\"code\":\"E0306\""));
     assert!(json_report.contains("Cannot assign to 'arr' because it is borrowed"));
 }
+
+#[test]
+fn test_e2e_signed_division_and_modulo_native_execution() {
+    let src = r#"
+    fn test_div_rem(x: i64) -> i64 {
+        let d2 = x / 2;
+        let r2 = x % 2;
+        let d4 = x / 4;
+        let r4 = x % 4;
+        let d16 = x / 16;
+        let r16 = x % 16;
+        let r1 = x % 1;
+        let d3 = x / 3;
+        let r3 = x % 3;
+        let d5 = x / 5;
+        let r5 = x % 5;
+        return d2 + r2 + d4 + r4 + d16 + r16 + r1 + d3 + r3 + d5 + r5;
+    }
+
+    pub fn main() -> i64 {
+        let v1 = test_div_rem(100);
+        let v2 = test_div_rem(-100);
+        let v3 = test_div_rem(7);
+        let v4 = test_div_rem(-7);
+        let v5 = test_div_rem(0);
+        let v6 = test_div_rem(1024);
+        let v7 = test_div_rem(-1024);
+        print_i64(v1);
+        print_str(" ");
+        print_i64(v2);
+        print_str(" ");
+        print_i64(v3);
+        print_str(" ");
+        print_i64(v4);
+        print_str(" ");
+        print_i64(v5);
+        print_str(" ");
+        print_i64(v6);
+        print_str(" ");
+        print_i64(v7);
+        print_str("\n");
+        return 0;
+    }
+    "#;
+    run_differential_test("diff_div_rem", src, 0);
+}

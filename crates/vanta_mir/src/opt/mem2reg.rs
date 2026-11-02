@@ -62,7 +62,8 @@ impl Mem2Reg {
         for &slot_id in &eligible_slots {
             let slot = func.slots.iter().find(|s| s.id == slot_id).unwrap();
             let is_param = param_slots.contains(&slot_id);
-            let def_blocks = Self::find_store_blocks(func, slot_id, &reachable_blocks, is_param);
+            let def_blocks =
+                Self::find_store_blocks(func, slot_id, &reachable_blocks, is_param, entry_block);
             let idf_blocks = Self::compute_idf(&def_blocks, &df);
 
             let mut phi_map = HashMap::new();
@@ -104,6 +105,11 @@ impl Mem2Reg {
         let mut param_init_loads: HashSet<ValueId> = HashSet::new();
 
         // For each eligible slot, initialize reaching definition
+        let entry_idx = func
+            .blocks
+            .iter()
+            .position(|b| b.id == entry_block)
+            .unwrap();
         for &slot_id in &eligible_slots {
             let slot = func.slots.iter().find(|s| s.id == slot_id).unwrap();
             if param_slots.contains(&slot_id) {
@@ -115,7 +121,7 @@ impl Mem2Reg {
                     slot: slot_id,
                     ty: slot.ty.clone(),
                 };
-                func.blocks[0].instructions.insert(0, param_load);
+                func.blocks[entry_idx].instructions.insert(0, param_load);
                 param_init_loads.insert(param_init);
                 reaching_defs.insert(slot_id, vec![param_init]);
             } else {
@@ -132,7 +138,7 @@ impl Mem2Reg {
                         ty: slot.ty.clone(),
                     },
                 };
-                func.blocks[0].instructions.insert(0, default_inst);
+                func.blocks[entry_idx].instructions.insert(0, default_inst);
                 reaching_defs.insert(slot_id, vec![default_val]);
             }
         }
@@ -405,12 +411,13 @@ impl Mem2Reg {
         slot_id: SlotId,
         reachable: &[BlockId],
         is_param: bool,
+        entry_block: BlockId,
     ) -> Vec<BlockId> {
         let reachable_set: HashSet<BlockId> = reachable.iter().copied().collect();
         let mut def_blocks = Vec::new();
 
-        if is_param && !func.blocks.is_empty() && reachable_set.contains(&func.blocks[0].id) {
-            def_blocks.push(func.blocks[0].id);
+        if is_param && reachable_set.contains(&entry_block) {
+            def_blocks.push(entry_block);
         }
 
         for block in &func.blocks {

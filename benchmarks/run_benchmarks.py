@@ -6,6 +6,10 @@ import json
 import sys
 import platform
 import argparse
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.as_posix()
+BIN_DIR = f"{REPO_ROOT}/target/bench_bins"
 
 BENCHMARKS = [
     "fib",
@@ -27,14 +31,14 @@ BENCHMARKS = [
     "dce_workload",
     "layout_workload",
 ]
-BIN_DIR = "target/bench_bins"
 
 def run_cmd(cmd):
+    full_cmd = f"cd {REPO_ROOT} && export VANTA_LINKER=system && {cmd}"
     t0 = time.perf_counter()
     if os.path.exists("/proc/version"):
-        res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+        res = subprocess.run(["bash", "-c", full_cmd], capture_output=True, text=True)
     else:
-        res = subprocess.run(["wsl", "bash", "-c", cmd], capture_output=True, text=True)
+        res = subprocess.run(["wsl", "bash", "-c", full_cmd], capture_output=True, text=True)
     t1 = time.perf_counter()
     return res.returncode, res.stdout, res.stderr, (t1 - t0)
 
@@ -44,14 +48,19 @@ def get_env_metadata():
     _, rust_ver, _, _ = run_cmd("rustc --version")
     _, gcc_ver, _, _ = run_cmd("gcc --version | head -n 1")
     _, vanta_ver, _, _ = run_cmd("./target/release/vantac --version")
+    _, git_sha, _, _ = run_cmd("git rev-parse HEAD")
+    _, vantac_sha, _, _ = run_cmd("sha256sum ./target/release/vantac 2>/dev/null || echo 'not_built'")
     
     cpu_clean = cpu_info.split(":")[-1].strip() if ":" in cpu_info else "x86_64"
+    vantac_hash = vantac_sha.split()[0] if vantac_sha else "unknown"
     return {
         "kernel": kernel.strip(),
         "cpu": cpu_clean,
         "rustc": rust_ver.strip(),
         "gcc": gcc_ver.strip(),
         "vantac": vanta_ver.strip(),
+        "git_commit": git_sha.strip(),
+        "vantac_sha256": vantac_hash,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -59,6 +68,7 @@ def main():
     parser = argparse.ArgumentParser(description="Venta Benchmark Runner")
     parser.add_argument("--benchmark", "-b", type=str, help="Specific benchmark to run")
     parser.add_argument("--output", "-o", type=str, default="benchmarks/results/milestone-25-release-audit.json", help="Output JSON path")
+    parser.add_argument("--trials", "-n", type=int, default=20, help="Number of benchmark trials (default: 20)")
     args = parser.parse_args()
 
     run_cmd(f"mkdir -p {BIN_DIR}")
@@ -77,37 +87,37 @@ def main():
         results["benchmarks"][bench] = {}
         
         # 1. Compile Vanta -O0
-        cmd_vanta_o0 = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && ./target/release/vantac -O0 benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_o0"
+        cmd_vanta_o0 = f"./target/release/vantac -O0 benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_o0"
         ret, out, err, compile_time_vanta_o0 = run_cmd(cmd_vanta_o0)
         assert ret == 0, f"Vanta -O0 failed ({bench}): {err}\n{out}"
         
         # 2. Compile Vanta -O1 (No TCO)
-        cmd_vanta_no_tco = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && ./target/release/vantac -O1 --no-tail-calls benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_tco"
+        cmd_vanta_no_tco = f"./target/release/vantac -O1 --no-tail-calls benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_tco"
         ret, out, err, compile_time_vanta_no_tco = run_cmd(cmd_vanta_no_tco)
         assert ret == 0, f"Vanta -O1 No-TCO failed ({bench}): {err}\n{out}"
         
         # 3. Compile Vanta -O1 (No Global DCE)
-        cmd_vanta_no_dce = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && ./target/release/vantac -O1 --no-global-dce benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_dce"
+        cmd_vanta_no_dce = f"./target/release/vantac -O1 --no-global-dce benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_dce"
         ret, out, err, compile_time_vanta_no_dce = run_cmd(cmd_vanta_no_dce)
         assert ret == 0, f"Vanta -O1 No-DCE failed ({bench}): {err}\n{out}"
         
         # 4. Compile Vanta -O1 (No Block Layout)
-        cmd_vanta_no_layout = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && ./target/release/vantac -O1 --no-block-layout benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_layout"
+        cmd_vanta_no_layout = f"./target/release/vantac -O1 --no-block-layout benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_no_layout"
         ret, out, err, compile_time_vanta_no_layout = run_cmd(cmd_vanta_no_layout)
         assert ret == 0, f"Vanta -O1 No-Layout failed ({bench}): {err}\n{out}"
         
         # 5. Compile Vanta -O1 (Full Opt)
-        cmd_vanta_o1 = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && ./target/release/vantac -O1 benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_o1"
+        cmd_vanta_o1 = f"./target/release/vantac -O1 benchmarks/{bench}/{bench}.va -o {BIN_DIR}/{bench}_vanta_o1"
         ret, out, err, compile_time_vanta_o1 = run_cmd(cmd_vanta_o1)
         assert ret == 0, f"Vanta -O1 failed ({bench}): {err}\n{out}"
         
         # 6. Compile Rust -O3
-        cmd_rust = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && rustc -O benchmarks/{bench}/{bench}.rs -o {BIN_DIR}/{bench}_rust"
+        cmd_rust = f"rustc -O benchmarks/{bench}/{bench}.rs -o {BIN_DIR}/{bench}_rust"
         ret, out, err, compile_time_rust = run_cmd(cmd_rust)
         assert ret == 0, f"Rust failed ({bench}): {err}\n{out}"
         
         # 7. Compile C -O3
-        cmd_c = f"cd /mnt/c/Users/mumer/OneDrive/Documents/Venta && gcc -O3 benchmarks/{bench}/{bench}.c -o {BIN_DIR}/{bench}_c"
+        cmd_c = f"gcc -O3 benchmarks/{bench}/{bench}.c -o {BIN_DIR}/{bench}_c"
         ret, out, err, compile_time_c = run_cmd(cmd_c)
         assert ret == 0, f"C failed ({bench}): {err}\n{out}"
         
@@ -122,32 +132,39 @@ def main():
         ]
         
         expected_output = None
+        target_sizes = {}
+        target_times = {name: [] for name, _, _ in targets}
         
-        for name, bin_path, c_time in targets:
-            # Measure binary size
+        # Warmup and establish validated expected output across all targets
+        for name, bin_path, _ in targets:
             _, size_str, _, _ = run_cmd(f"stat -c %s {bin_path}")
-            bin_size = int(size_str.strip())
+            target_sizes[name] = int(size_str.strip())
             
-            # Warmup run
             ret, out, err, _ = run_cmd(f"{bin_path}")
-            assert ret == 0, f"Run failed for {name} ({bench}): {err}"
+            assert ret == 0, f"Warmup failed for {name} ({bench}): {err}"
             out_trimmed = out.strip()
             
             if expected_output is None:
                 expected_output = out_trimmed
             else:
                 assert out_trimmed == expected_output, f"Output mismatch for {name} ({bench}): got '{out_trimmed}', expected '{expected_output}'"
-            
-            # Measured runs (5 trials)
-            times = []
-            for _ in range(5):
-                _, _, _, run_time = run_cmd(f"{bin_path}")
-                times.append(run_time)
-            
+        
+        # Interleaved benchmark execution for thermal/frequency parity
+        n_trials = args.trials
+        for trial in range(n_trials):
+            for name, bin_path, _ in targets:
+                ret, out, err, run_time = run_cmd(f"{bin_path}")
+                assert ret == 0, f"Trial {trial + 1} failed for {name} ({bench}): {err}"
+                assert out.strip() == expected_output, f"Trial {trial + 1} output mismatch for {name} ({bench})"
+                target_times[name].append(run_time)
+        
+        for name, bin_path, c_time in targets:
+            times = target_times[name]
             med_time = statistics.median(times)
             mad_time = statistics.median([abs(x - med_time) for x in times])
             min_time = min(times)
             max_time = max(times)
+            bin_size = target_sizes[name]
             
             results["benchmarks"][bench][name] = {
                 "median": med_time,
@@ -165,6 +182,7 @@ def main():
     print("\n\n=== MILESTONE 25 BENCHMARK RESULTS TABLE ===")
     print(f"System: {metadata['cpu']} | {metadata['kernel']}")
     print(f"Toolchains: Vanta {metadata['vantac']} | Rust {metadata['rustc']} | GCC {metadata['gcc']}")
+    print(f"Git Commit: {metadata['git_commit']} | Vantac SHA256: {metadata['vantac_sha256']}")
     print("| Benchmark | Metric | Vanta -O0 | Vanta -O1 (No TCO) | Vanta -O1 (No DCE) | Vanta -O1 (No Layout) | Vanta -O1 (Full Opt) | Rust -O3 | GCC -O3 | Full vs -O0 | Vanta/Rust Ratio |")
     print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for bench in selected_benchmarks:
@@ -201,6 +219,9 @@ def main():
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(f"\nSaved benchmark results to {out_json}")
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()

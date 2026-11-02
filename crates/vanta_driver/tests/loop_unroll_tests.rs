@@ -336,3 +336,179 @@ fn test_loop_unroll_differential_equivalence() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_loop_unroll_dynamic_bound_underflow_safety() {
+    let (mut mir, _sm) = compile_src_to_mir(
+        r#"
+        fn sum_to(n: i64) -> i64 {
+            let mut sum: i64 = 0;
+            let mut i: i64 = 0;
+            while i < n {
+                sum = sum + i;
+                i = i + 1;
+            }
+            return sum;
+        }
+        "#,
+    );
+    let mut diags = DiagnosticBag::new();
+    OptimizationPipeline::optimize_program_with_options(
+        &mut mir,
+        OptLevel::O1,
+        true,  // mem2reg
+        true,  // gvn
+        false, // inlining
+        false, // ipa
+        false, // licm
+        false, // indvar
+        false, // strength_reduction
+        false, // sroa
+        false, // loop_peel
+        true,  // loop_unroll
+        false, // instruction_schedule
+        &mut diags,
+    );
+    for func in &mir.functions {
+        println!("=== Function {} ===", func.name);
+        for b in &func.blocks {
+            println!("Block {:?} ({}) -> term {:?}", b.id, b.name, b.terminator);
+            for inst in &b.instructions {
+                println!("   {:?}", inst);
+            }
+        }
+    }
+    assert!(!diags.has_errors());
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("vanta_unroll_underflow_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let src_path = temp_dir.join("test_underflow.va");
+    let exe_no_unroll = temp_dir.join("test_no_unroll");
+    let exe_unroll = temp_dir.join("test_unroll");
+
+    let src = r#"
+    fn sum_to(n: i64) -> i64 {
+        let mut sum: i64 = 0;
+        let mut i: i64 = 0;
+        while i < n {
+            sum = sum + i;
+            i = i + 1;
+        }
+        return sum;
+    }
+
+    fn main() -> i64 {
+        // Test edge cases: negative, zero, 1, odd, even
+        print_i64(sum_to(-100));
+        print_str(" ");
+        print_i64(sum_to(0));
+        print_str(" ");
+        print_i64(sum_to(1));
+        print_str(" ");
+        print_i64(sum_to(2));
+        print_str(" ");
+        print_i64(sum_to(3));
+        print_str(" ");
+        print_i64(sum_to(7));
+        print_str(" ");
+        print_i64(sum_to(10));
+        print_str("\n");
+        return 0;
+    }
+    "#;
+    fs::write(&src_path, src).unwrap();
+
+    let opts_no_unroll = CompilerOptions {
+        input_file: src_path.clone(),
+        output_file: exe_no_unroll.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        enable_loop_unroll: false,
+        ..Default::default()
+    };
+    let mut session1 = CompilerSession::new();
+    assert!(session1.compile(&opts_no_unroll).is_ok());
+
+    let opts_unroll = CompilerOptions {
+        input_file: src_path.clone(),
+        output_file: exe_unroll.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        enable_loop_unroll: true,
+        ..Default::default()
+    };
+    let mut session2 = CompilerSession::new();
+    assert!(session2.compile(&opts_unroll).is_ok());
+
+    let out1 = Command::new(&exe_no_unroll).output().unwrap();
+    let out2 = Command::new(&exe_unroll).output().unwrap();
+    assert_eq!(
+        out1.stdout, out2.stdout,
+        "Unrolled dynamic loop must match non-unrolled output across negative, zero, and small bounds!"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out2.stdout).trim(),
+        "0 0 0 1 3 21 45"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_loop_unroll_bound_invariance_rejection() {
+    let temp_dir = std::env::temp_dir().join(format!("vanta_unroll_inv_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let src_path = temp_dir.join("test_inv.va");
+    let exe_unroll = temp_dir.join("test_inv_unroll");
+
+    // Here `bound` is mutated inside the loop body, so it is NOT loop-invariant!
+    let src = r#"
+    fn dynamic_mut_bound() -> i64 {
+        let mut bound: i64 = 10;
+        let mut i: i64 = 0;
+        let mut sum: i64 = 0;
+        while i < bound {
+            sum = sum + i;
+            if i == 4 {
+                bound = 6;
+            }
+            i = i + 1;
+        }
+        return sum;
+    }
+
+    fn main() -> i64 {
+        print_i64(dynamic_mut_bound());
+        print_str("\n");
+        return 0;
+    }
+    "#;
+    fs::write(&src_path, src).unwrap();
+
+    let opts = CompilerOptions {
+        input_file: src_path.clone(),
+        output_file: exe_unroll.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        enable_loop_unroll: true,
+        ..Default::default()
+    };
+    let mut session = CompilerSession::new();
+    assert!(session.compile(&opts).is_ok());
+
+    let out = Command::new(&exe_unroll).output().unwrap();
+    assert!(out.status.success());
+    // 0 + 1 + 2 + 3 + 4 + 5 = 15
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "15");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
