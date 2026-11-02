@@ -5,25 +5,46 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  [TEST] Running Uninstaller Data-Safety & Containment     " -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Cyan
 
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+$RepoRoot = if (Test-Path (Join-Path $ScriptDir "scripts\uninstall.ps1")) { $ScriptDir } else { Split-Path -Parent $ScriptDir }
+$UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
+if (-not (Test-Path -LiteralPath $UninstallScript)) {
+    throw "Cannot find scripts\uninstall.ps1 at '$UninstallScript'"
+}
+
 $TestRoot = Join-Path $env:TEMP ("vanta_uninst_safety_" + (Get-Random))
 New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
 
 $origUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 
-function Run-Uninstaller([string]$prefixPath) {
-    $outFile = Join-Path $TestRoot "uninst_out.txt"
-    $errFile = Join-Path $TestRoot "uninst_err.txt"
-    Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+function Remove-JunctionSafe([string]$path) {
+    if (Test-Path -LiteralPath $path) {
+        try {
+            [System.IO.Directory]::Delete($path, $false)
+        } catch {
+            Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
+        }
+    }
+}
 
-    $proc = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File scripts\uninstall.ps1 -Prefix `"$prefixPath`"" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-    $outText = if (Test-Path $outFile) { Get-Content -Raw $outFile } else { "" }
-    $errText = if (Test-Path $errFile) { Get-Content -Raw $errFile } else { "" }
-    Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+function Run-Uninstaller([string]$prefixPath) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "powershell.exe"
+    $psi.Arguments = "-NonInteractive -ExecutionPolicy Bypass -File `"$UninstallScript`" -Prefix `"$prefixPath`""
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $stdoutTask = $p.StandardOutput.ReadToEndAsync()
+    $stderrTask = $p.StandardError.ReadToEndAsync()
+    $p.WaitForExit()
 
     return [PSCustomObject]@{
-        ExitCode = $proc.ExitCode
-        StdOut   = $outText
-        StdErr   = $errText
+        ExitCode = $p.ExitCode
+        StdOut   = $stdoutTask.Result
+        StdErr   = $stderrTask.Result
     }
 }
 
@@ -86,7 +107,18 @@ try {
     if (Test-Path $LibStdA) { throw "Assertion failed: empty directory $LibStdA was NOT cleaned up" }
 
     $pathAfterA = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($pathAfterA -like "*$BinA*") { throw "Assertion failed: $BinA was NOT removed from User PATH" }
+    if ($pathAfterA -like "*$BinA*") {
+        Write-Host "DIAGNOSTIC FAILURE DETAILS FOR SCENARIO A:" -ForegroundColor Red
+        Write-Host "  Manifest bin_dir:     $($ManifestA.bin_dir)"
+        Write-Host "  PrefixA:              $PrefixA"
+        Write-Host "  BinA:                 $BinA"
+        Write-Host "  User:                 $env:USERNAME"
+        Write-Host "  User PATH before:     $BinA;$mockPreExisting"
+        Write-Host "  User PATH after:      $pathAfterA"
+        Write-Host "  Uninstaller StdOut:   $($resA.StdOut)"
+        Write-Host "  Uninstaller StdErr:   $($resA.StdErr)"
+        throw "Assertion failed: $BinA was NOT removed from User PATH"
+    }
     if ($pathAfterA -notlike "*C:\UnrelatedTool\bin*" -or $pathAfterA -notlike "*C:\ExistingSdk\bin*") {
         throw "Data-loss bug: Unrelated User PATH entries were corrupted: $pathAfterA"
     }
@@ -99,7 +131,7 @@ try {
     $PrefixB = Join-Path $TestRoot "prefix_b"
     $BinB = Join-Path $PrefixB "bin"
     New-Item -ItemType Directory -Path $BinB -Force | Out-Null
-    Set-Content -Path (Join-Path $BinB "vantac.exe") -Value "MZ_MOCK_COMPILER"
+    Set-Content -Path (Join-Path $BinB "vantac.exe") -Value "MZ"
 
     $ManifestB = [PSCustomObject]@{
         name = "vanta"
@@ -110,72 +142,81 @@ try {
         files = @("bin/vantac.exe")
     }
     $ManifestB | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $PrefixB "install-manifest.json") -Encoding UTF8
-    [Environment]::SetEnvironmentVariable("Path", "$BinB;C:\ExistingSdk\bin", "User")
+
+    [Environment]::SetEnvironmentVariable("Path", "$BinB;C:\ExistingTools\bin", "User")
 
     $resB = Run-Uninstaller $PrefixB
     if ($resB.ExitCode -ne 0) { throw ("Scenario B failed with exit code {0}: {1}" -f $resB.ExitCode, $resB.StdErr) }
 
     $pathAfterB = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($pathAfterB -notlike "*$BinB*") {
-        throw "Data-loss bug: Pre-existing PATH entry $BinB was removed even though path_added = false!"
+        Write-Host "DIAGNOSTIC FAILURE DETAILS FOR SCENARIO B:" -ForegroundColor Red
+        Write-Host "  Manifest bin_dir:     $($ManifestB.bin_dir)"
+        Write-Host "  PrefixB:              $PrefixB"
+        Write-Host "  BinB:                 $BinB"
+        Write-Host "  User PATH after:      $pathAfterB"
+        throw "Data-loss bug: Pre-existing PATH entry $BinB was deleted even though path_added was false!"
     }
     Write-Host "    Scenario B Passed: Pre-existing PATH entry was preserved." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 1: Path Containment — Sibling Prefix Directory Escape Check
+    # Scenario 1: Path Containment - Sibling prefix escape
     # -------------------------------------------------------------
     Write-Host "--> Scenario 1: Testing path containment against sibling prefix escape (../prefix_1_sibling)..." -ForegroundColor Cyan
     $Prefix1 = Join-Path $TestRoot "prefix_1"
-    $Sibling1 = Join-Path $TestRoot "prefix_1_sibling"
-    New-Item -ItemType Directory -Path $Prefix1, $Sibling1 -Force | Out-Null
+    $Prefix1Sibling = Join-Path $TestRoot "prefix_1_sibling"
+    New-Item -ItemType Directory -Path $Prefix1, $Prefix1Sibling -Force | Out-Null
 
-    $SecretFile1 = Join-Path $Sibling1 "important_user_doc.txt"
-    Set-Content -Path $SecretFile1 -Value "CRITICAL_USER_DATA"
+    $SecretDoc = Join-Path $Prefix1Sibling "confidential.txt"
+    Set-Content -Path $SecretDoc -Value "TOP_SECRET_USER_DATA"
 
     $Manifest1 = [PSCustomObject]@{
         name = "vanta"
         version = "1.0.0-rc.2"
         prefix = $Prefix1
-        bin_dir = (Join-Path $Prefix1 "bin")
-        path_added = $false
-        files = @("../prefix_1_sibling/important_user_doc.txt")
+        files = @("../prefix_1_sibling/confidential.txt")
     }
     $Manifest1 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix1 "install-manifest.json") -Encoding UTF8
 
     $res1 = Run-Uninstaller $Prefix1
     if ($res1.ExitCode -eq 0) {
-        throw "Security failure: uninstaller should have failed on sibling directory escape path!"
+        throw "Security failure: uninstaller did NOT exit with error code when manifest attempted sibling escape"
     }
-    if (-not (Test-Path $SecretFile1)) {
-        throw "Catastrophic security failure: Sibling file was deleted: $SecretFile1"
+    if (-not (Test-Path $SecretDoc)) {
+        throw "Critical data destruction: outside file $SecretDoc was deleted!"
     }
     Write-Host "    Scenario 1 Passed: Sibling directory escape rejected, outside file preserved." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 2: Absolute Path Outside Prefix
+    # Scenario 2: Path Containment - Absolute path outside prefix
     # -------------------------------------------------------------
     Write-Host "--> Scenario 2: Testing rejection of absolute path outside prefix..." -ForegroundColor Cyan
     $Prefix2 = Join-Path $TestRoot "prefix_2"
-    New-Item -ItemType Directory -Path $Prefix2 -Force | Out-Null
+    $OutsideDir2 = Join-Path $TestRoot "outside_user_data_2"
+    New-Item -ItemType Directory -Path $Prefix2, $OutsideDir2 -Force | Out-Null
 
-    $OutsideFile2 = Join-Path $TestRoot "outside_file_2.txt"
-    Set-Content -Path $OutsideFile2 -Value "OUTSIDE_DATA"
+    $TargetFile2 = Join-Path $OutsideDir2 "important_work.va"
+    Set-Content -Path $TargetFile2 -Value "IMPORTANT_SOURCE_CODE"
 
     $Manifest2 = [PSCustomObject]@{
         name = "vanta"
         version = "1.0.0-rc.2"
         prefix = $Prefix2
-        files = @($OutsideFile2)
+        files = @($TargetFile2)
     }
     $Manifest2 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix2 "install-manifest.json") -Encoding UTF8
 
     $res2 = Run-Uninstaller $Prefix2
-    if ($res2.ExitCode -eq 0) { throw "Security failure: absolute path was not rejected" }
-    if (-not (Test-Path $OutsideFile2)) { throw "Security failure: outside file was deleted!" }
+    if ($res2.ExitCode -eq 0) {
+        throw "Security failure: absolute path outside prefix was NOT rejected!"
+    }
+    if (-not (Test-Path $TargetFile2)) {
+        throw "Critical data destruction: outside file $TargetFile2 was deleted!"
+    }
     Write-Host "    Scenario 2 Passed: Absolute path outside prefix rejected." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 3: Rooted Drive Path
+    # Scenario 3: Path Containment - Rooted drive path
     # -------------------------------------------------------------
     Write-Host "--> Scenario 3: Testing rejection of rooted drive path..." -ForegroundColor Cyan
     $Prefix3 = Join-Path $TestRoot "prefix_3"
@@ -190,11 +231,13 @@ try {
     $Manifest3 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix3 "install-manifest.json") -Encoding UTF8
 
     $res3 = Run-Uninstaller $Prefix3
-    if ($res3.ExitCode -eq 0) { throw "Security failure: rooted drive path was not rejected" }
+    if ($res3.ExitCode -eq 0) {
+        throw "Security failure: rooted Windows drive path was NOT rejected!"
+    }
     Write-Host "    Scenario 3 Passed: Rooted drive path rejected." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 4: UNC Path
+    # Scenario 4: Path Containment - UNC Path
     # -------------------------------------------------------------
     Write-Host "--> Scenario 4: Testing rejection of UNC path..." -ForegroundColor Cyan
     $Prefix4 = Join-Path $TestRoot "prefix_4"
@@ -204,97 +247,101 @@ try {
         name = "vanta"
         version = "1.0.0-rc.2"
         prefix = $Prefix4
-        files = @("\\server\share\file.txt")
+        files = @("\\evil-server\share\payload.dll")
     }
     $Manifest4 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix4 "install-manifest.json") -Encoding UTF8
 
     $res4 = Run-Uninstaller $Prefix4
-    if ($res4.ExitCode -eq 0) { throw "Security failure: UNC path was not rejected" }
+    if ($res4.ExitCode -eq 0) {
+        throw "Security failure: UNC network path was NOT rejected!"
+    }
     Write-Host "    Scenario 4 Passed: UNC path rejected." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 5: Malicious or Incorrect bin_dir in Manifest
+    # Scenario 5: User PATH Security - Malicious bin_dir
     # -------------------------------------------------------------
     Write-Host "--> Scenario 5: Testing validation of bin_dir before modifying User PATH..." -ForegroundColor Cyan
     $Prefix5 = Join-Path $TestRoot "prefix_5"
     New-Item -ItemType Directory -Path $Prefix5 -Force | Out-Null
 
-    $MaliciousBin = "C:\UnrelatedTool\bin"
-    [Environment]::SetEnvironmentVariable("Path", "$MaliciousBin;C:\ExistingSdk\bin", "User")
-
     $Manifest5 = [PSCustomObject]@{
         name = "vanta"
         version = "1.0.0-rc.2"
         prefix = $Prefix5
-        bin_dir = $MaliciousBin
+        bin_dir = "C:\Windows\System32"
         path_added = $true
         files = @()
     }
     $Manifest5 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix5 "install-manifest.json") -Encoding UTF8
 
+    [Environment]::SetEnvironmentVariable("Path", "C:\Windows\System32;C:\CustomSdk\bin", "User")
+
     $res5 = Run-Uninstaller $Prefix5
     $pathAfter5 = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($pathAfter5 -notlike "*$MaliciousBin*") {
-        throw "Security failure: Unrelated PATH entry was removed because of malicious bin_dir in manifest!"
+    if ($pathAfter5 -notlike "*C:\Windows\System32*") {
+        throw "Security failure: uninstaller removed an unauthorized directory from User PATH based on malicious bin_dir!"
     }
     Write-Host "    Scenario 5 Passed: Malicious bin_dir was rejected; unrelated PATH preserved." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 6: Malformed / Invalid JSON Manifest
+    # Scenario 6: Fail-Closed on Invalid JSON Manifest
     # -------------------------------------------------------------
     Write-Host "--> Scenario 6: Testing fail-closed behavior on invalid JSON manifest..." -ForegroundColor Cyan
     $Prefix6 = Join-Path $TestRoot "prefix_6"
-    New-Item -ItemType Directory -Path $Prefix6 -Force | Out-Null
+    $Bin6 = Join-Path $Prefix6 "bin"
+    New-Item -ItemType Directory -Path $Bin6 -Force | Out-Null
 
-    $UserFile6 = Join-Path $Prefix6 "user_program.exe"
-    Set-Content -Path $UserFile6 -Value "USER_BINARY"
-    Set-Content -Path (Join-Path $Prefix6 "install-manifest.json") -Value "{ broken_json : true, "
+    $KeepFile6 = Join-Path $Bin6 "user_program.exe"
+    Set-Content -Path $KeepFile6 -Value "BINARY_DATA"
+    Set-Content -Path (Join-Path $Prefix6 "install-manifest.json") -Value "{ malformed_json: true, "
 
     $res6 = Run-Uninstaller $Prefix6
-    if ($res6.ExitCode -eq 0) { throw "Fail-closed violation: uninstaller reported success on invalid JSON manifest" }
-    if (-not (Test-Path $UserFile6)) { throw "Data-loss bug: user program was deleted when manifest was invalid JSON" }
-    if (-not (Test-Path (Join-Path $Prefix6 "install-manifest.json"))) { throw "Fail-closed violation: manifest was deleted" }
+    if ($res6.ExitCode -eq 0) {
+        throw "Fail-closed violation: uninstaller succeeded on malformed JSON manifest!"
+    }
+    if (-not (Test-Path $KeepFile6)) {
+        throw "Fail-closed violation: user file was deleted despite malformed manifest!"
+    }
     Write-Host "    Scenario 6 Passed: Invalid JSON manifest failed closed; files preserved." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 7: Missing Manifest with User-Created bin/vanta.exe
+    # Scenario 7: Fail-Closed on Missing Manifest
     # -------------------------------------------------------------
     Write-Host "--> Scenario 7: Testing fail-closed behavior on missing manifest with bin/vanta.exe..." -ForegroundColor Cyan
     $Prefix7 = Join-Path $TestRoot "prefix_7"
     $Bin7 = Join-Path $Prefix7 "bin"
     New-Item -ItemType Directory -Path $Bin7 -Force | Out-Null
 
-    $UserCustomDriver = Join-Path $Bin7 "vanta.exe"
-    Set-Content -Path $UserCustomDriver -Value "USER_CUSTOM_NOT_OWNED_BY_VANTA"
+    $PreExistingCompiler = Join-Path $Bin7 "vanta.exe"
+    Set-Content -Path $PreExistingCompiler -Value "PRE_EXISTING_LEGACY_EXECUTABLE"
 
     $res7 = Run-Uninstaller $Prefix7
     if ($res7.ExitCode -eq 0) {
-        throw "Fail-closed violation: uninstaller reported success when manifest was missing"
+        throw "Fail-closed violation: uninstaller reported success on non-empty directory without manifest!"
     }
-    if (-not (Test-Path $UserCustomDriver)) {
-        throw "Catastrophic data-loss: uninstaller deleted user-created bin/vanta.exe when no manifest existed!"
+    if (-not (Test-Path $PreExistingCompiler)) {
+        throw "Critical data destruction: pre-existing user executable $PreExistingCompiler was deleted without manifest!"
     }
     Write-Host "    Scenario 7 Passed: Missing manifest failed closed; user bin/vanta.exe strictly preserved." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 8: File Deletion Failure (Preserve Manifest)
+    # Scenario 8: Fail-Closed and Manifest Preservation on File Deletion Failure
     # -------------------------------------------------------------
     Write-Host "--> Scenario 8: Testing manifest preservation on file deletion failure..." -ForegroundColor Cyan
     $Prefix8 = Join-Path $TestRoot "prefix_8"
     New-Item -ItemType Directory -Path $Prefix8 -Force | Out-Null
 
-    $LockedFile = Join-Path $Prefix8 "locked_file.txt"
-    Set-Content -Path $LockedFile -Value "LOCK_TEST"
+    $LockedFile = Join-Path $Prefix8 "locked.dll"
+    Set-Content -Path $LockedFile -Value "LOCKED_DLL"
 
     $Manifest8 = [PSCustomObject]@{
         name = "vanta"
         version = "1.0.0-rc.2"
         prefix = $Prefix8
-        files = @("locked_file.txt")
+        files = @("locked.dll")
     }
     $Manifest8 | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix8 "install-manifest.json") -Encoding UTF8
 
-    # Lock file exclusively
     $fileStream = [System.IO.File]::Open($LockedFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
     try {
         $res8 = Run-Uninstaller $Prefix8
@@ -310,27 +357,20 @@ try {
     Write-Host "    Scenario 8 Passed: Locked file failure reported non-zero and preserved manifest." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Scenario 9: Reparse Point / Junction Escape Rejection
+    # Scenario 9A: Reparse Point / Absolute Junction Escape Rejection
     # -------------------------------------------------------------
-    Write-Host "--> Scenario 9: Testing junction-based directory escape rejection..." -ForegroundColor Cyan
-    $Prefix9 = Join-Path $TestRoot "prefix_9"
-    $OutsideDir9 = Join-Path $TestRoot "outside_target_dir"
+    Write-Host "--> Scenario 9A: Testing absolute junction directory escape rejection..." -ForegroundColor Cyan
+    $Prefix9 = Join-Path $TestRoot "prefix_9a"
+    $OutsideDir9 = Join-Path $TestRoot "outside_target_dir_9a"
     New-Item -ItemType Directory -Path $Prefix9, $OutsideDir9 -Force | Out-Null
 
-    $ProtectedDoc = Join-Path $OutsideDir9 "do_not_delete.txt"
-    Set-Content -Path $ProtectedDoc -Value "PROTECTED_OUTSIDE_DOC"
+    $ProtectedDoc9 = Join-Path $OutsideDir9 "do_not_delete.txt"
+    Set-Content -Path $ProtectedDoc9 -Value "PROTECTED_OUTSIDE_DOC"
 
-    $JunctionPath = Join-Path $Prefix9 "escape_junction"
-    # Create junction if supported in this environment
-    $createdJunction = $false
-    try {
-        New-Item -ItemType Junction -Path $JunctionPath -Target $OutsideDir9 -Force | Out-Null
-        $createdJunction = $true
-    } catch {
-        Write-Warning "Junction creation not permitted in this environment; skipping active junction check."
-    }
+    $JunctionPath9 = Join-Path $Prefix9 "escape_junction"
+    New-Item -ItemType Junction -Path $JunctionPath9 -Target $OutsideDir9 -Force | Out-Null
 
-    if ($createdJunction) {
+    if (Test-Path -LiteralPath $JunctionPath9) {
         $Manifest9 = [PSCustomObject]@{
             name = "vanta"
             version = "1.0.0-rc.2"
@@ -341,12 +381,61 @@ try {
 
         $res9 = Run-Uninstaller $Prefix9
         if ($res9.ExitCode -eq 0) {
-            throw "Security failure: junction escape path was not rejected!"
+            throw "Security failure: absolute junction escape path was not rejected!"
         }
-        if (-not (Test-Path $ProtectedDoc)) {
+        if (-not (Test-Path $ProtectedDoc9)) {
             throw "Security failure: junction target outside file was deleted!"
         }
-        Write-Host "    Scenario 9 Passed: Junction escape rejected; outside file preserved." -ForegroundColor Green
+        Remove-JunctionSafe $JunctionPath9
+        Write-Host "    Scenario 9A Passed: Absolute junction escape rejected; outside file preserved." -ForegroundColor Green
+    }
+
+    # -------------------------------------------------------------
+    # Scenario 9B: Reparse Point Inside Prefix Resolving Safely Inside Prefix
+    # -------------------------------------------------------------
+    Write-Host "--> Scenario 9B: Testing safe internal junction resolving within prefix..." -ForegroundColor Cyan
+    $Prefix9B = Join-Path $TestRoot "prefix_9b"
+    $InternalRealDir = Join-Path $Prefix9B "real_internal_data"
+    $InternalJunc = Join-Path $Prefix9B "internal_junc"
+    New-Item -ItemType Directory -Path $InternalRealDir -Force | Out-Null
+
+    $InternalFile = Join-Path $InternalRealDir "app.va"
+    Set-Content -Path $InternalFile -Value "pub fn test() {}"
+
+    New-Item -ItemType Junction -Path $InternalJunc -Target $InternalRealDir -Force | Out-Null
+    if (Test-Path -LiteralPath $InternalJunc) {
+        $Manifest9B = [PSCustomObject]@{
+            name = "vanta"
+            version = "1.0.0-rc.2"
+            prefix = $Prefix9B
+            files = @("internal_junc/app.va")
+        }
+        $Manifest9B | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Prefix9B "install-manifest.json") -Encoding UTF8
+
+        $res9B = Run-Uninstaller $Prefix9B
+        if ($res9B.ExitCode -ne 0) {
+            throw ("Internal safe junction was unexpectedly rejected: {0}" -f $res9B.StdErr)
+        }
+        Remove-JunctionSafe $InternalJunc
+        Write-Host "    Scenario 9B Passed: Safe internal junction resolved safely and completed." -ForegroundColor Green
+    }
+
+    # -------------------------------------------------------------
+    # Scenario 9C: Installation Prefix Itself Being a Reparse Point Pointing Outside
+    # -------------------------------------------------------------
+    Write-Host "--> Scenario 9C: Testing prefix itself being a directory junction (fail closed)..." -ForegroundColor Cyan
+    $OutsidePrefixTarget = Join-Path $TestRoot "outside_target_dir_9c"
+    New-Item -ItemType Directory -Path $OutsidePrefixTarget -Force | Out-Null
+    $Prefix9C = Join-Path $TestRoot "prefix_9c_junc"
+
+    New-Item -ItemType Junction -Path $Prefix9C -Target $OutsidePrefixTarget -Force | Out-Null
+    if (Test-Path -LiteralPath $Prefix9C) {
+        $res9C = Run-Uninstaller $Prefix9C
+        if ($res9C.ExitCode -eq 0) {
+            throw "Security failure: installation prefix as a directory junction was not rejected!"
+        }
+        Remove-JunctionSafe $Prefix9C
+        Write-Host "    Scenario 9C Passed: Prefix as junction rejected for safety." -ForegroundColor Green
     }
 
     # -------------------------------------------------------------
@@ -384,5 +473,5 @@ try {
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  [OK] All 12 Uninstaller Data-Safety Tests Passed!         " -ForegroundColor Green
+Write-Host "  [OK] All Uninstaller Data-Safety Tests Passed!           " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green

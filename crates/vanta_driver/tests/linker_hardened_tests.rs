@@ -8,6 +8,7 @@
 //! - Static ELF64 layout, non-executable stack (PT_GNU_STACK), and zero dynamic dependencies.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;

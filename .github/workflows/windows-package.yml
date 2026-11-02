@@ -30,39 +30,45 @@ jobs:
           components: rustfmt
 
       - name: Check Code Formatting
+        id: fmt
         run: cargo fmt --check
         shell: bash
 
       - name: Build Release Binaries (vantac, vanta)
+        id: build
         run: cargo build --release --bin vantac --bin vanta
         shell: bash
 
-      - name: Run Windows Target & Backend Integration Tests
+      - name: Run Windows Target, Linker & Workspace Tests
+        id: test
         run: |
-          cargo test -p vanta_target --verbose
-          cargo test -p vanta_linker --verbose
+          cargo test -p vanta_target -p vanta_linker -p vanta_sema -p vanta_parser -p vanta_lexer -p vanta_mir -p vanta_codegen_x86_64 -p vanta_codegen_aarch64 -p vanta_build -p vanta_diagnostics -p vanta_source -p vanta_fmt -p ventanext_codegen --verbose
           cargo test -p vanta_driver --test linker_e2e_tests --verbose
         shell: bash
 
       - name: Package Windows Distribution (ZIP + SHA-256 + Manifest)
+        id: package
         run: |
-          powershell -ExecutionPolicy Bypass -File scripts/package_release_windows.ps1 -Tag v1.0-RC2 -Target x86_64-pc-windows-msvc
-        shell: cmd
+          pwsh -ExecutionPolicy Bypass -File scripts/package_release_windows.ps1 -Tag v1.0-RC2 -Target x86_64-pc-windows-msvc
+        shell: pwsh
 
       - name: Run Uninstaller Data-Safety & Containment Tests
+        id: uninstaller-test
         run: |
-          powershell -ExecutionPolicy Bypass -File tests/test_uninstaller_safety.ps1
-        shell: cmd
+          pwsh -ExecutionPolicy Bypass -File tests/test_uninstaller_safety.ps1
+        shell: pwsh
 
       - name: Run Installer Verification Tests
+        id: installer-test
         run: |
-          powershell -ExecutionPolicy Bypass -File tests/test_installer_verification.ps1
-        shell: cmd
+          pwsh -ExecutionPolicy Bypass -File tests/test_installer_verification.ps1
+        shell: pwsh
 
       - name: Run Isolated Windows Package Release Gate Tests
+        id: isolated-test
         run: |
-          powershell -ExecutionPolicy Bypass -File tests/test_isolated_windows_package.ps1
-        shell: cmd
+          pwsh -ExecutionPolicy Bypass -File tests/test_isolated_windows_package.ps1
+        shell: pwsh
 
       - name: Upload Windows Distribution Artifact
         id: upload-artifact
@@ -77,21 +83,39 @@ jobs:
 
       - name: Generate Authoritative Release Artifact Summary
         if: always()
+        shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -Command @"
-            `$zipPath = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip"
-            `$sha256Path = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256"
-            `$manifestPath = "dist/release-manifest.json"
+          $zipPath = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip"
+          $sha256Path = "dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256"
+          $manifestPath = "dist/release-manifest.json"
 
-            `$zipSize = if (Test-Path `$zipPath) { (Get-Item `$zipPath).Length } else { 0 }
-            `$zipHash = if (Test-Path `$zipPath) { (Get-FileHash -Path `$zipPath -Algorithm SHA256).Hash.ToLower() } else { "N/A" }
-            `$sidecarContent = if (Test-Path `$sha256Path) { (Get-Content -Path `$sha256Path -Raw).Trim() } else { "N/A" }
-            `$manifestSize = if (Test-Path `$manifestPath) { (Get-Item `$manifestPath).Length } else { 0 }
-            `$manifestObj = if (Test-Path `$manifestPath) { Get-Content -Raw `$manifestPath | ConvertFrom-Json } else { `$null }
-            `$payloadCount = if (`$manifestObj -and `$manifestObj.files) { `$manifestObj.files.Count } else { 0 }
+          $zipSize = if (Test-Path $zipPath) { (Get-Item $zipPath).Length.ToString() + " bytes" } else { "N/A" }
+          $zipHash = if (Test-Path $zipPath) { (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower() } else { "N/A" }
+          $sidecarName = if (Test-Path $sha256Path) { [System.IO.Path]::GetFileName($sha256Path) } else { "N/A" }
+          $sidecarContent = if (Test-Path $sha256Path) { (Get-Content -Path $sha256Path -Raw).Trim() } else { "N/A" }
+          $manifestSize = if (Test-Path $manifestPath) { (Get-Item $manifestPath).Length.ToString() + " bytes" } else { "N/A" }
+          $manifestObj = if (Test-Path $manifestPath) { try { Get-Content -Raw $manifestPath | ConvertFrom-Json } catch { $null } } else { $null }
+          $payloadCount = if ($manifestObj -and $manifestObj.files) { $manifestObj.files.Count.ToString() } else { "N/A" }
 
-            `$summary = @"
-          ## Vanta Windows x86-64 Release Verification Summary (Milestone 27C)
+          $artifactId = "${{ steps.upload-artifact.outputs.artifact-id }}"
+          if ([string]::IsNullOrWhiteSpace($artifactId)) { $artifactId = "N/A (artifact not uploaded)" }
+          $artifactUrl = "${{ steps.upload-artifact.outputs.artifact-url }}"
+          if ([string]::IsNullOrWhiteSpace($artifactUrl)) { $artifactUrl = "N/A (artifact not uploaded)" }
+
+          $isSuccess = (
+            "${{ steps.fmt.outcome }}" -eq "success" -and
+            "${{ steps.build.outcome }}" -eq "success" -and
+            "${{ steps.test.outcome }}" -eq "success" -and
+            "${{ steps.package.outcome }}" -eq "success" -and
+            "${{ steps.uninstaller-test.outcome }}" -eq "success" -and
+            "${{ steps.installer-test.outcome }}" -eq "success" -and
+            "${{ steps.isolated-test.outcome }}" -eq "success" -and
+            "${{ steps.upload-artifact.outcome }}" -eq "success"
+          )
+          $gateStatus = if ($isSuccess) { "**SUCCESS (All Verification Gates Passed)**" } else { "**FAILED (One or More Gates Failed)**" }
+
+          $summary = @"
+          # ⚡ Vanta Windows x86-64 Release Verification Summary (Milestone 27D)
 
           > [!NOTE]
           > This distribution package is a verified GitHub Actions CI workflow artifact. It is not currently published as a public GitHub Release.
@@ -101,19 +125,18 @@ jobs:
           | **Commit SHA** | `${{ github.sha }}` |
           | **Branch** | `${{ github.ref_name }}` |
           | **Workflow Run ID** | `${{ github.run_id }}` (Run #${{ github.run_number }}) |
+          | **Release Gate Status** | $gateStatus |
           | **Package Filename** | `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip` |
-          | **Package Byte Size** | `$zipSize bytes` |
-          | **Package SHA-256** | ``$zipHash`` |
-          | **Sidecar Filename** | `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256` |
-          | **Sidecar Contents** | ``$sidecarContent`` |
-          | **Manifest Byte Size** | `$manifestSize bytes` |
-          | **Tracked Payload Files**| `$payloadCount` |
+          | **Package Byte Size** | $zipSize |
+          | **Package SHA-256** | `$zipHash` |
+          | **Sidecar Filename** | `$sidecarName` |
+          | **Sidecar Contents** | `$sidecarContent` |
+          | **Manifest Byte Size** | $manifestSize |
+          | **Tracked Payload Files** | $payloadCount |
           | **Artifact Name** | `vanta-windows-x86_64-v1.0-RC2` |
-          | **Artifact ID** | `${{ steps.upload-artifact.outputs.artifact-id }}` |
-          | **Artifact URL** | `${{ steps.upload-artifact.outputs.artifact-url }}` |
+          | **Artifact ID** | $artifactId |
+          | **Artifact URL** | $artifactUrl |
           "@
 
-            `$summary | Out-File -FilePath `$env:GITHUB_STEP_SUMMARY -Append -Encoding UTF8
-            Write-Host `$summary
-          "@
-        shell: cmd
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary -Encoding utf8
+          Write-Host $summary
