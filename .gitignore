@@ -20,3 +20,4 @@ tools/self_host/tests/*_bin
 ventanext/app
 out/
 
+*.vsix
