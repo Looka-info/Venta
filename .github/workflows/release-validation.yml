@@ -61,6 +61,9 @@ jobs:
         run: |
           python3 scripts/verify_version_consistency.py --github-env --github-output
 
+      - name: Build Release Package Archive
+        run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}"
+
       - name: Run Full Workspace Tests
         run: cargo test --workspace --verbose
 
@@ -70,9 +73,6 @@ jobs:
           cargo test --test differential_tests
           cargo test --test fuzz_tests
           cargo test --test version_gate_tests
-
-      - name: Build Release Package Archive
-        run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}"
 
       - name: Run Clean-Prefix Packaging Tests
         run: cargo test --test packaging_tests

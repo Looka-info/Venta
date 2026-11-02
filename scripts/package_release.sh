@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 VERSION="${1:-1.0-RC2}"
+VERSION="${VERSION#v}"
 TARGET="x86_64-unknown-linux-gnu"
 PKG_NAME="vanta-v${VERSION}-${TARGET}"
 DIST_DIR="${REPO_ROOT}/dist"

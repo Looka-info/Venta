@@ -57,8 +57,10 @@ jobs:
         run: mkdir -p dist
 
       - name: Compile and Evaluate Venta Site
+        env:
+          VANTA_LINKER: system
         run: |
-          node packages/vanta-lang/bin/vanta.js run www/export.va
+          ./target/release/vanta run www/export.va --linker=system
 
       - name: Copy Static Favicons and Media
         run: |

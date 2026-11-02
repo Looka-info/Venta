@@ -17,7 +17,7 @@ function getCandidates() {
   const isWin = process.platform === 'win32';
   const exts = isWin ? ['.exe', ''] : [''];
 
-  const names = ['venta', 'vanta'];
+  const names = ['vanta'];
   const candidates = [];
 
   for (const name of names) {
