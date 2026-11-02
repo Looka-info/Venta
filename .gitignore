@@ -5,7 +5,8 @@ Cargo.lock
 *.out
 *.bin
 *.log
-dist/
+/dist/
+packages/*/dist/
 *.a
 .DS_Store
 Thumbs.db

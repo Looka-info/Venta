@@ -22,6 +22,31 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc build-essential
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Venta Compiler & Toolchain
+        run: |
+          cargo build -p vanta_driver --release
+          mkdir -p packages/vanta-lang/dist/bin packages/vanta-lang/dist/lib/vanta
+          cp target/release/vanta packages/vanta-lang/dist/bin/vanta
+          cp target/release/vantac packages/vanta-lang/dist/bin/vantac
+          cp target/release/venta packages/vanta-lang/dist/bin/venta
+          cp target/release/ventac packages/vanta-lang/dist/bin/ventac
+          cp -r library/std packages/vanta-lang/dist/lib/vanta/std
+          cp runtime/libvanta_rt.a packages/vanta-lang/dist/lib/vanta/libvanta_rt.a
+          chmod +x packages/vanta-lang/dist/bin/*
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -32,7 +57,6 @@ jobs:
 
       - name: Compile and Evaluate Venta Site
         run: |
-          chmod +x packages/vanta-lang/dist/bin/vanta packages/vanta-lang/dist/bin/vantac packages/vanta-lang/dist/bin/venta packages/vanta-lang/dist/bin/ventac
           node packages/vanta-lang/bin/vanta.js run www/export.va
 
       - name: Copy Static Favicons and Media
