@@ -97,30 +97,78 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu
 ./install.sh --prefix ~/.local
 ```
 
-### Windows x86-64:
+### Windows x86-64 Native Package (`x86_64-pc-windows-msvc`):
+
+#### 1. Distribution Package Layout
+The official Windows release ZIP (`vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip`) contains a fully self-contained toolchain requiring no external compiler, SDK, or C runtime:
+```text
+vanta-v1.0-RC2-x86_64-pc-windows-msvc/
+├── bin/
+│   ├── vantac.exe          # Native Vanta reference compiler (PE32+ AMD64)
+│   └── vanta.exe           # Native unified CLI driver (PE32+ AMD64)
+├── lib/
+│   └── vanta/
+│       └── std/            # Full Vanta standard library modules
+├── install.ps1             # Hardened idempotent Windows installer
+├── uninstall.ps1           # Safe idempotent Windows uninstaller
+├── release-manifest.json   # Cryptographic SHA-256 and byte-size file inventory
+├── LICENSE                 # Dual-licensing pointer (MIT or Apache-2.0)
+├── LICENSE-MIT             # MIT License text
+├── LICENSE-APACHE          # Apache License 2.0 text
+├── README.md               # Quick-start documentation
+├── docs/                   # Full offline architecture & language manuals
+└── examples/               # Standalone runnable Vanta example programs
+```
+
+#### 2. Cryptographic Integrity Verification
+Each release archive is accompanied by an independent SHA-256 sidecar file (`.zip.sha256`) and an internal `release-manifest.json` inventory recording the exact SHA-256 hash and byte size of every individual file:
+
+```powershell
+# Verify archive integrity using SHA-256 sidecar
+$archiveHash = (Get-FileHash -Path "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -Algorithm SHA256).Hash
+$expectedHash = (Get-Content -Path "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256" -Raw).Split()[0]
+
+if ($archiveHash -eq $expectedHash) {
+    Write-Host "Archive SHA-256 integrity verified successfully." -ForegroundColor Green
+} else {
+    Write-Error "Checksum mismatch! Archive may be corrupted or tampered with."
+}
+```
+
+#### 3. Installation Steps
 ```powershell
 # 1. Download official Windows release archive
 Invoke-WebRequest -Uri "https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -OutFile "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip"
 
-# 2. Extract archive
+# 2. Extract archive to a temporary directory
 Expand-Archive -Path "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -DestinationPath "$env:TEMP\vanta-extracted"
 
-# 3. Run the installer (supports -Prefix and -NoPathUpdate)
+# 3. Run the installer (supports custom -Prefix and -NoPathUpdate)
 & "$env:TEMP\vanta-extracted\install.ps1" -Prefix "$HOME\.vanta"
 
 # 4. Clean up temporary extraction folder
 Remove-Item -Recurse -Force "$env:TEMP\vanta-extracted"
 
-# 5. Verify in PowerShell
+# 5. Verify installed executables in PowerShell
 vantac --version
 vanta --version
 ```
 
-To safely uninstall Vanta from Windows at any time:
+#### 4. Safe Data-Preserving Uninstallation
+Vanta's Windows uninstaller (`uninstall.ps1`) is engineered with strict data safety guarantees:
+- **Tracked Deletion Only**: Reads `install-manifest.json` and deletes only explicitly recorded toolchain files.
+- **Untracked File Preservation**: User scripts, custom tools, or notes placed inside `$HOME\.vanta`, `bin/`, or `examples/` are strictly preserved.
+- **Empty Directory Pruning**: Only removes directories if they become completely empty after removing Vanta files.
+- **PATH Rollback**: Only removes `$HOME\.vanta\bin` from User `PATH` if `install.ps1` originally added it. Pre-existing PATH entries are never touched.
+
 ```powershell
-# Run the official uninstaller
+# Safely uninstall Vanta
 & "$HOME\.vanta\uninstall.ps1"
 ```
+
+> [!NOTE]
+> **Release Distribution & Artifacts**:
+> Pre-release packages are built and verified via the official GitHub Actions workflow (`.github/workflows/windows-package.yml`) and published as verified workflow artifacts. Official release tags follow the `v1.0-RC2` naming convention.
 
 ### macOS Apple Silicon (ARM64):
 ```bash

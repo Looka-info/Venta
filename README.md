@@ -310,9 +310,19 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
 
 #### Windows x86-64:
 ```powershell
+# 1. Download official Windows release package and checksum sidecar
 Invoke-WebRequest -Uri https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip -OutFile vanta-win.zip
+
+# 2. Extract and install (supports -Prefix and -NoPathUpdate)
 Expand-Archive vanta-win.zip -DestinationPath vanta-win
-.\vanta-win\install.ps1
+.\vanta-win\install.ps1 -Prefix "$HOME\.vanta"
+
+# 3. Verify
+vantac --version
+vanta --version
+
+# To safely uninstall without deleting user data:
+& "$HOME\.vanta\uninstall.ps1"
 ```
 
 #### macOS Apple Silicon (ARM64):

@@ -102,19 +102,46 @@ impl Default for TargetTriple {
 }
 
 impl TargetTriple {
-    /// Return the host target triple.
+    /// Return the host target triple, verifying both operating system and CPU architecture.
     pub const fn host() -> Self {
-        #[cfg(target_os = "windows")]
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
         {
             TargetTriple::X86_64PcWindowsMsvc
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            TargetTriple::X86_64UnknownLinuxGnu
+        }
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         {
             TargetTriple::Aarch64AppleDarwin
         }
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        #[cfg(not(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64")
+        )))]
         {
-            TargetTriple::X86_64UnknownLinuxGnu
+            panic!(
+                "Unsupported host platform/architecture combination. Vanta natively supports \
+                 x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu, and aarch64-apple-darwin. \
+                 Please explicitly specify --target=<triple>."
+            );
+        }
+    }
+
+    /// Map an operating system and CPU architecture string pair to a supported target triple.
+    pub fn from_os_and_arch(os: &str, arch: &str) -> Result<Self, TargetParseError> {
+        match (
+            os.trim().to_ascii_lowercase().as_str(),
+            arch.trim().to_ascii_lowercase().as_str(),
+        ) {
+            ("windows", "x86_64" | "x64" | "amd64") => Ok(TargetTriple::X86_64PcWindowsMsvc),
+            ("linux", "x86_64" | "x64" | "amd64") => Ok(TargetTriple::X86_64UnknownLinuxGnu),
+            ("macos" | "darwin", "aarch64" | "arm64") => Ok(TargetTriple::Aarch64AppleDarwin),
+            _ => Err(TargetParseError {
+                input: format!("{}-{}", arch, os),
+            }),
         }
     }
     /// Return the canonical triple string.
@@ -272,5 +299,40 @@ mod tests {
         assert_eq!(mac.object_format, ObjectFormat::MachO64);
         assert_eq!(mac.abi, TargetAbi::AppleAArch64);
         assert_eq!(mac.symbol_prefix, "_");
+    }
+
+    #[test]
+    fn test_host_target_mapping() {
+        // Supported pairs
+        assert_eq!(
+            TargetTriple::from_os_and_arch("windows", "x86_64").unwrap(),
+            TargetTriple::X86_64PcWindowsMsvc
+        );
+        assert_eq!(
+            TargetTriple::from_os_and_arch("windows", "AMD64").unwrap(),
+            TargetTriple::X86_64PcWindowsMsvc
+        );
+        assert_eq!(
+            TargetTriple::from_os_and_arch("linux", "x86_64").unwrap(),
+            TargetTriple::X86_64UnknownLinuxGnu
+        );
+        assert_eq!(
+            TargetTriple::from_os_and_arch("macos", "aarch64").unwrap(),
+            TargetTriple::Aarch64AppleDarwin
+        );
+        assert_eq!(
+            TargetTriple::from_os_and_arch("darwin", "arm64").unwrap(),
+            TargetTriple::Aarch64AppleDarwin
+        );
+
+        // Unsupported pairs must fail cleanly
+        assert!(TargetTriple::from_os_and_arch("windows", "aarch64").is_err());
+        assert!(TargetTriple::from_os_and_arch("linux", "arm").is_err());
+        assert!(TargetTriple::from_os_and_arch("macos", "x86_64").is_err());
+        assert!(TargetTriple::from_os_and_arch("freebsd", "x86_64").is_err());
+
+        // Validate host() returns a valid supported target for the current platform
+        let host = TargetTriple::host();
+        assert!(TargetTriple::supported_triples().contains(&host.as_str()));
     }
 }

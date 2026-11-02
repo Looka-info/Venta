@@ -209,7 +209,9 @@ impl<'a> ModuleLoader<'a> {
             }
         }
 
-        if let Some(user_home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        if let Some(user_home) =
+            std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+        {
             let p = PathBuf::from(user_home).join(".vanta");
             let cand1 = p.join("lib").join("vanta").join("std");
             if cand1.join("mod.va").is_file() {
