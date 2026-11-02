@@ -51,8 +51,8 @@ jobs:
               return a + b;
           }
           EOF
-          target/debug/ventac compile --emit=obj math.va -o math.o --target linux
-          target/debug/ventac archive create libmath.a math.o
+          target/debug/vantac compile --emit=obj math.va -o math.o --target linux
+          target/debug/vantac archive create libmath.a math.o
 
           cat << 'EOF' > main.va
           mod math;
@@ -62,7 +62,7 @@ jobs:
               return compute_sum(25, 17);
           }
           EOF
-          target/debug/ventac compile main.va -o app_linux --target linux --linker internal --link libmath.a
+          target/debug/vantac compile main.va -o app_linux --target linux --linker internal --link libmath.a
 
           # Independent inspection
           file app_linux
@@ -110,11 +110,11 @@ jobs:
       - name: Verify Multi-Object Internal PE32+ Linking & Native Windows Execution
         run: |
           echo "pub fn add_nums(a: i64, b: i64) -> i64 { return a + b; }" > math.va
-          target/debug/ventac.exe compile --emit=obj math.va -o math.obj --target windows
-          target/debug/ventac.exe archive create libmath.lib math.obj
+          target/debug/vantac.exe compile --emit=obj math.va -o math.obj --target windows
+          target/debug/vantac.exe archive create libmath.lib math.obj
 
           echo "mod math; import math::add_nums; fn main() -> i64 { return add_nums(25, 17); }" > main.va
-          target/debug/ventac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
+          target/debug/vantac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
 
           # Execute natively on Windows
           set +e
@@ -163,8 +163,8 @@ jobs:
               return a + b;
           }
           EOF
-          target/debug/ventac compile --emit=obj math.va -o math.o --target macos
-          target/debug/ventac archive create libmath.a math.o
+          target/debug/vantac compile --emit=obj math.va -o math.o --target macos
+          target/debug/vantac archive create libmath.a math.o
 
           cat << 'EOF' > main.va
           mod math;
@@ -174,7 +174,7 @@ jobs:
               return add_val(25, 17);
           }
           EOF
-          target/debug/ventac compile main.va -o app_mac --target macos --linker internal --link libmath.a
+          target/debug/vantac compile main.va -o app_mac --target macos --linker internal --link libmath.a
 
           # Independent Mach-O inspection
           file app_mac

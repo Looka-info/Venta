@@ -72,9 +72,9 @@ foreach ($cand in $LocalBinCandidates) {
 
 if ($FoundLocal) {
     Write-Host "--> Found local Windows binaries in $(Split-Path -Parent $VantacSrc)..." -ForegroundColor Green
-    Copy-Item -Path $VantacSrc -Destination (Join-Path $BinDest "ventac.exe") -Force
+
     Copy-Item -Path $VantacSrc -Destination (Join-Path $BinDest "vantac.exe") -Force
-    Copy-Item -Path $VantaSrc -Destination (Join-Path $BinDest "venta.exe") -Force
+
     Copy-Item -Path $VantaSrc -Destination (Join-Path $BinDest "vanta.exe") -Force
 } else {
     # Remote download from GitHub Releases
@@ -146,5 +146,5 @@ Write-Host "Binaries directory:     $BinDest"
 Write-Host "Targets supported:      Windows x86-64, Linux x86-64, macOS Apple Silicon"
 Write-Host ""
 Write-Host "Restart your terminal or PowerShell window, then verify with:"
-Write-Host "    ventac --version"
+Write-Host "    vantac --version"
 Write-Host "    vanta --version"

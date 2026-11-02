@@ -44,8 +44,6 @@ jobs:
           mkdir -p packages/vanta-lang/dist/bin packages/vanta-lang/dist/lib/vanta
           cp target/release/vanta packages/vanta-lang/dist/bin/vanta
           cp target/release/vantac packages/vanta-lang/dist/bin/vantac
-          cp target/release/venta packages/vanta-lang/dist/bin/venta
-          cp target/release/ventac packages/vanta-lang/dist/bin/ventac
           cp -r library/std packages/vanta-lang/dist/lib/vanta/std
           cp runtime/libvanta_rt.a packages/vanta-lang/dist/lib/vanta/libvanta_rt.a
           chmod +x packages/vanta-lang/dist/bin/*
