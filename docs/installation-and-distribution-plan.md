@@ -23,7 +23,7 @@ sudo cp target/release/vantac /usr/local/bin/
 3. **Repeated Runtime Recompilation:** On **every single compilation of an executable**, `vantac` invokes `gcc` to recompile `vanta_rt.c` from C source text. This adds 150ms–200ms of unnecessary latency to every build.
 4. **No Prebuilt Binaries:** There are no GitHub Release artifacts, no `.tar.gz` archives, and no precompiled standalone binaries.
 5. **No Package Manager Integration:** No Homebrew (`brew install vanta`), no Debian APT package, no Arch PKGBUILD.
-6. **Platform Limitation:** Strictly limited to Linux x86-64 (or Windows via WSL2). Native Windows (PE/COFF) and macOS (Mach-O) cannot be targeted.
+6. **Platform Limitation (Historical Baseline):** Originally limited to Linux x86-64 (or Windows via WSL2). *(Resolved in Milestone 30 & 31: Native Windows PE/COFF and macOS Mach-O ARM64 backends and pure-Rust multi-platform linker are now fully implemented and verified).*
 
 ---
 
