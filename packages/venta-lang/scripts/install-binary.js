@@ -4,7 +4,7 @@
  * Vanta Native Binary Provisioner for NPM
  *
  * Automatically provisions the official native Vanta toolchain (vantac, vanta,
- * runtime archive, and standard library) for Linux x86-64.
+ * runtime archive, and standard library) for Linux, Windows, and macOS.
  */
 
 const fs = require('fs');
@@ -13,8 +13,27 @@ const { execSync } = require('child_process');
 const https = require('https');
 
 const VERSION = 'v1.0-RC2';
-const TARBALL_NAME = `vanta-${VERSION}-x86_64-unknown-linux-gnu.tar.gz`;
-const RELEASE_URL = `https://github.com/Looka-info/Venta/releases/download/${VERSION}/${TARBALL_NAME}`;
+
+const platform = process.platform;
+const arch = process.arch;
+
+let target = 'x86_64-unknown-linux-gnu';
+let isZip = false;
+
+if (platform === 'win32') {
+  target = 'x86_64-pc-windows-msvc';
+  isZip = true;
+} else if (platform === 'darwin') {
+  target = (arch === 'arm64') ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+  isZip = false;
+} else {
+  target = (arch === 'arm64') ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
+  isZip = false;
+}
+
+const ARCHIVE_EXT = isZip ? '.zip' : '.tar.gz';
+const ARCHIVE_NAME = `vanta-${VERSION}-${target}${ARCHIVE_EXT}`;
+const RELEASE_URL = `https://github.com/Looka-info/Venta/releases/download/${VERSION}/${ARCHIVE_NAME}`;
 
 const PKG_ROOT = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(PKG_ROOT, 'dist');
@@ -32,9 +51,11 @@ function ensureDir(dir) {
 
 function findLocalBinaries() {
   const repoRoot = path.resolve(PKG_ROOT, '../..');
+  const isWin = process.platform === 'win32';
+  const exts = isWin ? ['.exe', ''] : [''];
   const dirs = [
-    path.join(repoRoot, 'dist', `vanta-${VERSION}-x86_64-unknown-linux-gnu`, 'bin'),
-    path.join(repoRoot, 'dist', `vanta-${VERSION}-x86_64-unknown-linux-gnu`),
+    path.join(repoRoot, 'dist', `vanta-${VERSION}-${target}`, 'bin'),
+    path.join(repoRoot, 'dist', `vanta-${VERSION}-${target}`),
     path.join(repoRoot, 'target', 'release'),
     path.join(repoRoot, 'target', 'debug'),
     path.join(repoRoot, 'bin'),
@@ -44,8 +65,16 @@ function findLocalBinaries() {
   let vanta = null;
 
   for (const d of dirs) {
-    if (!vantac && fs.existsSync(path.join(d, 'vantac'))) vantac = path.join(d, 'vantac');
-    if (!vanta && fs.existsSync(path.join(d, 'vanta'))) vanta = path.join(d, 'vanta');
+    for (const ext of exts) {
+      if (!vantac) {
+        if (fs.existsSync(path.join(d, `ventac${ext}`))) vantac = path.join(d, `ventac${ext}`);
+        else if (fs.existsSync(path.join(d, `vantac${ext}`))) vantac = path.join(d, `vantac${ext}`);
+      }
+      if (!vanta) {
+        if (fs.existsSync(path.join(d, `venta${ext}`))) vanta = path.join(d, `venta${ext}`);
+        else if (fs.existsSync(path.join(d, `vanta${ext}`))) vanta = path.join(d, `vanta${ext}`);
+      }
+    }
   }
 
   if (vantac && vanta) {
@@ -87,7 +116,7 @@ async function downloadFile(url, dest) {
 }
 
 async function main() {
-  log(`Provisioning Vanta Toolchain (${VERSION})...`);
+  log(`Provisioning Vanta Toolchain (${VERSION}) for target: ${target}...`);
 
   ensureDir(DIST_DIR);
   ensureDir(BIN_DIR);
@@ -96,10 +125,20 @@ async function main() {
   const local = findLocalBinaries();
   if (local) {
     log(`Found local Vanta binaries in ${local.dir}, copying...`);
-    fs.copyFileSync(local.vantac, path.join(BIN_DIR, 'vantac'));
-    fs.copyFileSync(local.vanta, path.join(BIN_DIR, 'vanta'));
-    fs.chmodSync(path.join(BIN_DIR, 'vantac'), 0o755);
-    fs.chmodSync(path.join(BIN_DIR, 'vanta'), 0o755);
+    const isWin = process.platform === 'win32';
+    const ext = isWin && local.vantac.endsWith('.exe') ? '.exe' : '';
+
+    fs.copyFileSync(local.vantac, path.join(BIN_DIR, `vantac${ext}`));
+    fs.copyFileSync(local.vantac, path.join(BIN_DIR, `ventac${ext}`));
+    fs.copyFileSync(local.vanta, path.join(BIN_DIR, `vanta${ext}`));
+    fs.copyFileSync(local.vanta, path.join(BIN_DIR, `venta${ext}`));
+
+    if (!isWin) {
+      fs.chmodSync(path.join(BIN_DIR, 'vantac'), 0o755);
+      fs.chmodSync(path.join(BIN_DIR, 'ventac'), 0o755);
+      fs.chmodSync(path.join(BIN_DIR, 'vanta'), 0o755);
+      fs.chmodSync(path.join(BIN_DIR, 'venta'), 0o755);
+    }
 
     const repoRoot = path.resolve(PKG_ROOT, '../..');
     const stdSrc = path.join(repoRoot, 'library', 'std');
@@ -117,25 +156,31 @@ async function main() {
   }
 
   // 2. Download from official GitHub Releases
-  const tempTarball = path.join(DIST_DIR, TARBALL_NAME);
+  const tempArchive = path.join(DIST_DIR, ARCHIVE_NAME);
   log(`Downloading official release from: ${RELEASE_URL}`);
 
   try {
-    await downloadFile(RELEASE_URL, tempTarball);
-    log(`Extracting ${TARBALL_NAME}...`);
-    execSync(`tar -xzf "${tempTarball}" -C "${DIST_DIR}" --strip-components=1`, { stdio: 'inherit' });
-    fs.unlinkSync(tempTarball);
+    await downloadFile(RELEASE_URL, tempArchive);
+    log(`Extracting ${ARCHIVE_NAME}...`);
+    if (isZip) {
+      execSync(`powershell -Command "Expand-Archive -Path '${tempArchive}' -DestinationPath '${DIST_DIR}' -Force"`, { stdio: 'inherit' });
+    } else {
+      execSync(`tar -xzf "${tempArchive}" -C "${DIST_DIR}" --strip-components=1`, { stdio: 'inherit' });
+    }
+    fs.unlinkSync(tempArchive);
 
-    // Ensure permissions
-    const vantacBin = path.join(BIN_DIR, 'vantac');
-    const vantaBin = path.join(BIN_DIR, 'vanta');
-    if (fs.existsSync(vantacBin)) fs.chmodSync(vantacBin, 0o755);
-    if (fs.existsSync(vantaBin)) fs.chmodSync(vantaBin, 0o755);
+    // Ensure permissions on POSIX
+    if (process.platform !== 'win32') {
+      const vantacBin = path.join(BIN_DIR, 'vantac');
+      const vantaBin = path.join(BIN_DIR, 'vanta');
+      if (fs.existsSync(vantacBin)) fs.chmodSync(vantacBin, 0o755);
+      if (fs.existsSync(vantaBin)) fs.chmodSync(vantaBin, 0o755);
+    }
 
     log(`Vanta toolchain provisioned successfully.`);
   } catch (err) {
     log(`Warning: Automatic download failed (${err.message}).`);
-    log(`Run './scripts/build_self_hosted_compiler.sh' or install from GitHub Releases.`);
+    log(`Build from source via 'cargo build --release' or install from GitHub Releases.`);
   }
 }
 
