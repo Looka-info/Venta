@@ -101,8 +101,6 @@ try {
         "lib\vanta\std\mod.va",
         "lib\vanta\std\option.va",
         "lib\vanta\std\result.va",
-        "install.ps1",
-        "uninstall.ps1",
         "LICENSE",
         "LICENSE-MIT",
         "LICENSE-APACHE",
@@ -121,6 +119,13 @@ try {
         }
     }
     Write-Host ("    All {0} required core files present and non-empty." -f $RequiredFiles.Count) -ForegroundColor Green
+
+    # Strict Zero-Script Assertion: Verify that NO scripts (.ps1, .bat, .cmd, .sh) are packaged
+    $foundProhibitedScripts = Get-ChildItem -Path $ExtractDir -Recurse -Include *.ps1, *.bat, *.cmd, *.sh
+    if ($foundProhibitedScripts.Count -gt 0) {
+        throw ("Prohibited scripts detected in extracted package: {0}" -f ($foundProhibitedScripts -join ', '))
+    }
+    Write-Host "    Verified zero-scripts policy: no .ps1, .bat, .cmd, or .sh scripts in archive." -ForegroundColor Green
 
     # -------------------------------------------------------------
     # Step 4: Validate cryptographic hash inventory in release-manifest.json
@@ -173,15 +178,15 @@ try {
     Write-Host "    Extracted vantac.exe and vanta.exe executed cleanly." -ForegroundColor Green
 
     # -------------------------------------------------------------
-    # Step 7: Install via extracted install.ps1 into isolated prefix
+    # Step 7: Install into isolated prefix using scripts/install.ps1 with extracted package
     # -------------------------------------------------------------
     $InstallPrefix = Join-Path $IsolatedRoot "vanta_install"
-    Write-Host ("--> Step 7: Installing via extracted install.ps1 into {0}..." -f $InstallPrefix) -ForegroundColor Cyan
-    $extractedInstallScript = Join-Path $ExtractDir "install.ps1"
+    Write-Host ("--> Step 7: Installing via scripts/install.ps1 into {0}..." -f $InstallPrefix) -ForegroundColor Cyan
+    $repoInstallScript = Join-Path $RepoRoot "scripts\install.ps1"
     
-    $instProc = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File `"$extractedInstallScript`" -Prefix `"$InstallPrefix`" -Version `"v1.0-RC2`" -NoPathUpdate" -Wait -PassThru -NoNewWindow
+    $instProc = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File `"$repoInstallScript`" -Prefix `"$InstallPrefix`" -Version `"v1.0-RC2`" -NoPathUpdate" -WorkingDirectory $ExtractDir -Wait -PassThru -NoNewWindow
     if ($instProc.ExitCode -ne 0) {
-        throw ("Extracted install.ps1 failed with exit code {0}" -f $instProc.ExitCode)
+        throw ("scripts/install.ps1 failed with exit code {0}" -f $instProc.ExitCode)
     }
 
     $InstalledVantac = Join-Path $InstallPrefix "bin\vantac.exe"

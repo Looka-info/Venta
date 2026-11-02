@@ -17,6 +17,8 @@ jobs:
     name: Package Windows x86-64 Release Distribution
     runs-on: windows-2022
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Source
@@ -81,6 +83,37 @@ jobs:
             dist/release-manifest.json
           if-no-files-found: error
 
+      - name: Publish Windows Distribution to GitHub Releases
+        id: publish-release
+        if: success() && (github.ref == 'refs/heads/perf/runtime-optimization' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0-RC2
+          name: "Vanta v1.0-RC2 (Windows x86-64)"
+          body: |
+            ## ⚡ Vanta Systems Programming Language — Windows x86-64 Native Distribution (v1.0-RC2)
+
+            Pure native binary release for Windows AMD64 (`x86_64-pc-windows-msvc`) with custom pure-Rust PE32+ backend and linker.
+            Zero external C runtime, SDK, or toolchain dependencies required.
+            All scripts (.ps1, .bat) are strictly excluded from the package archive.
+
+            ### Package Assets
+            - `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip`: Complete self-contained toolchain containing compiler (`bin/vantac.exe`), CLI driver (`bin/vanta.exe`), full standard library (`lib/vanta/std/`), docs, and examples.
+            - `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256`: SHA-256 sidecar checksum.
+            - `release-manifest.json`: Per-file SHA-256 and byte-size cryptographic inventory.
+            - `vanta.exe`: Standalone Windows CLI executable.
+            - `vantac.exe`: Standalone Windows reference compiler executable.
+          draft: false
+          prerelease: true
+          files: |
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256
+            dist/release-manifest.json
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc/bin/vanta.exe
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc/bin/vantac.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Generate Authoritative Release Artifact Summary
         if: always()
         shell: pwsh
@@ -101,6 +134,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($artifactId)) { $artifactId = "N/A (artifact not uploaded)" }
           $artifactUrl = "${{ steps.upload-artifact.outputs.artifact-url }}"
           if ([string]::IsNullOrWhiteSpace($artifactUrl)) { $artifactUrl = "N/A (artifact not uploaded)" }
+          $releaseUrl = "https://github.com/Looka-info/Venta/releases/tag/v1.0-RC2"
 
           $isSuccess = (
             "${{ steps.fmt.outcome }}" -eq "success" -and
@@ -115,10 +149,10 @@ jobs:
           $gateStatus = if ($isSuccess) { "**SUCCESS (All Verification Gates Passed)**" } else { "**FAILED (One or More Gates Failed)**" }
 
           $summary = @"
-          # ⚡ Vanta Windows x86-64 Release Verification Summary (Milestone 27D)
+          # ⚡ Vanta Windows x86-64 Release Verification Summary
 
           > [!NOTE]
-          > This distribution package is a verified GitHub Actions CI workflow artifact. It is not currently published as a public GitHub Release.
+          > This distribution package is published to **GitHub Releases** (`v1.0-RC2`) and preserved as a verified GitHub Actions CI workflow artifact. All scripts (.ps1, .bat) are strictly excluded from the package archive.
 
           | Property | Authoritative CI Value |
           | :--- | :--- |
@@ -126,6 +160,7 @@ jobs:
           | **Branch** | `${{ github.ref_name }}` |
           | **Workflow Run ID** | `${{ github.run_id }}` (Run #${{ github.run_number }}) |
           | **Release Gate Status** | $gateStatus |
+          | **GitHub Release URL** | [$releaseUrl]($releaseUrl) |
           | **Package Filename** | `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip` |
           | **Package Byte Size** | $zipSize |
           | **Package SHA-256** | `$zipHash` |

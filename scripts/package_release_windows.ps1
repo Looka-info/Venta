@@ -6,11 +6,11 @@
     - vantac.exe (Vanta compiler, PE32+ AMD64)
     - vanta.exe (Vanta CLI driver, PE32+ AMD64)
     - lib/vanta/std/ (standard library)
-    - install.ps1 and uninstall.ps1 (hardened installer and uninstaller)
     - LICENSE, LICENSE-MIT, LICENSE-APACHE (dual-licensing)
     - README.md, docs/, examples/
     - release-manifest.json (cryptographic hash inventory with per-file SHA-256 and size)
     - ZIP archive and independent SHA-256 sidecar
+    (Pure binary release: all .ps1, .bat, .cmd, .sh scripts strictly excluded from archive)
 .PARAMETER Version
     Package version string. Defaults to version from root Cargo.toml (1.0.0-rc.2)
 .PARAMETER Tag
@@ -202,20 +202,13 @@ if (Test-Path (Join-Path $StdSource "mod.va")) {
     exit 1
 }
 
-# Copy installer and uninstaller scripts
-$InstallScript = Join-Path $RepoRoot "scripts\install.ps1"
-if (-not (Test-Path $InstallScript)) {
-    Write-Error "Missing scripts\install.ps1"
+# Strict Script Exclusion: Verify that NO scripts (.ps1, .bat, .cmd, .sh) exist in stage dir
+Write-Host "--> Enforcing zero-script package policy (excluding all .ps1, .bat, .cmd, .sh)..." -ForegroundColor Cyan
+$FoundScripts = Get-ChildItem -Path $StageDir -Recurse -Include *.ps1, *.bat, *.cmd, *.sh
+if ($FoundScripts.Count -gt 0) {
+    Write-Error ("Packaging policy violation: scripts detected in stage directory: {0}" -f ($FoundScripts -join ', '))
     exit 1
 }
-Copy-Item -Path $InstallScript -Destination (Join-Path $StageDir "install.ps1") -Force
-
-$UninstallScript = Join-Path $RepoRoot "scripts\uninstall.ps1"
-if (-not (Test-Path $UninstallScript)) {
-    Write-Error "Missing scripts\uninstall.ps1"
-    exit 1
-}
-Copy-Item -Path $UninstallScript -Destination (Join-Path $StageDir "uninstall.ps1") -Force
 
 # Copy dual-license files and README
 Copy-Item -Path $LicenseRoot -Destination (Join-Path $StageDir "LICENSE") -Force
@@ -376,13 +369,11 @@ New-Item -ItemType Directory -Path $VerifyDir -Force | Out-Null
 try {
     Expand-Archive -Path $ZipPath -DestinationPath $VerifyDir -Force
 
-    # Verify presence of critical files
+    # Verify presence of critical files (pure binary distribution)
     $CheckFiles = @(
         "bin\vantac.exe",
         "bin\vanta.exe",
         "lib\vanta\std\mod.va",
-        "install.ps1",
-        "uninstall.ps1",
         "LICENSE",
         "LICENSE-MIT",
         "LICENSE-APACHE",
@@ -400,6 +391,14 @@ try {
             exit 1
         }
     }
+
+    # Verify that NO scripts (.ps1, .bat, .cmd, .sh) are present in the extracted archive
+    $ExtractedScripts = Get-ChildItem -Path $VerifyDir -Recurse -Include *.ps1, *.bat, *.cmd, *.sh
+    if ($ExtractedScripts.Count -gt 0) {
+        Write-Error ("Package verification failed: archive contains prohibited scripts: {0}" -f ($ExtractedScripts -join ', '))
+        exit 1
+    }
+    Write-Host "--> Verified zero scripts in package: no .ps1, .bat, .cmd, or .sh found." -ForegroundColor Green
 
     # Verify all manifest file hashes and sizes
     $ExtractedManifest = Get-Content -Raw -Path (Join-Path $VerifyDir "release-manifest.json") -Encoding UTF8 | ConvertFrom-Json

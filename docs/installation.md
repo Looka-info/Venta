@@ -114,8 +114,6 @@ vanta-v1.0-RC2-x86_64-pc-windows-msvc/
 ├── lib/
 │   └── vanta/
 │       └── std/            # Full Vanta standard library modules
-├── install.ps1             # Hardened idempotent Windows installer
-├── uninstall.ps1           # Safe idempotent Windows uninstaller
 ├── release-manifest.json   # Cryptographic SHA-256 and byte-size file inventory
 ├── LICENSE                 # Dual-licensing pointer (MIT or Apache-2.0)
 ├── LICENSE-MIT             # MIT License text
@@ -123,6 +121,10 @@ vanta-v1.0-RC2-x86_64-pc-windows-msvc/
 ├── README.md               # Quick-start documentation
 ├── docs/                   # Full offline architecture & language manuals
 └── examples/               # Standalone runnable Vanta example programs
+```
+
+> [!NOTE]
+> The Windows binary release package is a clean, script-free distribution containing exclusively native binaries, libraries, licenses, and documentation. Installer and uninstaller scripts (`install.ps1`, `uninstall.ps1`) are maintained in the repository root and available via GitHub Releases / raw download.
 ```
 
 #### 2. Cryptographic Integrity Verification
