@@ -65,9 +65,13 @@ jobs:
         run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}"
 
       - name: Run Full Workspace Tests
+        env:
+          VANTA_LINKER: system
         run: cargo test --workspace --verbose
 
       - name: Run Specialized ABI & Differential Tests
+        env:
+          VANTA_LINKER: system
         run: |
           cargo test --test abi_tests
           cargo test --test differential_tests
@@ -75,6 +79,8 @@ jobs:
           cargo test --test version_gate_tests
 
       - name: Run Clean-Prefix Packaging Tests
+        env:
+          VANTA_LINKER: system
         run: cargo test --test packaging_tests
 
       - name: Verify Cryptographic Checksum

@@ -131,6 +131,7 @@ fn main() -> i64 {
         .arg("--")
         .arg("arg_alpha")
         .arg("arg_beta")
+        .env("VANTA_LINKER", "system")
         .current_dir(app_dir.path())
         .output()
         .expect("Run installed vanta run");
@@ -160,6 +161,7 @@ fn main() -> i64 {
         .arg(&sample_va)
         .arg("-o")
         .arg(&standalone_bin)
+        .env("VANTA_LINKER", "system")
         .current_dir(app_dir.path())
         .output()
         .expect("Run installed vanta compile");
