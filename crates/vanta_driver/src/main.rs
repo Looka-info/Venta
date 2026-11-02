@@ -19,16 +19,16 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
     let invoked = env::args().next().unwrap_or_default();
-    let file_name = std::path::Path::new(&invoked)
-        .file_name()
+    let file_stem = std::path::Path::new(&invoked)
+        .file_stem()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let bin_name = if file_name == "vantac" {
+    let bin_name = if file_stem == "vantac" {
         "vantac"
     } else {
         "ventac"
     };
-    let lang_name = if file_name == "vantac" {
+    let lang_name = if file_stem == "vantac" {
         "Vanta"
     } else {
         "Venta"
@@ -371,11 +371,11 @@ fn main() {
             }
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
-                let file_name = std::path::Path::new(&invoked)
-                    .file_name()
+                let file_stem = std::path::Path::new(&invoked)
+                    .file_stem()
                     .and_then(|n| n.to_str())
                     .unwrap_or("");
-                let bin_name = if file_name == "vantac" {
+                let bin_name = if file_stem == "vantac" {
                     "vantac"
                 } else {
                     "ventac"
@@ -396,11 +396,11 @@ fn main() {
         match arg.as_str() {
             "-V" | "--version" => {
                 let invoked = env::args().next().unwrap_or_default();
-                let file_name = std::path::Path::new(&invoked)
-                    .file_name()
+                let file_stem = std::path::Path::new(&invoked)
+                    .file_stem()
                     .and_then(|n| n.to_str())
                     .unwrap_or("");
-                let bin_name = if file_name == "vantac" {
+                let bin_name = if file_stem == "vantac" {
                     "vantac"
                 } else {
                     "ventac"

@@ -21,3 +21,6 @@ ventanext/app
 out/
 
 *.vsix
+*.zip
+*.sha256
+.xwin-cache/

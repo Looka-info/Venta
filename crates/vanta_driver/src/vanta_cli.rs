@@ -13,16 +13,16 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn get_usage_text() -> String {
     let invoked = env::args().next().unwrap_or_default();
-    let file_name = std::path::Path::new(&invoked)
-        .file_name()
+    let file_stem = std::path::Path::new(&invoked)
+        .file_stem()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let bin_name = if file_name == "vanta" {
+    let bin_name = if file_stem == "vanta" {
         "vanta"
     } else {
         "venta"
     };
-    let lang_name = if file_name == "vanta" {
+    let lang_name = if file_stem == "vanta" {
         "Vanta"
     } else {
         "Venta"
@@ -65,11 +65,11 @@ fn main() {
     match args[1].as_str() {
         "-V" | "--version" => {
             let invoked = env::args().next().unwrap_or_default();
-            let file_name = std::path::Path::new(&invoked)
-                .file_name()
+            let file_stem = std::path::Path::new(&invoked)
+                .file_stem()
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
-            let bin_name = if file_name == "vanta" {
+            let bin_name = if file_stem == "vanta" {
                 "vanta"
             } else {
                 "venta"
@@ -130,7 +130,10 @@ fn handle_run(args: &[String]) {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
-    let mut linker = LinkerKind::System;
+    let mut linker = match std::env::var("VANTA_LINKER").as_deref() {
+        Ok("system") => LinkerKind::System,
+        _ => LinkerKind::Internal,
+    };
 
     let mut i = 0;
     while i < args.len() {
@@ -365,7 +368,11 @@ fn handle_run(args: &[String]) {
 
     let temp_dir = std::env::temp_dir().join(format!("vanta_run_{}", process::id()));
     let _ = fs::create_dir_all(&temp_dir);
-    let temp_exe = temp_dir.join("vanta_bin");
+    let temp_exe = temp_dir.join(if target.spec().os == vanta_driver::Os::Windows {
+        "vanta_bin.exe"
+    } else {
+        "vanta_bin"
+    });
 
     let options = CompilerOptions {
         input_file: input_path,
@@ -480,7 +487,10 @@ fn handle_compile(args: &[String]) {
     let mut target_features = TargetFeatures::baseline();
     let mut target = TargetTriple::default();
     let mut debug_info = false;
-    let mut linker = LinkerKind::System;
+    let mut linker = match std::env::var("VANTA_LINKER").as_deref() {
+        Ok("system") => LinkerKind::System,
+        _ => LinkerKind::Internal,
+    };
 
     let mut i = 0;
     while i < args.len() {

@@ -97,11 +97,26 @@ pub enum TargetTriple {
 
 impl Default for TargetTriple {
     fn default() -> Self {
-        TargetTriple::X86_64UnknownLinuxGnu
+        TargetTriple::host()
     }
 }
 
 impl TargetTriple {
+    /// Return the host target triple.
+    pub const fn host() -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            TargetTriple::X86_64PcWindowsMsvc
+        }
+        #[cfg(target_os = "macos")]
+        {
+            TargetTriple::Aarch64AppleDarwin
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            TargetTriple::X86_64UnknownLinuxGnu
+        }
+    }
     /// Return the canonical triple string.
     pub const fn as_str(&self) -> &'static str {
         match self {

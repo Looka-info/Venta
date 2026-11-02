@@ -311,7 +311,8 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
 #### Windows x86-64:
 ```powershell
 Invoke-WebRequest -Uri https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip -OutFile vanta-win.zip
-Expand-Archive vanta-win.zip -DestinationPath ~\.vanta
+Expand-Archive vanta-win.zip -DestinationPath vanta-win
+.\vanta-win\install.ps1
 ```
 
 #### macOS Apple Silicon (ARM64):

@@ -1,0 +1,111 @@
+name: Windows x64 Native Release Packaging & Verification
+
+on:
+  push:
+    branches: [ main, perf/runtime-optimization ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-windows:
+    name: Package Windows x86-64 Release Distribution
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set Up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Release Binaries (vantac, vanta)
+        run: cargo build --release --bin vantac --bin vanta
+        shell: bash
+
+      - name: Run Windows Backend Integration Tests
+        run: |
+          cargo test -p vanta_linker --verbose
+          cargo test -p vanta_driver --test linker_e2e_tests --verbose
+        shell: bash
+
+      - name: Package Windows Distribution (ZIP + SHA-256 + Manifest)
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/package_release_windows.ps1 -Tag v1.0-RC2 -Target x86_64-pc-windows-msvc
+        shell: cmd
+
+      - name: Verify Distribution Archive
+        run: |
+          powershell -ExecutionPolicy Bypass -Command @"
+            if (-not (Test-Path dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip)) {
+              Write-Error 'Missing release zip archive'
+              exit 1
+            }
+            if (-not (Test-Path dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256)) {
+              Write-Error 'Missing sha256 checksum'
+              exit 1
+            }
+            if (-not (Test-Path dist/release-manifest.json)) {
+              Write-Error 'Missing release manifest'
+              exit 1
+            }
+            Write-Host 'Package verification succeeded.'
+          "@
+        shell: cmd
+
+      - name: Test Clean Installation via install.ps1
+        run: |
+          powershell -ExecutionPolicy Bypass -Command @"
+            `$tempPrefix = Join-Path `$env:TEMP 'vanta_ci_install'
+            & scripts/install.ps1 -Prefix `$tempPrefix -NoPathUpdate
+            
+            `$installedVantac = Join-Path `$tempPrefix 'bin/vantac.exe'
+            `$installedVanta = Join-Path `$tempPrefix 'bin/vanta.exe'
+            
+            if (-not (Test-Path `$installedVantac) -or -not (Test-Path `$installedVanta)) {
+              Write-Error 'Installed binaries not found'
+              exit 1
+            }
+            
+            & `$installedVantac --version
+            & `$installedVanta --version
+            
+            # Compile a native Windows test program with installed compiler
+            Set-Content -Path test_hello.va -Value 'fn main() -> i64 { return 42; }'
+            & `$installedVantac compile test_hello.va -o test_hello.exe --target windows
+            
+            `$p = Start-Process -FilePath .\test_hello.exe -Wait -PassThru -NoNewWindow
+            Write-Host "Native execution exit code: `$(`$p.ExitCode)"
+            if (`$p.ExitCode -ne 42) {
+              Write-Error "Expected exit code 42, got `$(`$p.ExitCode)"
+              exit 1
+            }
+            
+            # Test uninstallation
+            & scripts/uninstall.ps1 -Prefix `$tempPrefix
+            if (Test-Path `$installedVantac) {
+              Write-Error 'Binary still present after uninstall'
+              exit 1
+            }
+            Write-Host 'Clean install and uninstall tests passed successfully.'
+          "@
+        shell: cmd
+
+      - name: Upload Windows Distribution Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanta-windows-x86_64-v1.0-RC2
+          path: |
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip
+            dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256
+            dist/release-manifest.json
+          if-no-files-found: error

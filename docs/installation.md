@@ -99,14 +99,27 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu
 
 ### Windows x86-64:
 ```powershell
-# 1. Download Windows release archive
-Invoke-WebRequest -Uri "https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -OutFile "vanta-win.zip"
+# 1. Download official Windows release archive
+Invoke-WebRequest -Uri "https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -OutFile "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip"
 
 # 2. Extract archive
-Expand-Archive -Path "vanta-win.zip" -DestinationPath "$HOME\.vanta"
+Expand-Archive -Path "vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip" -DestinationPath "$env:TEMP\vanta-extracted"
 
-# 3. Add to User PATH
-[Environment]::SetEnvironmentVariable("Path", "$HOME\.vanta\bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+# 3. Run the installer (supports -Prefix and -NoPathUpdate)
+& "$env:TEMP\vanta-extracted\install.ps1" -Prefix "$HOME\.vanta"
+
+# 4. Clean up temporary extraction folder
+Remove-Item -Recurse -Force "$env:TEMP\vanta-extracted"
+
+# 5. Verify in PowerShell
+vantac --version
+vanta --version
+```
+
+To safely uninstall Vanta from Windows at any time:
+```powershell
+# Run the official uninstaller
+& "$HOME\.vanta\uninstall.ps1"
 ```
 
 ### macOS Apple Silicon (ARM64):

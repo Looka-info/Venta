@@ -209,11 +209,27 @@ impl<'a> ModuleLoader<'a> {
             }
         }
 
+        if let Some(user_home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+            let p = PathBuf::from(user_home).join(".vanta");
+            let cand1 = p.join("lib").join("vanta").join("std");
+            if cand1.join("mod.va").is_file() {
+                return Some(cand1);
+            }
+            let cand2 = p.join("library").join("std");
+            if cand2.join("mod.va").is_file() {
+                return Some(cand2);
+            }
+        }
+
         let mut curr = root_path.parent();
         while let Some(dir) = curr {
             let candidate = dir.join("library").join("std");
             if candidate.join("mod.va").is_file() {
                 return Some(candidate);
+            }
+            let cand_lib = dir.join("lib").join("vanta").join("std");
+            if cand_lib.join("mod.va").is_file() {
+                return Some(cand_lib);
             }
             curr = dir.parent();
         }
@@ -222,22 +238,30 @@ impl<'a> ModuleLoader<'a> {
         if cwd_candidate.join("mod.va").is_file() {
             return Some(cwd_candidate);
         }
+        let cwd_lib_candidate = Path::new("lib").join("vanta").join("std");
+        if cwd_lib_candidate.join("mod.va").is_file() {
+            return Some(cwd_lib_candidate);
+        }
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                let cand0 = parent.join("../lib/vanta/std");
+                let cand0 = parent.join("..").join("lib").join("vanta").join("std");
                 if cand0.join("mod.va").is_file() {
                     return Some(cand0);
+                }
+                let cand0b = parent.join("lib").join("vanta").join("std");
+                if cand0b.join("mod.va").is_file() {
+                    return Some(cand0b);
                 }
                 let cand1 = parent.join("library").join("std");
                 if cand1.join("mod.va").is_file() {
                     return Some(cand1);
                 }
-                let cand2 = parent.join("../library/std");
+                let cand2 = parent.join("..").join("library").join("std");
                 if cand2.join("mod.va").is_file() {
                     return Some(cand2);
                 }
-                let cand3 = parent.join("../../library/std");
+                let cand3 = parent.join("..").join("..").join("library").join("std");
                 if cand3.join("mod.va").is_file() {
                     return Some(cand3);
                 }
