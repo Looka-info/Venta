@@ -7,16 +7,14 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build Showcase with Pure Venta Engine
+  build-and-deploy:
+    name: Build & Deploy Showcase (Pure Venta Engine)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Source
@@ -75,21 +73,3 @@ jobs:
           publish_dir: ./dist
           publish_branch: gh-pages
           commit_message: "deploy(gh-pages): automated build from pure Venta engine"
-
-      - name: Upload GitHub Pages Artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    name: Deploy to GitHub Pages (Actions Mode)
-    needs: build
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
