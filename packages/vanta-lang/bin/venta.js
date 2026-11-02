@@ -2,7 +2,7 @@
 
 /**
  * Venta CLI Wrapper (Node.js)
- * Executes the native Venta compiler binary transparently on Linux and Windows (via WSL).
+ * Executes the native Venta compiler binary transparently on Linux, Windows, and macOS.
  */
 
 const { spawn } = require('child_process');
@@ -14,22 +14,28 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 
 function getCandidates() {
   const home = os.homedir();
-  return [
-    path.join(PKG_ROOT, 'dist', 'bin', 'venta'),
-    path.join(PKG_ROOT, 'dist', 'bin', 'vanta'),
-    path.join(PKG_ROOT, 'dist', 'venta'),
-    path.join(PKG_ROOT, 'dist', 'vanta'),
-    path.join(home, '.venta', 'bin', 'venta'),
-    path.join(home, '.vanta', 'bin', 'vanta'),
-    path.join(home, '.local', 'bin', 'venta'),
-    path.join(home, '.local', 'bin', 'vanta'),
-    path.join(PKG_ROOT, '..', '..', 'target', 'release', 'venta'),
-    path.join(PKG_ROOT, '..', '..', 'target', 'release', 'vanta'),
-    path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'venta'),
-    path.join(PKG_ROOT, '..', '..', 'target', 'debug', 'vanta'),
-    path.join(PKG_ROOT, '..', '..', 'bin', 'venta'),
-    path.join(PKG_ROOT, '..', '..', 'bin', 'vanta'),
-  ];
+  const isWin = process.platform === 'win32';
+  const exts = isWin ? ['.exe', ''] : [''];
+
+  const names = ['venta', 'vanta'];
+  const candidates = [];
+
+  for (const name of names) {
+    for (const ext of exts) {
+      const binName = `${name}${ext}`;
+      candidates.push(
+        path.join(PKG_ROOT, 'dist', 'bin', binName),
+        path.join(PKG_ROOT, 'dist', binName),
+        path.join(home, '.venta', 'bin', binName),
+        path.join(home, '.vanta', 'bin', binName),
+        path.join(home, '.local', 'bin', binName),
+        path.join(PKG_ROOT, '..', '..', 'target', 'release', binName),
+        path.join(PKG_ROOT, '..', '..', 'target', 'debug', binName),
+        path.join(PKG_ROOT, '..', '..', 'bin', binName)
+      );
+    }
+  }
+  return candidates;
 }
 
 function findBinary() {
@@ -51,34 +57,58 @@ function toWslPath(p) {
 const nativeBin = findBinary();
 
 if (process.platform === 'win32') {
-  // On Windows, invoke the ELF binary via WSL
-  const wslBin = nativeBin ? toWslPath(nativeBin) : 'venta';
-  
-  // Convert any path arguments with Windows backslashes to WSL-compatible forward slashes
-  const convertedArgs = process.argv.slice(2).map(arg => {
-    // If it looks like a path or file, convert backslashes
-    if (arg.includes('\\') || /^[A-Za-z]:/.test(arg)) {
-      return toWslPath(arg);
-    }
-    return arg;
-  });
+  if (nativeBin && (nativeBin.endsWith('.exe') || fs.existsSync(nativeBin + '.exe'))) {
+    const exe = nativeBin.endsWith('.exe') ? nativeBin : nativeBin + '.exe';
+    const child = spawn(exe, process.argv.slice(2), {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        VANTA_STD_PATH: process.env.VANTA_STD_PATH || path.join(PKG_ROOT, 'dist', 'lib', 'vanta', 'std'),
+      },
+    });
+    child.on('close', (code) => process.exit(code === null ? 1 : code));
+    child.on('error', (err) => {
+      console.error(`Failed to execute Venta native Windows binary: ${err.message}`);
+      process.exit(1);
+    });
+  } else {
+    const wslBin = nativeBin ? toWslPath(nativeBin) : 'venta';
+    const convertedArgs = process.argv.slice(2).map(arg => {
+      if (arg.includes('\\') || /^[A-Za-z]:/.test(arg)) {
+        return toWslPath(arg);
+      }
+      return arg;
+    });
 
-  const child = spawn('wsl', [wslBin, ...convertedArgs], { stdio: 'inherit' });
-  child.on('close', (code) => process.exit(code === null ? 1 : code));
-  child.on('error', (err) => {
-    console.error('Error executing Venta binary via WSL:', err.message);
-    process.exit(1);
-  });
+    const child = spawn('wsl', [wslBin, ...convertedArgs], { stdio: 'inherit' });
+    child.on('close', (code) => process.exit(code === null ? 1 : code));
+    child.on('error', (err) => {
+      console.error(`Failed to invoke WSL for Venta: ${err.message}`);
+      process.exit(1);
+    });
+  }
 } else {
   if (!nativeBin) {
-    console.error('Venta binary not found. Run: npm install -g venta-lang or cargo build --release --bin venta');
+    console.error('Error: Venta native binary not found.');
+    console.error('Run: npm run postinstall or install via:');
+    console.error('  curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash');
     process.exit(1);
   }
 
-  const child = spawn(nativeBin, process.argv.slice(2), { stdio: 'inherit' });
-  child.on('close', (code) => process.exit(code === null ? 1 : code));
+  const child = spawn(nativeBin, process.argv.slice(2), {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      VANTA_STD_PATH: process.env.VANTA_STD_PATH || path.join(PKG_ROOT, 'dist', 'lib', 'vanta', 'std'),
+    },
+  });
+
+  child.on('close', (code) => {
+    process.exit(code === null ? 1 : code);
+  });
+
   child.on('error', (err) => {
-    console.error('Error executing Venta binary:', err.message);
+    console.error(`Failed to execute Venta binary: ${err.message}`);
     process.exit(1);
   });
 }
