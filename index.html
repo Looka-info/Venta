@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Venta: a systems language that compiles in 0.24 seconds</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#000;--fg:#ededed;--mut:#8f8f8f;--line:#242424;--card:#000;--hi:#fff;--err:#ff4d4d;--ok:#3ecf8e;
+  --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);background:#000}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);background-image:linear-gradient(#121212 1px,transparent 1px),linear-gradient(90deg,#121212 1px,transparent 1px);background-size:72px 72px;color:var(--fg);font:400 16px/1.55 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.wrap{padding:0 clamp(20px,5vw,72px)}
+.mono{font-family:var(--mono)}
+.mut{color:var(--mut)}
+
+nav{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:calc(14px + env(safe-area-inset-top,0px)) clamp(20px,5vw,72px) 14px;mix-blend-mode:difference}
+nav b{font-weight:800;letter-spacing:-.03em;font-size:18px}
+nav a{font-size:14px;text-decoration:none;color:#fff}
+
+.hero{min-height:100vh;min-height:100svh;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:clamp(28px,6vh,64px);position:relative;overflow:hidden}
+.hero h1{margin:0;font-weight:800;font-size:clamp(88px,29vw,520px);line-height:.78;letter-spacing:-.07em;display:flex;margin-left:-.04em}
+.hero h1 .m{display:block;overflow:hidden;padding-bottom:.08em}
+.hero h1 .m span{display:block;transform:translateY(105%)}
+.hero .row{display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-end;justify-content:space-between;margin-top:clamp(24px,5vh,56px)}
+.hero p{margin:0;max-width:34ch;font-size:clamp(18px,2vw,24px);line-height:1.3;letter-spacing:-.02em}
+.cmd{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:8px;padding:10px 12px 10px 16px;font:500 14px var(--mono);background:#000}
+.cmd button,.btn{font:500 14px var(--sans);border:0;border-radius:6px;padding:8px 14px;cursor:pointer;background:#fff;color:#000}
+.cmd button:hover,.btn:hover{background:#d4d4d4}
+.btn{display:inline-block;text-decoration:none;padding:14px 22px;font-size:16px;border-radius:8px}
+.btn.o{background:#000;color:#fff;border:1px solid #333}
+.btn.o:hover{background:#111}
+.glow{position:absolute;left:50%;top:-10%;width:90vw;height:60vh;transform:translateX(-50%);background:radial-gradient(ellipse at center,rgba(255,255,255,.1),transparent 65%);pointer-events:none}
+
+.stmt{height:100vh;height:100svh;display:grid;place-items:center;position:relative;border-top:1px solid var(--line)}
+.stmt .w{position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-weight:800;font-size:clamp(52px,13vw,260px);line-height:.9;letter-spacing:-.06em;padding:0 5vw;opacity:0}
+.stmt .w i{font-style:normal;color:#555}
+
+.mq{border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;padding:18px 0;white-space:nowrap}
+.mq div{display:inline-block;font-weight:800;font-size:clamp(40px,8vw,120px);letter-spacing:-.05em;line-height:1;color:transparent;-webkit-text-stroke:1px #444}
+.mq div span{margin-right:.5em}
+
+.hs{overflow:hidden;position:relative}
+.hs .head{position:absolute;z-index:3;top:calc(76px + env(safe-area-inset-top,0px));left:clamp(20px,5vw,72px);right:clamp(20px,5vw,72px);display:flex;justify-content:space-between;color:var(--mut);font-size:14px;pointer-events:none}
+.track{display:flex;height:100vh;height:100svh;width:max-content;will-change:transform}
+.p{flex:0 0 auto;width:min(78vw,1000px);height:100%;display:flex;flex-direction:column;justify-content:flex-end;padding:0 clamp(24px,4vw,64px) clamp(56px,10vh,110px);border-left:1px solid var(--line)}
+.p.intro{width:min(86vw,900px);border-left:0;padding-left:clamp(20px,5vw,72px)}
+.p h3{margin:0 0 20px;font-weight:800;font-size:clamp(56px,11vw,190px);line-height:.85;letter-spacing:-.06em}
+.p h3 small{display:block;font-size:.34em;letter-spacing:-.04em;color:#555;margin-top:.2em;font-weight:600}
+.p p{margin:0;max-width:40ch;color:var(--mut);font-size:clamp(16px,1.6vw,21px);line-height:1.4}
+.bar{position:absolute;left:0;bottom:0;height:2px;background:#fff;width:100%;transform:scaleX(0);transform-origin:0 50%;z-index:4}
+html.rm .track{overflow-x:auto;width:auto;height:auto;min-height:100vh}
+html.rm .hs .bar,html.rm .hs .head{display:none}
+
+.sec{padding:clamp(56px,9vh,110px) 0;border-top:1px solid var(--line)}
+.sec h2{margin:0 0 clamp(32px,6vh,72px);font-weight:800;font-size:clamp(44px,9vw,150px);line-height:.88;letter-spacing:-.06em;max-width:14ch}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,6vw,96px);align-items:start}
+.bars{display:grid;gap:18px}
+.br .l{display:flex;justify-content:space-between;font:500 14px var(--mono);margin-bottom:8px}
+.br .t{height:10px;background:#111;border-radius:99px;overflow:hidden}
+.br .f{height:100%;width:100%;background:#fff;border-radius:99px;transform:scaleX(0);transform-origin:0 50%}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:14px 12px 14px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:500}
+td.v{font:500 15px var(--mono);color:var(--hi)}
+.note{margin-top:20px;font-size:13px;color:var(--mut);max-width:60ch}
+
+.code{border:1px solid var(--line);border-radius:12px;background:#000;overflow-x:auto}
+.code .bt{display:flex;gap:7px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.code .bt i{width:11px;height:11px;border-radius:50%;background:#2a2a2a}
+.code pre{margin:0;padding:22px 22px 26px;font:400 clamp(13px,1.5vw,17px)/1.75 var(--mono);min-width:max-content}
+.ln{display:block;opacity:.18}
+.k{color:#ff7ab6}.t{color:#7cc4ff}.s{color:#9ae6b4}.c{color:#666}
+.bad{background:rgba(255,77,77,.12);box-shadow:inset 2px 0 0 var(--err)}
+.err{color:var(--err)}
+
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.st{padding:clamp(20px,3vw,36px);border-right:1px solid var(--line)}
+.st:last-child{border-right:0}
+.st h4{margin:0 0 6px;font-size:clamp(24px,3vw,40px);letter-spacing:-.04em;font-weight:800}
+.st p{margin:0 0 20px;color:var(--mut);font-size:15px}
+
+.p{position:relative;overflow:hidden}
+.p::before{position:absolute;top:calc(110px + env(safe-area-inset-top,0px));left:clamp(20px,3vw,48px);font-weight:800;font-size:clamp(90px,17vw,280px);line-height:1;letter-spacing:-.07em;color:transparent;-webkit-text-stroke:1px #2c2c2c;pointer-events:none}
+.p:nth-child(2)::before{content:"build"}.p:nth-child(3)::before{content:"ship"}.p:nth-child(4)::before{content:"safe"}.p:nth-child(5)::before{content:"opt"}.p:nth-child(6)::before{content:"json"}
+
+.pipe{border-top:1px solid var(--line)}
+.pipe .in{height:100vh;height:100svh;display:grid;grid-template-columns:1.4fr 1fr;gap:clamp(24px,5vw,80px);align-items:end;padding-top:90px;padding-bottom:clamp(28px,6vh,64px)}
+#pn{font-weight:800;font-size:clamp(52px,10vw,190px);line-height:.85;letter-spacing:-.06em}
+#pd{max-width:36ch;color:var(--mut);font-size:clamp(16px,1.7vw,22px);line-height:1.35;margin:20px 0 0}
+#pl{list-style:none;margin:0;padding:0;border-top:1px solid var(--line);background:#000}
+#pl li{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line);color:#4a4a4a;font:500 15px var(--mono);transition:color .25s,padding .25s}
+#pl li.on{color:#fff;padding-left:12px}
+#pl li.done{color:#9a9a9a}
+#pl li.done::after{content:"✓"}
+
+.opt{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.opt div{padding:clamp(16px,2vw,28px);border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:clamp(120px,19vh,190px);display:flex;flex-direction:column;justify-content:space-between;background:#000;color:#fff;transition:background .2s,color .2s}
+.opt b{font-size:clamp(20px,2.5vw,36px);letter-spacing:-.04em;font-weight:800;line-height:1}
+.opt span{font-size:13px;color:var(--mut);transition:color .2s}
+.opt div.lit{background:#fff;color:#000}.opt div.lit span{color:#444}
+
+.eco{display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.eco div{grid-column:span 2;padding:clamp(20px,3vw,40px);border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:clamp(220px,36vh,340px);display:flex;flex-direction:column;justify-content:space-between;background:#000}
+.eco .w3{grid-column:span 3}
+.eco b{font-size:clamp(52px,8vw,140px);letter-spacing:-.07em;font-weight:800;line-height:.88}
+.eco h4{margin:0 0 6px;font-size:clamp(18px,1.9vw,26px);letter-spacing:-.03em}
+.eco p{margin:0;color:var(--mut);font-size:15px;max-width:40ch}
+@media(max-width:820px){.pipe .in{grid-template-columns:1fr;align-content:end;gap:20px}#pl li{padding:7px 0;font-size:13px}.opt{grid-template-columns:repeat(2,1fr)}.eco div,.eco .w3{grid-column:span 6}}
+
+.code .bt{align-items:center}
+.tabs{display:flex;gap:4px;margin-left:12px;overflow-x:auto}
+.tab{font:500 13px var(--mono);background:none;border:0;color:#777;padding:3px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.tab:hover{color:#fff}
+.tab[aria-selected=true]{background:#1a1a1a;color:#fff}
+.stat{display:flex;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line);font:500 13px var(--mono);color:#a1a1a1;min-width:max-content}
+.stat .d{width:8px;height:8px;border-radius:50%;background:var(--err)}
+.stat.ok .d{background:var(--ok)}.stat.n .d{background:#777}
+.gl{list-style:none;margin:28px 0 0;padding:0;border-top:1px solid var(--line);background:#000}
+.gl li{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;padding:16px 0;border-bottom:1px solid var(--line)}
+.gl b{font-size:clamp(24px,3.4vw,48px);letter-spacing:-.05em;line-height:1;font-weight:800}
+.gl span{color:var(--mut);font-size:14px;text-align:right}
+
+.sx{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-left:1px solid var(--line);margin-bottom:clamp(32px,6vh,72px)}
+.sx div{padding:clamp(20px,3vw,40px);border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:#000}
+.sx b{display:block;font-size:clamp(64px,11vw,190px);font-weight:800;letter-spacing:-.07em;line-height:.85}
+.sx p{margin:14px 0 0;color:var(--mut);max-width:30ch}
+.rx{border:1px solid var(--line);border-radius:12px;background:#000;padding:clamp(18px,3vw,36px);margin-bottom:clamp(32px,6vh,72px)}
+.rh{display:flex;justify-content:space-between;gap:10px 32px;flex-wrap:wrap;align-items:baseline;margin-bottom:18px}
+.rh h3,.sh{margin:0;font-size:clamp(22px,2.6vw,36px);letter-spacing:-.04em;line-height:1.05}
+.rh p{margin:0;color:var(--mut);font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.chip{font:500 13px var(--mono);color:#a1a1a1;background:#000;border:1px solid #2a2a2a;border-radius:99px;padding:6px 12px;cursor:pointer}
+.chip:hover{border-color:#666;color:#fff}
+.chip[aria-pressed=true]{background:#fff;color:#000;border-color:#fff}
+.rr{display:grid;grid-template-columns:96px 1fr 92px;gap:14px;align-items:center;margin:12px 0;font:500 14px var(--mono)}
+.rr .t{height:18px;background:#0e0e0e;border-radius:4px;overflow:hidden}
+.rr .f{height:100%;width:0;border-radius:4px;transition:width .55s cubic-bezier(.2,.8,.2,1)}
+.rr.v .f{background:#fff}.rr.g .f{background:#707070}.rr.r .f{background:#3d3d3d}
+.rr .n{text-align:right}
+#rv{margin:18px 0 0;font-size:clamp(16px,1.8vw,22px);letter-spacing:-.02em;line-height:1.3;max-width:62ch;min-height:2.6em}
+@media(max-width:820px){.sx{grid-template-columns:1fr}.rr{grid-template-columns:72px 1fr 78px;gap:10px;font-size:12px}}
+
+.fin{padding:clamp(80px,16vh,200px) 0 40px;border-top:1px solid var(--line);overflow:hidden}
+.fin h2{margin:0 0 40px;font-weight:800;font-size:clamp(60px,17vw,330px);line-height:.82;letter-spacing:-.07em}
+.fin .acts{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:clamp(48px,10vh,120px)}
+.fin small{color:var(--mut);font-size:13px;display:block}
+
+@media(max-width:820px){
+  .grid{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr}
+  .st{border-right:0;border-bottom:1px solid var(--line)}
+  .st:last-child{border-bottom:0}
+  .p{width:86vw}
+}
+@media(prefers-reduced-motion:reduce){.hero h1 .m span{transform:none}.stmt .w{opacity:1;position:static}.stmt{height:auto;padding:80px 0}}
+</style>
+</head>
+<body>
+<nav><b>Venta</b><a href="https://github.com/Looka-info/Venta">GitHub</a></nav>
+<header class="hero wrap"><div class="glow"></div><h1 id="big" aria-label="Venta"></h1><div class="row"><p>A memory-safe systems language with its own optimizer and native x86-64 backend. No LLVM.</p><div class="cmd"><span>npm i -g vanta-lang</span><button data-copy="npm i -g vanta-lang">Copy</button></div></div></header>
+<section class="stmt" id="stmt" aria-label="What Venta is"><div class="w">No garbage<br><i>collector.</i></div><div class="w">No LLVM.<br><i>No Cranelift.</i></div><div class="w">Binaries<br><i>of 22 KB.</i></div></section>
+<div class="mq" aria-hidden="true"><div id="mq"><span>ownership</span><span>borrowing</span><span>SSA</span><span>x86-64</span><span>ELF64</span><span>self-hosted</span><span>ownership</span><span>borrowing</span><span>SSA</span><span>x86-64</span><span>ELF64</span><span>self-hosted</span></div></div>
+<section class="hs" id="hs"><div class="head"><span>What you get</span><span>Scroll sideways</span></div><div class="track" id="track"><div class="p intro"><h3>Fast<br>to build.<br>Small<br>to ship.</h3><p>Venta compiles to a standalone native executable across Linux, Windows, and macOS with a toolchain written in Rust and in Venta itself.</p></div><div class="p"><h3>0.24s<small>typical compile</small></h3><p>About 8x faster than rustc at -O3 on the same workloads (1.91 s), and close to GCC (0.28 s).</p></div><div class="p"><h3>22 KB<small>native ELF</small></h3><p>Standalone binaries around 22.5 KB, against roughly 11.8 MB for a Rust release build.</p></div><div class="p"><h3>Safe<small>without a GC</small></h3><p>Affine ownership, moves, and lexical borrow checking catch use-after-free and data races at compile time.</p></div><div class="p"><h3>14<small>optimizer passes</small></h3><p>Inlining, SROA, GVN, SCCP, LICM, loop unrolling, tail-call optimization, and trace-based block layout, each switchable from the CLI.</p></div><div class="p"><h3>JSON<small>diagnostics</small></h3><p>Pass --json to check, compile, or run and get machine-readable errors for editors, CI, and AI pair programmers.</p></div></div><div class="bar" id="hbar"></div></section>
+<section class="sec wrap" id="code"><h2>Mistakes fail at compile time.</h2><div class="grid"><div><p style="font-size:clamp(18px,2vw,26px);line-height:1.3;letter-spacing:-.02em;max-width:30ch;margin:0 0 16px">Move a value, then touch it, and Venta stops the build with error E0301.</p><p class="mut" style="max-width:44ch;margin:0">All of it is checked before a binary exists, with zero runtime overhead and no garbage collector.</p><ul class="gl"><li><b>Use after free</b><span>Rejected at compile time</span></li><li><b>Dangling pointers</b><span>Rejected at compile time</span></li><li><b>Data races</b><span>Rejected at compile time</span></li></ul><p class="mut" style="font-size:14px;margin:18px 0 0">Scroll to read the example, or switch tabs.</p></div><div class="code" role="group" aria-label="Venta code examples"><div class="bt"><i></i><i></i><i></i><div class="tabs" id="tabs"><button class="tab" type="button" aria-selected="true">Move error</button><button class="tab" type="button" aria-selected="false">Fixed</button><button class="tab" type="button" aria-selected="false">Enums</button><button class="tab" type="button" aria-selected="false">Traits</button></div></div><pre id="pre"><span class="ln"><span class="k">struct</span> Buffer { capacity: <span class="t">i64</span>, size: <span class="t">i64</span> }</span>
+<span class="ln"> </span>
+<span class="ln"><span class="k">fn</span> process_buffer(b: &amp;Buffer) -&gt; <span class="t">i64</span> {</span>
+<span class="ln">    <span class="k">return</span> b.size;</span>
+<span class="ln">}</span>
+<span class="ln"> </span>
+<span class="ln"><span class="k">fn</span> consume_buffer(b: Buffer) { }</span>
+<span class="ln"> </span>
+<span class="ln"><span class="k">fn</span> main() -&gt; <span class="t">i64</span> {</span>
+<span class="ln">    <span class="k">let</span> buf = Buffer { capacity: <span class="t">1024</span>, size: <span class="t">42</span> };</span>
+<span class="ln">    <span class="k">let</span> s = process_buffer(&amp;buf);   <span class="c">// borrow: buf still valid</span></span>
+<span class="ln">    consume_buffer(buf);            <span class="c">// move: ownership transferred</span></span>
+<span class="ln bad">    consume_buffer(buf);            <span class="err">// E0301: use of moved value</span></span>
+<span class="ln">    <span class="k">return</span> s;</span>
+<span class="ln">}</span></pre><pre id="p1" hidden><span class="k">struct</span> Buffer { capacity: <span class="t">i64</span>, size: <span class="t">i64</span> }
+
+<span class="k">fn</span> process_buffer(b: &amp;Buffer) -&gt; <span class="t">i64</span> {
+    <span class="k">return</span> b.size;
+}
+
+<span class="k">fn</span> consume_buffer(b: Buffer) { }
+
+<span class="k">fn</span> main() -&gt; <span class="t">i64</span> {
+    <span class="k">let</span> buf = Buffer { capacity: <span class="t">1024</span>, size: <span class="t">42</span> };
+    <span class="k">let</span> s = process_buffer(&amp;buf);   <span class="c">// borrow: buf still valid</span>
+    consume_buffer(buf);            <span class="c">// move: ownership transferred</span>
+    <span class="k">return</span> s;
+}</pre><pre id="p2" hidden><span class="k">enum</span> ResultStatus {
+    Success(<span class="t">i64</span>),
+    Failure(<span class="t">i64</span>),
+    Pending,
+}
+
+<span class="k">fn</span> evaluate(res: ResultStatus) -&gt; <span class="t">i64</span> {
+    <span class="k">match</span> res {
+        ResultStatus::Success(val) =&gt; { <span class="k">return</span> val; }
+        ResultStatus::Failure(err_code) =&gt; { <span class="k">return</span> -err_code; }
+        ResultStatus::Pending =&gt; { <span class="k">return</span> <span class="t">0</span>; }
+    }
+}</pre><pre id="p3" hidden><span class="k">trait</span> Formatter {
+    <span class="k">fn</span> format(self: &amp;Self) -&gt; <span class="t">i64</span>;
+}
+
+<span class="k">struct</span> Metric { value: <span class="t">i64</span> }
+
+<span class="k">impl</span> Formatter <span class="k">for</span> Metric {
+    <span class="k">fn</span> format(self: &amp;Self) -&gt; <span class="t">i64</span> {
+        <span class="k">return</span> self.value * <span class="t">10</span>;
+    }
+}</pre><div class="stat" id="stat"><span class="d"></span><span id="stx">error E0301: use of moved value</span></div></div></div></section>
+<section class="sec wrap" id="bench"><h2>Where it wins. Where it doesn’t.</h2><div class="sx"><div><b><span class="cnt" data-to="8" data-d="0">8</span>x</b><p>faster to compile than rustc -O3. 0.24 s against 1.91 s.</p></div><div><b><span class="cnt" data-to="520" data-d="0">520</span>x</b><p>smaller than a Rust release binary. 22.5 KB against 11.8 MB.</p></div><div><b>0</b><p>external backends. No LLVM, no Cranelift, no GCC backend.</p></div></div><div class="rx"><div class="rh"><h3>Runtime, workload by workload</h3><p id="sb"></p></div><div class="chips" id="chips" role="group" aria-label="Pick a workload"></div><div id="rb"><div class="rr v"><span>Venta -O1</span><div class="t"><div class="f"></div></div><span class="n"></span></div><div class="rr g"><span>GCC -O3</span><div class="t"><div class="f"></div></div><span class="n"></span></div><div class="rr r"><span>Rust -O3</span><div class="t"><div class="f"></div></div><span class="n"></span></div></div><p id="rv" aria-live="polite"></p></div><div class="grid"><div class="bars" id="bars"><h3 class="sh">What the optimizer buys you</h3><div class="br" data-v="4.19"><div class="l"><span>Unroll and peel</span><span>4.19x</span></div><div class="t"><div class="f"></div></div></div><div class="br" data-v="2.61"><div class="l"><span>SROA</span><span>2.61x</span></div><div class="t"><div class="f"></div></div></div><div class="br" data-v="2.49"><div class="l"><span>LICM</span><span>2.49x</span></div><div class="t"><div class="f"></div></div></div><div class="br" data-v="1.87"><div class="l"><span>CSE and GVN</span><span>1.87x</span></div><div class="t"><div class="f"></div></div></div><div class="br" data-v="1.85"><div class="l"><span>Inlining, leaf calls</span><span>1.85x</span></div><div class="t"><div class="f"></div></div></div><div class="br" data-v="1.49"><div class="l"><span>Tail-call optimization</span><span>1.49x</span></div><div class="t"><div class="f"></div></div></div><p class="note" style="margin:6px 0 0">Speedup of Venta -O1 over Venta -O0.</p></div><div><h3 class="sh" style="margin-bottom:14px">Compile time and size</h3><table><tr><th></th><th>Venta</th><th>Rust -O3</th><th>GCC -O3</th></tr><tr><th>Compile</th><td class="v"><span class="cnt" data-to="0.24" data-d="2">0.24</span> s</td><td class="v">1.91 s</td><td class="v">0.28 s</td></tr><tr><th>Binary</th><td class="v"><span class="cnt" data-to="22.5" data-d="1">22.5</span> KB</td><td class="v">11.8 MB</td><td class="v">16.0 KB</td></tr><tr><th>Backend</th><td class="v">None</td><td class="v">LLVM</td><td class="v">GCC</td></tr></table><p class="note">Runtime is a different story: GCC and Rust -O3 are faster than Venta on most workloads in the same suite. Venta’s edge is build time, binary size, and a toolchain with no external backend. Source: benchmarks/results/milestone-25-release-audit.json, AMD x86-64, Linux 6.6.</p></div></div></section>
+<section class="pipe" id="pipe" aria-label="Compiler pipeline"><div class="in wrap"><div><div id="pn">Source</div><p id="pd">Your Venta code, in a plain .va file.</p></div><ol id="pl"><li data-d="Your Venta code, in a plain .va file.">Source</li><li data-d="Scans the text into tokens.">Lexer</li><li data-d="Recursive descent with precedence climbing builds the syntax tree.">Parser</li><li data-d="Type checks the program and enforces affine borrowing at compile time.">Borrow checker</li><li data-d="Lowers to a control-flow graph in static single assignment form.">SSA MIR</li><li data-d="Fourteen verified passes rewrite the MIR for speed.">Optimizer</li><li data-d="A linear-scan allocator assigns physical registers.">Register allocator</li><li data-d="Machine code is encoded directly. No assembler, no LLVM.">x86-64 encoder</li><li data-d="A relocatable object file is written by the Rust toolchain itself.">ELF64 writer</li><li data-d="Linked with a small C runtime into a native executable of about 22.5 KB.">Native binary</li></ol></div></section>
+<section class="sec wrap" id="opt"><h2>Fourteen passes, one sweep.</h2><div class="opt"><div><b>Inlining</b><span>Small and leaf callees fold into callers.</span></div><div><b>SROA</b><span>Splits stack aggregates into scalars.</span></div><div><b>GVN / CSE</b><span>Removes repeated computations.</span></div><div><b>SCCP</b><span>Propagates constants through branches.</span></div><div><b>LICM</b><span>Hoists loop-invariant work out of loops.</span></div><div><b>IVO</b><span>Canonicalizes induction variables.</span></div><div><b>LSR</b><span>Turns costly operations into recurrences.</span></div><div><b>Loop peeling</b><span>Splits off the first iterations.</span></div><div><b>Loop unrolling</b><span>Repeats loop bodies 2x or 4x.</span></div><div><b>Global DCE</b><span>Drops code that nothing uses.</span></div><div><b>Scheduling</b><span>Reorders instructions by latency.</span></div><div><b>TCO</b><span>Self tail calls become loops.</span></div><div><b>Branch inversion</b><span>Favors fall-through jumps.</span></div><div><b>Trace layout</b><span>Orders blocks for the cache.</span></div><div><b>Verify in</b><span>Checks MIR invariants before optimizing.</span></div><div><b>Verify out</b><span>Re-checks the MIR after optimizing.</span></div></div><p class="note">Every pass can be turned off from the CLI, for example --no-licm or --unroll-factor=4.</p></section>
+<section class="sec wrap" id="eco"><h2>Written in Venta.</h2><div class="eco"><div class="w3"><b>86 KB</b><div><h4>VentaNext</h4><p>A Next.js-style framework in pure Venta: routing, server-side rendering, JSON API routes, and middleware, as one native binary.</p></div></div><div class="w3"><b>37 KB</b><div><h4>HTTP server</h4><p>This showcase’s own server is pure Venta on std::net, with no C dependencies.</p></div></div><div><b>.va</b><div><h4>VS Code</h4><p>Grammar, brackets, and gold lightning file icons.</p></div></div><div><b>npm</b><div><h4>vanta-lang</h4><p>Install the vanta and vantac commands globally.</p></div></div><div><b>100%</b><div><h4>Self-hosted</h4><p>A compiler written in Venta that emits System V AMD64 assembly.</p></div></div></div></section>
+<section class="sec wrap" id="start"><h2>Run your first program.</h2><div class="steps"><div class="st"><h4>Install</h4><p>From npm. A shell installer and release tarballs also work.</p><div class="cmd"><span>npm i -g vanta-lang</span><button data-copy="npm i -g vanta-lang">Copy</button></div></div><div class="st"><h4>Check</h4><p>Type check and borrow check without compiling.</p><div class="cmd"><span>vanta check src/main.va</span><button data-copy="vanta check src/main.va">Copy</button></div></div><div class="st"><h4>Run</h4><p>Compile at -O1 and execute in one step.</p><div class="cmd"><span>vanta run src/main.va</span><button data-copy="vanta run src/main.va">Copy</button></div></div></div></section>
+<footer class="fin wrap"><h2>Build fast.</h2><div class="acts"><a class="btn" href="https://github.com/Looka-info/Venta">View on GitHub</a><a class="btn o" href="https://github.com/Looka-info/Venta/releases">Download v1.0-RC2</a></div><small>MIT or Apache-2.0. Multi-Platform: Linux x86-64, Windows x86-64, macOS Apple Silicon.</small></footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(function(){
+  var rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var big = document.getElementById("big");
+  "Venta".split("").forEach(function(ch){
+    var m=document.createElement("span");m.className="m";var s=document.createElement("span");s.textContent=ch;m.appendChild(s);big.appendChild(m);
+  });
+  document.querySelectorAll("[data-copy]").forEach(function(b){
+    b.addEventListener("click",function(){
+      var t=b.getAttribute("data-copy");
+      try{navigator.clipboard.writeText(t)}catch(e){}
+      b.textContent="Copied";setTimeout(function(){b.textContent="Copy"},1400);
+    });
+  });
+
+  /* code tabs */
+  var tabs=document.querySelectorAll("#tabs .tab"),panes=["pre","p1","p2","p3"].map(function(id){return document.getElementById(id)}),stat=document.getElementById("stat"),stx=document.getElementById("stx");
+  var ST=[["","error E0301: use of moved value"],["ok","Compiles: one borrow, then one move"],["n","Algebraic data types with payloads, taken apart with match"],["n","Traits with zero-cost polymorphism"]];
+  tabs.forEach(function(t,i){t.addEventListener("click",function(){
+    panes.forEach(function(p,k){p.hidden=k!==i});
+    tabs.forEach(function(b,k){b.setAttribute("aria-selected",k===i?"true":"false")});
+    stat.className="stat "+ST[i][0];stx.textContent=ST[i][1];
+    if(window.ScrollTrigger)ScrollTrigger.refresh();
+  })});
+
+  /* runtime explorer (median ms, lower is better: Venta -O1, GCC -O3, Rust -O3) */
+  var D={unroll_peel:[19.36,6.12,7.89],sroa:[29.75,6.03,7.86],licm:[112.23,58.96,83.03],cse:[46.40,30.67,30.80],inline_leaf:[43.47,20.99,19.52],lsr:[45.98,5.69,7.90],tco:[42.70,37.00,43.83],reg_pressure:[34.88,23.03,19.23],inline_loop:[7.37,5.97,8.04],arith_tree:[15.16,12.35,13.44],collatz:[310.75,76.83,59.89],points:[11.76,9.42,11.72],vec_churn:[21.54,7.17,9.81],string_growth:[6.24,6.31,8.25],fib:[335.86,91.88,95.62]};
+  var names=Object.keys(D),chipBox=document.getElementById("chips"),rrs=document.querySelectorAll("#rb .rr"),rv=document.getElementById("rv"),sb=document.getElementById("sb");
+  var wr=0,wg=0;names.forEach(function(n){if(D[n][0]<D[n][2])wr++;if(D[n][0]<D[n][1])wg++});
+  sb.textContent="Venta beats Rust on "+wr+" of "+names.length+" workloads and GCC on "+wg+".";
+  function cmp(x,who){if(x<.97)return (1/x).toFixed(1)+"x faster than "+who;if(x>1.03)return x.toFixed(1)+"x slower than "+who;return "level with "+who}
+  function show(n){
+    var d=D[n],mx=Math.max.apply(null,d);
+    rrs.forEach(function(r,i){r.querySelector(".f").style.width=(d[i]/mx*100)+"%";r.querySelector(".n").textContent=d[i].toFixed(2)+" ms"});
+    rv.textContent=n+": Venta is "+cmp(d[0]/d[1],"GCC")+" and "+cmp(d[0]/d[2],"Rust")+".";
+    chipBox.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed",c.textContent===n?"true":"false")});
+  }
+  names.forEach(function(n){var b=document.createElement("button");b.className="chip";b.type="button";b.textContent=n;b.setAttribute("aria-pressed","false");b.addEventListener("click",function(){show(n)});chipBox.appendChild(b)});
+  if("IntersectionObserver" in window){var io=new IntersectionObserver(function(e){if(e[0].isIntersecting){show("fib");io.disconnect()}},{threshold:.4});io.observe(document.getElementById("rb"))}else{show("fib")}
+
+  if(rm){
+    document.documentElement.classList.add("rm");
+    document.querySelectorAll(".br .f").forEach(function(f,i){f.style.transform="scaleX("+(parseFloat(f.parentNode.parentNode.dataset.v)/4.19)+")"});
+    document.querySelectorAll(".ln").forEach(function(l){l.style.opacity=1});
+    return;
+  }
+  if(!window.gsap||!window.ScrollTrigger){return}
+  gsap.registerPlugin(ScrollTrigger);
+
+  try{
+    var lenis=new Lenis({lerp:.09});
+    lenis.on("scroll",ScrollTrigger.update);
+    gsap.ticker.add(function(t){lenis.raf(t*1000)});
+    gsap.ticker.lagSmoothing(0);
+  }catch(e){}
+
+  /* hero: one orchestrated reveal */
+  gsap.to("#big .m span",{y:0,duration:1.3,ease:"expo.out",stagger:.09,delay:.15});
+  gsap.to("#big",{yPercent:-12,ease:"none",scrollTrigger:{trigger:".hero",start:"top top",end:"bottom top",scrub:true}});
+
+  /* statements, pinned */
+  var ws=gsap.utils.toArray("#stmt .w");
+  var tl=gsap.timeline({scrollTrigger:{trigger:"#stmt",start:"top top",end:"+=220%",pin:true,scrub:.6}});
+  ws.forEach(function(w,i){
+    tl.fromTo(w,{opacity:0,yPercent:18,filter:"blur(12px)"},{opacity:1,yPercent:0,filter:"blur(0px)",duration:1,ease:"power2.out"});
+    if(i<ws.length-1){tl.to(w,{opacity:0,yPercent:-18,filter:"blur(12px)",duration:1,ease:"power2.in"},"+=.6")}
+  });
+
+  /* marquee driven by scroll */
+  gsap.to("#mq",{xPercent:-45,ease:"none",scrollTrigger:{trigger:".mq",start:"top bottom",end:"bottom top",scrub:true}});
+
+  /* horizontal scroll */
+  var track=document.getElementById("track");
+  var dist=function(){return Math.max(0,track.scrollWidth-window.innerWidth)};
+  gsap.to(track,{x:function(){return -dist()},ease:"none",scrollTrigger:{trigger:"#hs",start:"top top",end:function(){return "+="+dist()},pin:true,scrub:.8,invalidateOnRefresh:true,anticipatePin:1}});
+  gsap.to("#hbar",{scaleX:1,ease:"none",scrollTrigger:{trigger:"#hs",start:"top top",end:function(){return "+="+dist()},scrub:true,invalidateOnRefresh:true}});
+
+  /* code lines light up while pinned */
+  var lines=gsap.utils.toArray("#pre .ln");
+  var ctl=gsap.timeline({scrollTrigger:{trigger:"#code .code",start:"top 70%",end:"bottom 35%",scrub:.5}});
+  lines.forEach(function(l){ctl.to(l,{opacity:1,duration:1,ease:"none"})});
+
+  /* bars + counters */
+  gsap.utils.toArray(".br").forEach(function(b,i){
+    var v=parseFloat(b.dataset.v)/4.19;
+    gsap.to(b.querySelector(".f"),{scaleX:v,duration:1.2,ease:"power3.out",delay:i*.05,scrollTrigger:{trigger:"#bars",start:"top 80%",once:true}});
+  });
+  gsap.utils.toArray(".cnt").forEach(function(c){
+    var to=parseFloat(c.dataset.to),d=parseInt(c.dataset.d,10),o={v:0};
+    gsap.to(o,{v:to,duration:1.6,ease:"power2.out",scrollTrigger:{trigger:c,start:"top 85%",once:true},onUpdate:function(){c.textContent=o.v.toFixed(d)}});
+  });
+
+  /* pipeline, pinned */
+  var pl=gsap.utils.toArray("#pl li"),pn=document.getElementById("pn"),pd=document.getElementById("pd"),cur=-1;
+  function setP(i){
+    if(i===cur)return;cur=i;
+    pl.forEach(function(li,k){li.classList.toggle("on",k===i);li.classList.toggle("done",k<i)});
+    pn.textContent=pl[i].firstChild.textContent;pd.textContent=pl[i].dataset.d;
+    gsap.fromTo([pn,pd],{yPercent:14,opacity:0},{yPercent:0,opacity:1,duration:.4,ease:"power3.out",overwrite:true});
+  }
+  setP(0);
+  ScrollTrigger.create({trigger:"#pipe",start:"top top",end:"+=320%",pin:true,onUpdate:function(s){setP(Math.min(pl.length-1,Math.floor(s.progress*pl.length)))}});
+
+  /* optimizer sweep */
+  var cells=gsap.utils.toArray(".opt div");
+  ScrollTrigger.create({trigger:".opt",start:"top 75%",end:"bottom 40%",scrub:true,onUpdate:function(s){var n=Math.max(1,Math.round(s.progress*cells.length));cells.forEach(function(c,i){c.classList.toggle("lit",s.progress>0&&i===n-1)})}});
+
+  /* footer headline */
+  gsap.from(".fin h2",{yPercent:30,opacity:0,ease:"none",scrollTrigger:{trigger:".fin",start:"top 90%",end:"top 40%",scrub:true}});
+
+  var refresh=function(){ScrollTrigger.refresh()};
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(refresh)}
+  window.addEventListener("load",refresh);
+})();
+</script>
+</body>
+</html>

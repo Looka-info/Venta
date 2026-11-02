@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none">
+  <defs>
+    <!-- Ambient Gold Glow Filter for Dark Themes -->
+    <filter id="vanta-glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="0" stdDeviation="1.2" flood-color="#FFD700" flood-opacity="0.55"/>
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="#FF9100" flood-opacity="0.35"/>
+    </filter>
+
+    <!-- Top-Left Lit Facet Gradient -->
+    <linearGradient id="vanta-lit" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFDF0"/>
+      <stop offset="25%" stop-color="#FFE838"/>
+      <stop offset="60%" stop-color="#FFC000"/>
+      <stop offset="100%" stop-color="#FF9500"/>
+    </linearGradient>
+
+    <!-- Bottom-Right Shaded Facet Gradient -->
+    <linearGradient id="vanta-shade" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#FFB300"/>
+      <stop offset="35%" stop-color="#E67300"/>
+      <stop offset="70%" stop-color="#B84A00"/>
+      <stop offset="100%" stop-color="#662600"/>
+    </linearGradient>
+
+    <!-- Center Crease Specular Ridge -->
+    <linearGradient id="vanta-ridge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#FFF1A8" stop-opacity="0.8"/>
+      <stop offset="85%" stop-color="#FFB703" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FB8500" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- Chamfer Accent Gradient -->
+    <linearGradient id="vanta-chamfer" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF6C2"/>
+      <stop offset="100%" stop-color="#FFB703"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ambient Glow Layer -->
+  <g filter="url(#vanta-glow)">
+    <path d="M 25.4 2.5 L 18.3 13.1 L 25.0 14.1 L 6.0 29.5 L 7.4 18.8 L 13.4 19.4 Z" fill="url(#vanta-lit)"/>
+  </g>
+
+  <!-- Left/Upper 3D Facet (Brilliant Gold Highlight) -->
+  <path d="M 25.4 2.5 L 13.4 19.4 L 7.4 18.8 L 6.0 29.5 C 10.5 22.0 14.0 17.0 18.3 13.1 Z" fill="url(#vanta-lit)"/>
+
+  <!-- Right/Lower 3D Facet (Deep Metallic Amber Shadow) -->
+  <path d="M 25.4 2.5 L 18.3 13.1 L 25.0 14.1 L 6.0 29.5 C 14.0 17.0 10.5 22.0 18.3 13.1 Z" fill="url(#vanta-shade)"/>
+
+  <!-- Chamfer Shelf Highlight (Horizontal transition) -->
+  <path d="M 18.3 13.1 L 13.4 19.4" stroke="url(#vanta-chamfer)" stroke-width="0.6" stroke-linecap="round"/>
+
+  <!-- Center Crease Spine Highlight -->
+  <path d="M 25.4 2.5 L 16.5 15.6 L 6.0 29.5" stroke="url(#vanta-ridge)" stroke-width="0.85" stroke-linecap="round"/>
+</svg>
