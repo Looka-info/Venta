@@ -76,19 +76,32 @@ if [ -z "${SRC_BIN}" ]; then
     OS="$(uname -s)"
     ARCH="$(uname -m)"
 
-    if [ "${OS}" != "Linux" ] || [ "${ARCH}" != "x86_64" ]; then
-        echo "Error: Pre-compiled native Vanta binaries are built for Linux x86-64 (or Windows via WSL)."
+    TARGET=""
+    if [ "${OS}" = "Linux" ] && [ "${ARCH}" = "x86_64" ]; then
+        TARGET="x86_64-unknown-linux-gnu"
+    elif [ "${OS}" = "Darwin" ] && { [ "${ARCH}" = "arm64" ] || [ "${ARCH}" = "aarch64" ]; }; then
+        TARGET="aarch64-apple-darwin"
+    elif [ "${OS}" = "Linux" ] && { [ "${ARCH}" = "aarch64" ] || [ "${ARCH}" = "arm64" ]; }; then
+        TARGET="aarch64-unknown-linux-gnu"
+    elif [[ "${OS}" == MINGW* ]] || [[ "${OS}" == MSYS* ]] || [[ "${OS}" == CYGWIN* ]]; then
+        echo "For native Windows installation, please run in PowerShell:"
+        echo "    irm https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.ps1 | iex"
+        exit 1
+    else
+        echo "Error: Pre-compiled native Vanta binaries are supported for Linux x86-64 and macOS Apple Silicon (ARM64)."
         echo "Detected system: ${OS} (${ARCH})."
-        echo "Please build from source using: cargo build --release"
+        echo "For Windows native installation, run: scripts/install.ps1 in PowerShell."
+        echo "To build from source on this architecture: cargo build --release"
         exit 1
     fi
 
     echo "=========================================================="
     echo "  ⚡ Downloading Vanta Systems Language (${VERSION})...   "
+    echo "  Target: ${TARGET} (${OS} ${ARCH})                       "
     echo "=========================================================="
 
     CLEANUP_TMP="$(mktemp -d)"
-    TARBALL="vanta-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+    TARBALL="vanta-${VERSION}-${TARGET}.tar.gz"
     RELEASE_URL="https://github.com/Looka-info/Venta/releases/download/${VERSION}/${TARBALL}"
 
     if command -v curl >/dev/null 2>&1; then
@@ -197,8 +210,12 @@ case ":$PATH:" in
         echo "NOTE: ${BIN_DEST} is not currently in your PATH."
         echo "To add it permanently, run:"
         echo ""
-        echo "    echo 'export PATH=\"${BIN_DEST}:\$PATH\"' >> ~/.bashrc"
-        echo "    source ~/.bashrc"
+        SHELL_RC="~/.bashrc"
+        if [ "$(uname -s)" = "Darwin" ]; then
+            SHELL_RC="~/.zshrc"
+        fi
+        echo "    echo 'export PATH=\"${BIN_DEST}:\$PATH\"' >> ${SHELL_RC}"
+        echo "    source ${SHELL_RC}"
         echo ""
         ;;
 esac

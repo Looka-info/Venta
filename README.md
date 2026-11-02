@@ -280,7 +280,9 @@ Or run immediately without installing via `npx`:
 npx vanta-lang --version
 ```
 
-### Option 2: Universal 1-Line Shell Installer (`curl | bash`)
+### Option 2: Universal 1-Line Installers
+
+#### Linux & macOS (Apple Silicon):
 ```bash
 # Install to default directory (~/.local/bin)
 curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash
@@ -289,11 +291,34 @@ curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/insta
 curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.sh | bash -s -- --prefix /usr/local
 ```
 
-### Option 3: Pre-built Release Tarball (GitHub Releases)
+#### Windows (PowerShell):
+```powershell
+# Install to default directory (~/.vanta/bin)
+irm https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.ps1 | iex
+```
+
+### Option 3: Pre-built Release Archives (GitHub Releases)
+
+Standalone pre-compiled release packages are published for all supported tier-1 platforms:
+
+#### Linux x86-64:
 ```bash
 wget https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz
 tar -xzf vanta-v1.0-RC2-x86_64-unknown-linux-gnu.tar.gz
 cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
+```
+
+#### Windows x86-64:
+```powershell
+Invoke-WebRequest -Uri https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip -OutFile vanta-win.zip
+Expand-Archive vanta-win.zip -DestinationPath ~\.vanta
+```
+
+#### macOS Apple Silicon (ARM64):
+```bash
+curl -fsSL -O https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz
+tar -xzf vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz
+cd vanta-v1.0-RC2-aarch64-apple-darwin && ./install.sh
 ```
 
 ### Option 4: Build from Source
@@ -301,7 +326,12 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
 git clone https://github.com/Looka-info/Venta.git
 cd Venta
 cargo build --release --bin vantac --bin vanta
+
+# On Linux / macOS:
 ./scripts/install.sh
+
+# On Windows (PowerShell):
+.\scripts\install.ps1
 ```
 
 For custom prefixes and uninstallation steps, see the [Full Installation Guide](docs/installation.md).
@@ -315,7 +345,7 @@ For custom prefixes and uninstallation steps, see the [Full Installation Guide](
 - **Custom Frontend**: Handcrafted recursive descent parser with precedence climbing, strict semantic type checking, and compile-time affine borrow checking.
 - **Mid-Level IR (MIR)**: Static Single Assignment (SSA) form with control flow graphs (CFGs), basic blocks, and explicit terminator semantics.
 - **14-Pass Optimizer**: Inlining, Global Value Numbering (GVN), Dead Code Elimination (DCE), Loop Invariant Code Motion (LICM), Scalar Replacement of Aggregates (SROA), Loop Unrolling, Loop Peeling, Instruction Scheduling, Tail-Call Optimization (TCO), and Trace-Scheduled Machine Code Layout.
-- **Zero-Dependency Native Backend**: Linear-scan physical register allocator, direct x86-64 machine instruction encoder, and pure-Rust ELF64 relocatable object file writer.
+- **Zero-Dependency Multi-Platform Backends**: Linear-scan physical register allocators, direct x86-64 and Apple Silicon AArch64 machine instruction encoders, and pure-Rust object file writers for Linux ELF64, Windows PE/COFF, and macOS Mach-O 64.
 - **Modular Pure-Vanta Native Compiler**: A complete modular compiler and code generator written in 100% pure Vanta ([`compiler/`](compiler/) and [`tools/self_host/`](tools/self_host/)) capable of self-compilation to System V AMD64 assembly.
 
 ---
@@ -564,7 +594,7 @@ flowchart LR
         FRONT -->|Delegates to| BACKEND["Native Backend (backend.va)"]
         BACKEND -->|16-Byte Aligned FrameLayout| STACK["System V AMD64 Stack Manager"]
         BACKEND -->|BackendEmitter| ASM["Valid System V AMD64 Assembly (.s)"]
-        ASM -->|gcc -no-pie| PROG["Native Standalone Linux Executables"]
+        ASM -->|gcc or internal linker| PROG["Native Standalone Executables (Linux, Windows, macOS)"]
     end
 ```
 
@@ -837,7 +867,7 @@ vanta check src/main.va
 # Structured JSON diagnostics for IDEs and agentic tools
 vanta check src/main.va --json
 
-# Compile to native Linux executable with full optimizations (-O1)
+# Compile to native standalone executable with full optimizations (-O1)
 vanta compile src/main.va -O1 -o my_app
 
 # Compile and execute immediately

@@ -54,7 +54,7 @@ pub fn render_horizontal_track() -> Element {
     s.set_id("hs");
     s.add_raw("<div class=\"head\"><span>What you get</span><span>Scroll sideways</span></div>");
     s.add_raw("<div class=\"track\" id=\"track\">");
-    s.add_raw("<div class=\"p intro\"><h3>Fast<br>to build.<br>Small<br>to ship.</h3><p>Venta compiles to a standalone native Linux executable with a toolchain written in Rust and in Venta itself.</p></div>");
+    s.add_raw("<div class=\"p intro\"><h3>Fast<br>to build.<br>Small<br>to ship.</h3><p>Venta compiles to a standalone native executable across Linux, Windows, and macOS with a toolchain written in Rust and in Venta itself.</p></div>");
     s.add_raw("<div class=\"p\"><h3>0.24s<small>typical compile</small></h3><p>About 8x faster than rustc at -O3 on the same workloads (1.91 s), and close to GCC (0.28 s).</p></div>");
     s.add_raw("<div class=\"p\"><h3>22 KB<small>native ELF</small></h3><p>Standalone binaries around 22.5 KB, against roughly 11.8 MB for a Rust release build.</p></div>");
     s.add_raw("<div class=\"p\"><h3>Safe<small>without a GC</small></h3><p>Affine ownership, moves, and lexical borrow checking catch use-after-free and data races at compile time.</p></div>");
@@ -221,7 +221,7 @@ pub fn render_footer() -> Element {
     f.set_class("fin wrap");
     f.add_raw("<h2>Build fast.</h2>");
     f.add_raw("<div class=\"acts\"><a class=\"btn\" href=\"https://github.com/Looka-info/Venta\">View on GitHub</a><a class=\"btn o\" href=\"https://github.com/Looka-info/Venta/releases\">Download v1.0-RC2</a></div>");
-    f.add_raw("<small>MIT or Apache-2.0. Linux x86-64 and WSL2.</small>");
+    f.add_raw("<small>MIT or Apache-2.0. Multi-Platform: Linux x86-64, Windows x86-64, macOS Apple Silicon.</small>");
     f
 }
 
