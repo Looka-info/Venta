@@ -57,10 +57,12 @@ impl Mem2Reg {
         let mut next_val_id = func.max_value_id() + 1;
         let mut slot_phi_defs: HashMap<SlotId, HashMap<BlockId, ValueId>> = HashMap::new();
         let mut block_phis: HashMap<BlockId, Vec<(SlotId, ValueId, Type)>> = HashMap::new();
+        let param_slots: HashSet<SlotId> = func.params.iter().map(|(s, _)| *s).collect();
 
         for &slot_id in &eligible_slots {
             let slot = func.slots.iter().find(|s| s.id == slot_id).unwrap();
-            let def_blocks = Self::find_store_blocks(func, slot_id, &reachable_blocks);
+            let is_param = param_slots.contains(&slot_id);
+            let def_blocks = Self::find_store_blocks(func, slot_id, &reachable_blocks, is_param);
             let idf_blocks = Self::compute_idf(&def_blocks, &df);
 
             let mut phi_map = HashMap::new();
@@ -99,25 +101,40 @@ impl Mem2Reg {
         let mut val_subst: HashMap<ValueId, ValueId> = HashMap::new();
         let mut loads_to_remove: HashSet<ValueId> = HashSet::new();
         let mut stores_to_remove: HashSet<(BlockId, usize)> = HashSet::new();
+        let mut param_init_loads: HashSet<ValueId> = HashSet::new();
 
-        // For each eligible slot, push a default value in case of read-before-write
+        // For each eligible slot, initialize reaching definition
         for &slot_id in &eligible_slots {
             let slot = func.slots.iter().find(|s| s.id == slot_id).unwrap();
-            let default_val = ValueId(next_val_id);
-            next_val_id += 1;
-            let default_inst = match &slot.ty {
-                Type::Bool => Instruction::ConstBool {
-                    dest: default_val,
-                    val: false,
-                },
-                _ => Instruction::ConstInt {
-                    dest: default_val,
-                    val: 0,
+            if param_slots.contains(&slot_id) {
+                // Seed entry definition from the actual incoming parameter value
+                let param_init = ValueId(next_val_id);
+                next_val_id += 1;
+                let param_load = Instruction::Load {
+                    dest: param_init,
+                    slot: slot_id,
                     ty: slot.ty.clone(),
-                },
-            };
-            func.blocks[0].instructions.insert(0, default_inst);
-            reaching_defs.insert(slot_id, vec![default_val]);
+                };
+                func.blocks[0].instructions.insert(0, param_load);
+                param_init_loads.insert(param_init);
+                reaching_defs.insert(slot_id, vec![param_init]);
+            } else {
+                let default_val = ValueId(next_val_id);
+                next_val_id += 1;
+                let default_inst = match &slot.ty {
+                    Type::Bool => Instruction::ConstBool {
+                        dest: default_val,
+                        val: false,
+                    },
+                    _ => Instruction::ConstInt {
+                        dest: default_val,
+                        val: 0,
+                        ty: slot.ty.clone(),
+                    },
+                };
+                func.blocks[0].instructions.insert(0, default_inst);
+                reaching_defs.insert(slot_id, vec![default_val]);
+            }
         }
 
         Self::rename_in_dom_tree(
@@ -131,6 +148,7 @@ impl Mem2Reg {
             &mut val_subst,
             &mut loads_to_remove,
             &mut stores_to_remove,
+            &param_init_loads,
             &mut stats,
         );
 
@@ -152,25 +170,21 @@ impl Mem2Reg {
             });
         }
 
-        // 10. Remove promoted slots from func.slots
+        // 10. Remove promoted non-parameter slots from func.slots
         let eligible_set: HashSet<SlotId> = eligible_slots.into_iter().collect();
         stats.promoted_slots = eligible_set.len();
-        func.slots.retain(|s| !eligible_set.contains(&s.id));
+        func.slots
+            .retain(|s| !eligible_set.contains(&s.id) || param_slots.contains(&s.id));
 
         (true, stats)
     }
 
     /// Identifies all local slots eligible for Mem2Reg promotion.
     fn find_eligible_slots(func: &MirFunction) -> Vec<SlotId> {
-        let param_slots: HashSet<SlotId> = func.params.iter().map(|(s, _)| *s).collect();
         let mut rejected = HashSet::new();
         let mut candidate_slots: HashSet<SlotId> = HashSet::new();
 
         for slot in &func.slots {
-            if param_slots.contains(&slot.id) {
-                rejected.insert(slot.id);
-                continue;
-            }
             if !Self::is_promotable_type(&slot.ty) {
                 rejected.insert(slot.id);
                 continue;
@@ -385,14 +399,19 @@ impl Mem2Reg {
         split_count
     }
 
-    /// Finds all basic blocks that contain a `Store` to `slot_id`.
+    /// Finds all basic blocks that define or store to `slot_id`.
     fn find_store_blocks(
         func: &MirFunction,
         slot_id: SlotId,
         reachable: &[BlockId],
+        is_param: bool,
     ) -> Vec<BlockId> {
         let reachable_set: HashSet<BlockId> = reachable.iter().copied().collect();
         let mut def_blocks = Vec::new();
+
+        if is_param && !func.blocks.is_empty() && reachable_set.contains(&func.blocks[0].id) {
+            def_blocks.push(func.blocks[0].id);
+        }
 
         for block in &func.blocks {
             if !reachable_set.contains(&block.id) {
@@ -400,7 +419,7 @@ impl Mem2Reg {
             }
             for inst in &block.instructions {
                 if let Instruction::Store { slot, .. } = inst {
-                    if *slot == slot_id {
+                    if *slot == slot_id && !def_blocks.contains(&block.id) {
                         def_blocks.push(block.id);
                         break;
                     }
@@ -444,6 +463,7 @@ impl Mem2Reg {
         val_subst: &mut HashMap<ValueId, ValueId>,
         loads_to_remove: &mut HashSet<ValueId>,
         stores_to_remove: &mut HashSet<(BlockId, usize)>,
+        param_init_loads: &HashSet<ValueId>,
         stats: &mut Mem2RegStats,
     ) {
         let mut pushed_counts: HashMap<SlotId, usize> = HashMap::new();
@@ -471,6 +491,9 @@ impl Mem2Reg {
                     stats.eliminated_stores += 1;
                 }
                 Instruction::Load { dest, slot, .. } if eligible_slots.contains(slot) => {
+                    if param_init_loads.contains(dest) {
+                        continue;
+                    }
                     let curr_def = *reaching_defs.get(slot).unwrap().last().unwrap();
                     val_subst.insert(*dest, curr_def);
                     loads_to_remove.insert(*dest);
@@ -516,6 +539,7 @@ impl Mem2Reg {
                     val_subst,
                     loads_to_remove,
                     stores_to_remove,
+                    param_init_loads,
                     stats,
                 );
             }

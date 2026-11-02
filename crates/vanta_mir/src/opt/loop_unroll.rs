@@ -204,6 +204,40 @@ impl LoopUnrolling {
                         break;
                     }
                 }
+            } else if body_inst_count <= Self::MAX_PARTIAL_UNROLL_INSTRUCTIONS {
+                // Case C: DYNAMIC BOUND PARTIAL UNROLLING (Factor 2 with Remainder Loop)
+                let mut unrolled = false;
+                for (dest, _, latch_val, _) in &phi_nodes {
+                    if let Some(step) =
+                        Self::find_latch_step(func, latch_id, *dest, *latch_val, &const_map)
+                    {
+                        if step == 1 {
+                            if let Some(bound_val) =
+                                Self::find_dynamic_bound(func, loop_info.header, cond_val, *dest)
+                            {
+                                let changed = Self::apply_dynamic_partial_unroll_2(
+                                    func,
+                                    loop_info,
+                                    preheader_id,
+                                    body_entry_id,
+                                    latch_id,
+                                    *dest,
+                                    bound_val,
+                                    &phi_nodes,
+                                );
+                                if changed {
+                                    overall_changed = true;
+                                    stats.partial_unrolls += 1;
+                                    unrolled = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if unrolled {
+                    break;
+                }
             }
 
             stats.loops_rejected += 1;
@@ -240,6 +274,31 @@ impl LoopUnrolling {
                             return Some(s);
                         }
                     }
+                }
+            }
+        }
+        None
+    }
+
+    /// Finds the dynamic upper bound if the condition is `iv < bound`.
+    fn find_dynamic_bound(
+        func: &MirFunction,
+        header_id: BlockId,
+        cond_val: ValueId,
+        phi_dest: ValueId,
+    ) -> Option<ValueId> {
+        let header_block = func.blocks.iter().find(|b| b.id == header_id)?;
+        for inst in &header_block.instructions {
+            if let Instruction::Binary {
+                dest,
+                op: MirBinaryOp::Lt,
+                lhs,
+                rhs,
+                ..
+            } = inst
+            {
+                if *dest == cond_val && *lhs == phi_dest {
+                    return Some(*rhs);
                 }
             }
         }
@@ -781,6 +840,364 @@ impl LoopUnrolling {
         }
 
         true
+    }
+
+    /// Partially unrolls a loop with factor 2 for dynamic bounds using a remainder loop.
+    fn apply_dynamic_partial_unroll_2(
+        func: &mut MirFunction,
+        loop_info: &NaturalLoop,
+        preheader_id: BlockId,
+        body_entry_id: BlockId,
+        latch_id: BlockId,
+        iv_dest: ValueId,
+        bound_val: ValueId,
+        phi_nodes: &[(ValueId, ValueId, ValueId, Type)],
+    ) -> bool {
+        let body_block_ids: Vec<BlockId> = func
+            .blocks
+            .iter()
+            .map(|b| b.id)
+            .filter(|b_id| *b_id != loop_info.header && loop_info.blocks.contains(b_id))
+            .collect();
+
+        if body_block_ids.is_empty() {
+            return false;
+        }
+
+        // Identify side-exit blocks reached from within the loop body
+        let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        for &b_id in &body_block_ids {
+            if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
+                if let Some(term) = &b.terminator {
+                    match term {
+                        Terminator::Branch(t) => {
+                            if !loop_info.blocks.contains(t) && !side_exit_blocks.contains(t) {
+                                side_exit_blocks.push(*t);
+                            }
+                        }
+                        Terminator::CondBranch {
+                            then_block,
+                            else_block,
+                            ..
+                        } => {
+                            if !loop_info.blocks.contains(then_block)
+                                && !side_exit_blocks.contains(then_block)
+                            {
+                                side_exit_blocks.push(*then_block);
+                            }
+                            if !loop_info.blocks.contains(else_block)
+                                && !side_exit_blocks.contains(else_block)
+                            {
+                                side_exit_blocks.push(*else_block);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let unroll_block_ids: Vec<BlockId> = func
+            .blocks
+            .iter()
+            .map(|b| b.id)
+            .filter(|b_id| body_block_ids.contains(b_id) || side_exit_blocks.contains(b_id))
+            .collect();
+
+        let mut next_val_id = func.max_value_id() + 1;
+        let mut next_block_id = func.max_block_id() + 1;
+
+        // 1. Compute unroll_bound = bound - 1 in preheader
+        let one_val = ValueId(next_val_id);
+        next_val_id += 1;
+        let unroll_bound_val = ValueId(next_val_id);
+        next_val_id += 1;
+
+        let const_one = Instruction::ConstInt {
+            dest: one_val,
+            val: 1,
+            ty: Type::I64,
+        };
+        let sub_bound = Instruction::Binary {
+            dest: unroll_bound_val,
+            op: MirBinaryOp::Sub,
+            lhs: bound_val,
+            rhs: one_val,
+            ty: Type::I64,
+        };
+        let p_block = func
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == preheader_id)
+            .unwrap();
+        p_block.instructions.push(const_one);
+        p_block.instructions.push(sub_bound);
+
+        // 2. Build unroll_header
+        let unroll_header_id = BlockId(next_block_id);
+        next_block_id += 1;
+
+        let mut unroll_phi_defs: HashMap<ValueId, ValueId> = HashMap::new();
+        let mut unroll_phis: Vec<Instruction> = Vec::new();
+
+        for (phi_dest, init_val, _, ty) in phi_nodes {
+            let u_phi_dest = ValueId(next_val_id);
+            next_val_id += 1;
+            unroll_phi_defs.insert(*phi_dest, u_phi_dest);
+            unroll_phis.push(Instruction::Phi {
+                dest: u_phi_dest,
+                inputs: vec![(preheader_id, *init_val)],
+                ty: ty.clone(),
+            });
+        }
+
+        let u_iv = unroll_phi_defs[&iv_dest];
+        let u_cond = ValueId(next_val_id);
+        next_val_id += 1;
+        let u_cmp = Instruction::Binary {
+            dest: u_cond,
+            op: MirBinaryOp::Lt,
+            lhs: u_iv,
+            rhs: unroll_bound_val,
+            ty: Type::Bool,
+        };
+
+        // 3. Duplicate body for Iteration 1
+        let mut iter1_val_map: HashMap<ValueId, ValueId> = HashMap::new();
+        for (phi_dest, _, _, _) in phi_nodes {
+            iter1_val_map.insert(*phi_dest, unroll_phi_defs[phi_dest]);
+        }
+        let mut iter1_block_map: HashMap<BlockId, BlockId> = HashMap::new();
+        for &b in &unroll_block_ids {
+            iter1_block_map.insert(b, BlockId(next_block_id));
+            next_block_id += 1;
+        }
+        for &b_id in &unroll_block_ids {
+            let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
+            for inst in &orig_b.instructions {
+                Self::assign_fresh_dest(inst, &mut iter1_val_map, &mut next_val_id);
+            }
+        }
+
+        // 4. Duplicate body for Iteration 2
+        let mut iter2_val_map: HashMap<ValueId, ValueId> = HashMap::new();
+        for (phi_dest, _, latch_val, _) in phi_nodes {
+            let iter1_out = iter1_val_map.get(latch_val).copied().unwrap_or(*latch_val);
+            iter2_val_map.insert(*phi_dest, iter1_out);
+        }
+        let mut iter2_block_map: HashMap<BlockId, BlockId> = HashMap::new();
+        for &b in &unroll_block_ids {
+            iter2_block_map.insert(b, BlockId(next_block_id));
+            next_block_id += 1;
+        }
+        for &b_id in &unroll_block_ids {
+            let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
+            for inst in &orig_b.instructions {
+                Self::assign_fresh_dest(inst, &mut iter2_val_map, &mut next_val_id);
+            }
+        }
+
+        let iter1_entry_id = iter1_block_map[&body_entry_id];
+        let iter2_entry_id = iter2_block_map[&body_entry_id];
+        let _iter1_latch_id = iter1_block_map[&latch_id];
+        let iter2_latch_id = iter2_block_map[&latch_id];
+
+        let mut iter1_blocks: Vec<BasicBlock> = Vec::new();
+        for &b_id in &unroll_block_ids {
+            let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
+            let new_b_id = iter1_block_map[&b_id];
+            let mut cloned_insts = Vec::with_capacity(orig_b.instructions.len());
+            for inst in &orig_b.instructions {
+                let mut cl = inst.clone();
+                Self::remap_instruction(&mut cl, &iter1_val_map, &iter1_block_map);
+                cloned_insts.push(cl);
+            }
+            let is_latch = b_id == latch_id;
+            let term = if is_latch {
+                Some(Terminator::Branch(iter2_entry_id))
+            } else {
+                Self::remap_terminator(&orig_b.terminator, &iter1_val_map, &iter1_block_map)
+            };
+            iter1_blocks.push(BasicBlock {
+                id: new_b_id,
+                name: format!("{}_u1", orig_b.name),
+                instructions: cloned_insts,
+                terminator: term,
+            });
+        }
+
+        let mut iter2_blocks: Vec<BasicBlock> = Vec::new();
+        for &b_id in &unroll_block_ids {
+            let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
+            let new_b_id = iter2_block_map[&b_id];
+            let mut cloned_insts = Vec::with_capacity(orig_b.instructions.len());
+            for inst in &orig_b.instructions {
+                let mut cl = inst.clone();
+                Self::remap_instruction(&mut cl, &iter2_val_map, &iter2_block_map);
+                cloned_insts.push(cl);
+            }
+            let is_latch = b_id == latch_id;
+            let term = if is_latch {
+                Some(Terminator::Branch(unroll_header_id))
+            } else {
+                Self::remap_terminator(&orig_b.terminator, &iter2_val_map, &iter2_block_map)
+            };
+            iter2_blocks.push(BasicBlock {
+                id: new_b_id,
+                name: format!("{}_u2", orig_b.name),
+                instructions: cloned_insts,
+                terminator: term,
+            });
+        }
+
+        // Complete unroll_header
+        let mut u_header_insts = unroll_phis;
+        for inst in &mut u_header_insts {
+            if let Instruction::Phi { dest, inputs, .. } = inst {
+                for (orig_phi, _, latch_val, _) in phi_nodes {
+                    if unroll_phi_defs.get(orig_phi) == Some(dest) {
+                        let final_latch_val =
+                            iter2_val_map.get(latch_val).copied().unwrap_or(*latch_val);
+                        inputs.push((iter2_latch_id, final_latch_val));
+                        break;
+                    }
+                }
+            }
+        }
+        u_header_insts.push(u_cmp);
+
+        let header_name = func
+            .blocks
+            .iter()
+            .find(|b| b.id == loop_info.header)
+            .unwrap()
+            .name
+            .clone();
+        let unroll_header_block = BasicBlock {
+            id: unroll_header_id,
+            name: format!("{}_uhead", header_name),
+            instructions: u_header_insts,
+            terminator: Some(Terminator::CondBranch {
+                cond: u_cond,
+                then_block: iter1_entry_id,
+                else_block: loop_info.header,
+            }),
+        };
+
+        // Preheader now branches to unroll_header
+        let p_block = func
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == preheader_id)
+            .unwrap();
+        p_block.terminator = Some(Terminator::Branch(unroll_header_id));
+
+        // Original loop header Phis receive input from unroll_header instead of preheader
+        let orig_header = func
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == loop_info.header)
+            .unwrap();
+        for inst in &mut orig_header.instructions {
+            if let Instruction::Phi { dest, inputs, .. } = inst {
+                for (pred, val) in inputs {
+                    if *pred == preheader_id {
+                        *pred = unroll_header_id;
+                        if let Some(&u_phi_val) = unroll_phi_defs.get(dest) {
+                            *val = u_phi_val;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Insert new blocks into func.blocks right after preheader
+        let p_idx = func
+            .blocks
+            .iter()
+            .position(|b| b.id == preheader_id)
+            .unwrap();
+        let mut insert_pos = p_idx + 1;
+        func.blocks.insert(insert_pos, unroll_header_block);
+        insert_pos += 1;
+        for b in iter1_blocks {
+            func.blocks.insert(insert_pos, b);
+            insert_pos += 1;
+        }
+        for b in iter2_blocks {
+            func.blocks.insert(insert_pos, b);
+            insert_pos += 1;
+        }
+
+        true
+    }
+
+    fn assign_fresh_dest(
+        inst: &Instruction,
+        val_map: &mut HashMap<ValueId, ValueId>,
+        next_val_id: &mut u32,
+    ) {
+        match inst {
+            Instruction::ConstInt { dest, .. }
+            | Instruction::ConstBool { dest, .. }
+            | Instruction::SlotAddr { dest, .. }
+            | Instruction::Load { dest, .. }
+            | Instruction::Binary { dest, .. }
+            | Instruction::Unary { dest, .. }
+            | Instruction::IndexAddr { dest, .. }
+            | Instruction::IndexPtrAddr { dest, .. }
+            | Instruction::FieldAddr { dest, .. }
+            | Instruction::LoadIndirect { dest, .. }
+            | Instruction::Phi { dest, .. }
+            | Instruction::Copy { dest, .. } => {
+                val_map.insert(*dest, ValueId(*next_val_id));
+                *next_val_id += 1;
+            }
+            Instruction::Call { dest: Some(d), .. } => {
+                val_map.insert(*d, ValueId(*next_val_id));
+                *next_val_id += 1;
+            }
+            Instruction::StrSlice {
+                dest_ptr, dest_len, ..
+            }
+            | Instruction::LoadSlice {
+                dest_ptr, dest_len, ..
+            } => {
+                val_map.insert(*dest_ptr, ValueId(*next_val_id));
+                *next_val_id += 1;
+                val_map.insert(*dest_len, ValueId(*next_val_id));
+                *next_val_id += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn remap_terminator(
+        term: &Option<Terminator>,
+        val_map: &HashMap<ValueId, ValueId>,
+        block_map: &HashMap<BlockId, BlockId>,
+    ) -> Option<Terminator> {
+        match term {
+            Some(Terminator::Branch(t)) => {
+                let new_t = block_map.get(t).copied().unwrap_or(*t);
+                Some(Terminator::Branch(new_t))
+            }
+            Some(Terminator::CondBranch {
+                cond,
+                then_block,
+                else_block,
+            }) => {
+                let new_c = val_map.get(cond).copied().unwrap_or(*cond);
+                let new_then = block_map.get(then_block).copied().unwrap_or(*then_block);
+                let new_else = block_map.get(else_block).copied().unwrap_or(*else_block);
+                Some(Terminator::CondBranch {
+                    cond: new_c,
+                    then_block: new_then,
+                    else_block: new_else,
+                })
+            }
+            other => other.clone(),
+        }
     }
 
     /// Remaps instruction operands using val_map and block_map.

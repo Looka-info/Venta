@@ -22,6 +22,7 @@ pub struct FrameLayout {
     pub requires_32byte_alignment: bool,
     pub requires_64byte_alignment: bool,
     pub total_frame_size: i32,
+    pub can_omit_frame_pointer: bool,
     pub abi: TargetAbi,
 }
 
@@ -239,6 +240,25 @@ impl FrameLayout {
         };
         let frame_size = aligned_total - (callee_count * 8);
 
+        let is_leaf = !func.blocks.iter().any(|b| {
+            b.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    vanta_mir::Instruction::Call { .. }
+                        | vanta_mir::Instruction::CallIndirect { .. }
+                )
+            })
+        });
+
+        let can_omit_frame_pointer = is_leaf
+            && frame_size == 0
+            && used_callee_saved.is_empty()
+            && !requires_32byte_alignment
+            && !requires_64byte_alignment
+            && sret_offset.is_none()
+            && slot_offsets.is_empty()
+            && value_offsets.is_empty();
+
         Self {
             slot_offsets,
             value_offsets,
@@ -251,6 +271,7 @@ impl FrameLayout {
             requires_32byte_alignment,
             requires_64byte_alignment,
             total_frame_size: frame_size,
+            can_omit_frame_pointer,
             abi,
         }
     }
@@ -298,6 +319,10 @@ impl FrameLayout {
         structs: &HashMap<String, StructDef>,
         enums: &HashMap<String, EnumDef>,
     ) {
+        if self.can_omit_frame_pointer {
+            return;
+        }
+
         // push rbp
         insts.push(MachineInst::Push(Reg::Rbp));
         // mov rbp, rsp
@@ -741,6 +766,11 @@ impl FrameLayout {
     }
 
     pub fn emit_epilogue(&self, insts: &mut Vec<MachineInst>) {
+        if self.can_omit_frame_pointer {
+            insts.push(MachineInst::Ret);
+            return;
+        }
+
         if !self.used_callee_saved.is_empty() {
             let callee_bytes = (self.used_callee_saved.len() * 8) as i32;
             insts.push(MachineInst::Lea {

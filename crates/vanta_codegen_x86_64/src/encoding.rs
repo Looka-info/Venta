@@ -399,6 +399,13 @@ impl CodeEmitter {
             MachineInst::Label(name) => {
                 self.label_offsets.insert(name.clone(), self.bytes.len());
             }
+            MachineInst::Align(alignment) => {
+                let rem = self.bytes.len() % alignment;
+                if rem != 0 {
+                    let pad = alignment - rem;
+                    Self::emit_nops(&mut self.bytes, pad);
+                }
+            }
             MachineInst::Push(reg) => {
                 if reg.is_extended() {
                     self.emit_u8(Self::rex(false, false, false, true));
@@ -640,6 +647,20 @@ impl CodeEmitter {
                     self.emit_u8(*val as u8);
                 }
                 _ => panic!("Unsupported Shr count: {:?}", count),
+            },
+            MachineInst::Sar { dest, count } => match count {
+                Operand::Reg(Reg::Rcx) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xD3);
+                    self.emit_u8(Self::mod_rm(0b11, 7, dest.hw_encoding()));
+                }
+                Operand::Imm(val) => {
+                    self.emit_u8(Self::rex(true, false, false, dest.is_extended()));
+                    self.emit_u8(0xC1);
+                    self.emit_u8(Self::mod_rm(0b11, 7, dest.hw_encoding()));
+                    self.emit_u8(*val as u8);
+                }
+                _ => panic!("Unsupported Sar count: {:?}", count),
             },
             MachineInst::Neg(reg) => {
                 self.emit_u8(Self::rex(true, false, false, reg.is_extended()));
@@ -1208,6 +1229,52 @@ impl CodeEmitter {
                 self.bytes[*fixup_offset..*fixup_offset + 4].copy_from_slice(&rel32.to_le_bytes());
             } else {
                 panic!("Unresolved local jump label: {}", target_label);
+            }
+        }
+    }
+
+    /// Emits valid x86-64 multi-byte NOP padding bytes.
+    pub fn emit_nops(bytes: &mut Vec<u8>, count: usize) {
+        let mut remaining = count;
+        while remaining > 0 {
+            match remaining {
+                1 => {
+                    bytes.push(0x90);
+                    remaining -= 1;
+                }
+                2 => {
+                    bytes.extend_from_slice(&[0x66, 0x90]);
+                    remaining -= 2;
+                }
+                3 => {
+                    bytes.extend_from_slice(&[0x0F, 0x1F, 0x00]);
+                    remaining -= 3;
+                }
+                4 => {
+                    bytes.extend_from_slice(&[0x0F, 0x1F, 0x40, 0x00]);
+                    remaining -= 4;
+                }
+                5 => {
+                    bytes.extend_from_slice(&[0x0F, 0x1F, 0x44, 0x00, 0x00]);
+                    remaining -= 5;
+                }
+                6 => {
+                    bytes.extend_from_slice(&[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00]);
+                    remaining -= 6;
+                }
+                7 => {
+                    bytes.extend_from_slice(&[0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00]);
+                    remaining -= 7;
+                }
+                8 => {
+                    bytes.extend_from_slice(&[0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                    remaining -= 8;
+                }
+                _ => {
+                    bytes
+                        .extend_from_slice(&[0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                    remaining -= 9;
+                }
             }
         }
     }

@@ -13,6 +13,19 @@ pub enum ConditionCode {
     GreaterEqual, // ge (signed)
 }
 
+impl ConditionCode {
+    pub fn invert(self) -> Self {
+        match self {
+            ConditionCode::Equal => ConditionCode::NotEqual,
+            ConditionCode::NotEqual => ConditionCode::Equal,
+            ConditionCode::Less => ConditionCode::GreaterEqual,
+            ConditionCode::LessEqual => ConditionCode::Greater,
+            ConditionCode::Greater => ConditionCode::LessEqual,
+            ConditionCode::GreaterEqual => ConditionCode::Less,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
     Reg(Reg),
@@ -66,6 +79,8 @@ pub enum MachineInst {
     Shl { dest: Reg, count: Operand },
     /// shr reg, cl or imm
     Shr { dest: Reg, count: Operand },
+    /// sar reg, cl or imm (arithmetic right shift)
+    Sar { dest: Reg, count: Operand },
     /// neg dest
     Neg(Reg),
     /// not dest
@@ -106,6 +121,8 @@ pub enum MachineInst {
     Ret,
     /// Local label
     Label(String),
+    /// Align code location to specified byte boundary using multi-byte NOPs
+    Align(usize),
     /// Source location marker for DWARF debug line emission (emits 0 bytes into .text).
     SourceLoc {
         file_id: u32,

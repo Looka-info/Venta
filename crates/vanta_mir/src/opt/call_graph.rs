@@ -27,6 +27,7 @@ pub struct FunctionSummary {
     pub call_site_count: usize,
     pub has_memory_return: bool,
     pub has_aggregate_types: bool,
+    pub safe_aggregate_leaf: bool,
     pub ret_type: Type,
     pub param_types: Vec<Type>,
 }
@@ -110,9 +111,49 @@ impl CallGraph {
                             | Type::Slice(_)
                             | Type::Str
                     )
+                    || match ty {
+                        Type::Ref { inner, .. } => matches!(
+                            inner.as_ref(),
+                            Type::Struct(_)
+                                | Type::Enum(_)
+                                | Type::Array { .. }
+                                | Type::Slice(_)
+                                | Type::Str
+                        ),
+                        _ => false,
+                    }
             };
-            let has_memory_return = is_agg(&func.ret_type);
+            let has_memory_return = matches!(
+                &func.ret_type,
+                Type::Struct(_) | Type::Enum(_) | Type::Array { .. } | Type::Slice(_) | Type::Str
+            ) || func.ret_type.is_str_slice()
+                || func.ret_type.is_slice();
             let has_aggregate_types = has_memory_return || param_types.iter().any(is_agg);
+
+            let mut has_memory_writes = false;
+            for block in &func.blocks {
+                for inst in &block.instructions {
+                    if matches!(
+                        inst,
+                        Instruction::StoreIndirect { .. }
+                            | Instruction::StoreIndirect32 { .. }
+                            | Instruction::StoreSlice { .. }
+                    ) {
+                        has_memory_writes = true;
+                        break;
+                    }
+                }
+            }
+
+            let all_params_immutable_ref_or_scalar = param_types.iter().all(|ty| match ty {
+                Type::Ref { is_mut, inner } => {
+                    !*is_mut && !inner.is_slice() && !inner.is_str_slice()
+                }
+                _ => !is_agg(ty),
+            });
+
+            let safe_aggregate_leaf =
+                !has_memory_return && all_params_immutable_ref_or_scalar && !has_memory_writes;
 
             summaries.insert(
                 func.name.clone(),
@@ -125,6 +166,7 @@ impl CallGraph {
                     call_site_count: 0,
                     has_memory_return,
                     has_aggregate_types,
+                    safe_aggregate_leaf,
                     ret_type: func.ret_type.clone(),
                     param_types,
                 },
@@ -196,7 +238,9 @@ impl CallGraph {
         }
 
         if summary.has_aggregate_types {
-            return (false, "callee uses aggregate or memory-class types");
+            if !summary.is_leaf || !summary.safe_aggregate_leaf {
+                return (false, "callee uses aggregate or memory-class types");
+            }
         }
 
         // Exclude large functions

@@ -25,6 +25,7 @@ pub struct InstructionSelector<'a> {
     enable_block_layout: bool,
     stack_ptrs: std::collections::HashSet<ValueId>,
     source_map: Option<&'a vanta_source::SourceMap>,
+    const_ints: HashMap<ValueId, i64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,6 +123,15 @@ impl<'a> InstructionSelector<'a> {
             }
         }
 
+        let mut const_ints = HashMap::new();
+        for b in &func.blocks {
+            for inst in &b.instructions {
+                if let Instruction::ConstInt { dest, val, .. } = inst {
+                    const_ints.insert(*dest, *val);
+                }
+            }
+        }
+
         Self {
             func,
             frame,
@@ -136,6 +146,7 @@ impl<'a> InstructionSelector<'a> {
             enable_block_layout,
             stack_ptrs,
             source_map: None,
+            const_ints,
         }
     }
 
@@ -249,6 +260,12 @@ impl<'a> InstructionSelector<'a> {
         for (order_pos, &b_idx) in layout.iter().enumerate() {
             let block = &self.func.blocks[b_idx];
             let label_name = format!(".L_{}_bb{}", self.func.name, block.id.0);
+
+            // Align loop headers to 16-byte boundaries
+            if block.name.contains("head") || block.name.contains("loop") {
+                insts.push(MachineInst::Align(16));
+            }
+
             // Always emit label so any jumps can target this block
             insts.push(MachineInst::Label(label_name));
 
@@ -651,10 +668,28 @@ impl<'a> InstructionSelector<'a> {
                                     dest: Operand::Reg(dst),
                                     src: rhs_op,
                                 }),
-                                MirBinaryOp::Mul => out.push(MachineInst::Imul {
-                                    dest: dst,
-                                    src: rhs_op,
-                                }),
+                                MirBinaryOp::Mul => {
+                                    let const_mul = self.const_ints.get(rhs).copied();
+                                    if let Some(c) = const_mul {
+                                        if c > 1 && (c as u64).is_power_of_two() {
+                                            let k = c.trailing_zeros() as i64;
+                                            out.push(MachineInst::Shl {
+                                                dest: dst,
+                                                count: Operand::Imm(k),
+                                            });
+                                        } else {
+                                            out.push(MachineInst::Imul {
+                                                dest: dst,
+                                                src: rhs_op,
+                                            });
+                                        }
+                                    } else {
+                                        out.push(MachineInst::Imul {
+                                            dest: dst,
+                                            src: rhs_op,
+                                        });
+                                    }
+                                }
                                 MirBinaryOp::BitAnd | MirBinaryOp::And => {
                                     out.push(MachineInst::And {
                                         dest: Operand::Reg(dst),
@@ -686,10 +721,28 @@ impl<'a> InstructionSelector<'a> {
                                     dest: Operand::Reg(Reg::R10),
                                     src: rhs_op,
                                 }),
-                                MirBinaryOp::Mul => out.push(MachineInst::Imul {
-                                    dest: Reg::R10,
-                                    src: rhs_op,
-                                }),
+                                MirBinaryOp::Mul => {
+                                    let const_mul = self.const_ints.get(rhs).copied();
+                                    if let Some(c) = const_mul {
+                                        if c > 1 && (c as u64).is_power_of_two() {
+                                            let k = c.trailing_zeros() as i64;
+                                            out.push(MachineInst::Shl {
+                                                dest: Reg::R10,
+                                                count: Operand::Imm(k),
+                                            });
+                                        } else {
+                                            out.push(MachineInst::Imul {
+                                                dest: Reg::R10,
+                                                src: rhs_op,
+                                            });
+                                        }
+                                    } else {
+                                        out.push(MachineInst::Imul {
+                                            dest: Reg::R10,
+                                            src: rhs_op,
+                                        });
+                                    }
+                                }
                                 MirBinaryOp::BitAnd | MirBinaryOp::And => {
                                     out.push(MachineInst::And {
                                         dest: Operand::Reg(Reg::R10),
@@ -712,27 +765,254 @@ impl<'a> InstructionSelector<'a> {
                             });
                         }
                     },
-                    MirBinaryOp::Div | MirBinaryOp::Rem => {
-                        out.push(MachineInst::Mov {
-                            dest: Operand::Reg(Reg::Rax),
-                            src: lhs_op,
-                        });
-                        out.push(MachineInst::Cqo);
-                        out.push(MachineInst::Mov {
-                            dest: Operand::Reg(Reg::R11),
-                            src: rhs_op,
-                        });
-                        out.push(MachineInst::Idiv(Reg::R11));
-                        let res_reg = if matches!(op, MirBinaryOp::Div) {
-                            Reg::Rax
+                    MirBinaryOp::Div => {
+                        let const_divisor = self.const_ints.get(rhs).copied();
+                        if let Some(c) = const_divisor {
+                            if c == 1 {
+                                // x / 1 == x
+                                match dest_op {
+                                    Operand::Reg(dst) => {
+                                        if lhs_op != Operand::Reg(dst) {
+                                            out.push(MachineInst::Mov {
+                                                dest: Operand::Reg(dst),
+                                                src: lhs_op,
+                                            });
+                                        }
+                                    }
+                                    _ => {
+                                        out.push(MachineInst::Mov {
+                                            dest: Operand::Reg(Reg::R10),
+                                            src: lhs_op,
+                                        });
+                                        out.push(MachineInst::Mov {
+                                            dest: dest_op,
+                                            src: Operand::Reg(Reg::R10),
+                                        });
+                                    }
+                                }
+                            } else if c > 1 && (c as u64).is_power_of_two() {
+                                let k = c.trailing_zeros() as i64;
+                                match dest_op {
+                                    Operand::Reg(dst) => {
+                                        if lhs_op != Operand::Reg(dst) {
+                                            out.push(MachineInst::Mov {
+                                                dest: Operand::Reg(dst),
+                                                src: lhs_op,
+                                            });
+                                        }
+                                        out.push(MachineInst::Mov {
+                                            dest: Operand::Reg(Reg::R10),
+                                            src: Operand::Reg(dst),
+                                        });
+                                        if k == 1 {
+                                            out.push(MachineInst::Shr {
+                                                dest: Reg::R10,
+                                                count: Operand::Imm(63),
+                                            });
+                                        } else {
+                                            out.push(MachineInst::Sar {
+                                                dest: Reg::R10,
+                                                count: Operand::Imm(63),
+                                            });
+                                            out.push(MachineInst::Shr {
+                                                dest: Reg::R10,
+                                                count: Operand::Imm(64 - k),
+                                            });
+                                        }
+                                        out.push(MachineInst::Add {
+                                            dest: Operand::Reg(dst),
+                                            src: Operand::Reg(Reg::R10),
+                                        });
+                                        out.push(MachineInst::Sar {
+                                            dest: dst,
+                                            count: Operand::Imm(k),
+                                        });
+                                    }
+                                    _ => {
+                                        out.push(MachineInst::Mov {
+                                            dest: Operand::Reg(Reg::R10),
+                                            src: lhs_op,
+                                        });
+                                        out.push(MachineInst::Mov {
+                                            dest: Operand::Reg(Reg::R11),
+                                            src: Operand::Reg(Reg::R10),
+                                        });
+                                        if k == 1 {
+                                            out.push(MachineInst::Shr {
+                                                dest: Reg::R11,
+                                                count: Operand::Imm(63),
+                                            });
+                                        } else {
+                                            out.push(MachineInst::Sar {
+                                                dest: Reg::R11,
+                                                count: Operand::Imm(63),
+                                            });
+                                            out.push(MachineInst::Shr {
+                                                dest: Reg::R11,
+                                                count: Operand::Imm(64 - k),
+                                            });
+                                        }
+                                        out.push(MachineInst::Add {
+                                            dest: Operand::Reg(Reg::R10),
+                                            src: Operand::Reg(Reg::R11),
+                                        });
+                                        out.push(MachineInst::Sar {
+                                            dest: Reg::R10,
+                                            count: Operand::Imm(k),
+                                        });
+                                        out.push(MachineInst::Mov {
+                                            dest: dest_op,
+                                            src: Operand::Reg(Reg::R10),
+                                        });
+                                    }
+                                }
+                            } else {
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::Rax),
+                                    src: lhs_op,
+                                });
+                                out.push(MachineInst::Cqo);
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R11),
+                                    src: rhs_op,
+                                });
+                                out.push(MachineInst::Idiv(Reg::R11));
+                                if dest_op != Operand::Reg(Reg::Rax) {
+                                    out.push(MachineInst::Mov {
+                                        dest: dest_op,
+                                        src: Operand::Reg(Reg::Rax),
+                                    });
+                                }
+                            }
                         } else {
-                            Reg::Rdx
-                        };
-                        if dest_op != Operand::Reg(res_reg) {
                             out.push(MachineInst::Mov {
-                                dest: dest_op,
-                                src: Operand::Reg(res_reg),
+                                dest: Operand::Reg(Reg::Rax),
+                                src: lhs_op,
                             });
+                            out.push(MachineInst::Cqo);
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R11),
+                                src: rhs_op,
+                            });
+                            out.push(MachineInst::Idiv(Reg::R11));
+                            if dest_op != Operand::Reg(Reg::Rax) {
+                                out.push(MachineInst::Mov {
+                                    dest: dest_op,
+                                    src: Operand::Reg(Reg::Rax),
+                                });
+                            }
+                        }
+                    }
+                    MirBinaryOp::Rem => {
+                        let const_divisor = self.const_ints.get(rhs).copied();
+                        if let Some(c) = const_divisor {
+                            if c == 1 || c == -1 {
+                                match dest_op {
+                                    Operand::Reg(dst) => {
+                                        out.push(MachineInst::Xor {
+                                            dest: Operand::Reg(dst),
+                                            src: Operand::Reg(dst),
+                                        });
+                                    }
+                                    _ => {
+                                        out.push(MachineInst::Mov {
+                                            dest: dest_op,
+                                            src: Operand::Imm(0),
+                                        });
+                                    }
+                                }
+                            } else if c > 1 && (c as u64).is_power_of_two() {
+                                let k = c.trailing_zeros() as i64;
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R10),
+                                    src: lhs_op,
+                                });
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R11),
+                                    src: Operand::Reg(Reg::R10),
+                                });
+                                if k == 1 {
+                                    out.push(MachineInst::Shr {
+                                        dest: Reg::R11,
+                                        count: Operand::Imm(63),
+                                    });
+                                } else {
+                                    out.push(MachineInst::Sar {
+                                        dest: Reg::R11,
+                                        count: Operand::Imm(63),
+                                    });
+                                    out.push(MachineInst::Shr {
+                                        dest: Reg::R11,
+                                        count: Operand::Imm(64 - k),
+                                    });
+                                }
+                                out.push(MachineInst::Add {
+                                    dest: Operand::Reg(Reg::R11),
+                                    src: Operand::Reg(Reg::R10),
+                                });
+                                out.push(MachineInst::Sar {
+                                    dest: Reg::R11,
+                                    count: Operand::Imm(k),
+                                });
+                                out.push(MachineInst::Shl {
+                                    dest: Reg::R11,
+                                    count: Operand::Imm(k),
+                                });
+                                out.push(MachineInst::Sub {
+                                    dest: Operand::Reg(Reg::R10),
+                                    src: Operand::Reg(Reg::R11),
+                                });
+                                match dest_op {
+                                    Operand::Reg(dst) => {
+                                        if dst != Reg::R10 {
+                                            out.push(MachineInst::Mov {
+                                                dest: Operand::Reg(dst),
+                                                src: Operand::Reg(Reg::R10),
+                                            });
+                                        }
+                                    }
+                                    _ => {
+                                        out.push(MachineInst::Mov {
+                                            dest: dest_op,
+                                            src: Operand::Reg(Reg::R10),
+                                        });
+                                    }
+                                }
+                            } else {
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::Rax),
+                                    src: lhs_op,
+                                });
+                                out.push(MachineInst::Cqo);
+                                out.push(MachineInst::Mov {
+                                    dest: Operand::Reg(Reg::R11),
+                                    src: rhs_op,
+                                });
+                                out.push(MachineInst::Idiv(Reg::R11));
+                                if dest_op != Operand::Reg(Reg::Rdx) {
+                                    out.push(MachineInst::Mov {
+                                        dest: dest_op,
+                                        src: Operand::Reg(Reg::Rdx),
+                                    });
+                                }
+                            }
+                        } else {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::Rax),
+                                src: lhs_op,
+                            });
+                            out.push(MachineInst::Cqo);
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R11),
+                                src: rhs_op,
+                            });
+                            out.push(MachineInst::Idiv(Reg::R11));
+                            if dest_op != Operand::Reg(Reg::Rdx) {
+                                out.push(MachineInst::Mov {
+                                    dest: dest_op,
+                                    src: Operand::Reg(Reg::Rdx),
+                                });
+                            }
                         }
                     }
                     MirBinaryOp::Shl | MirBinaryOp::Shr => {
@@ -3770,39 +4050,85 @@ impl<'a> InstructionSelector<'a> {
                 let then_label = format!(".L_{}_bb{}", self.func.name, then_block.0);
                 let else_label = format!(".L_{}_bb{}", self.func.name, else_block.0);
 
-                let cond_r = match cond_op {
-                    Operand::Reg(r) => r,
-                    _ => {
-                        out.push(MachineInst::Mov {
-                            dest: Operand::Reg(Reg::R10),
-                            src: cond_op,
-                        });
-                        Reg::R10
+                // Peephole: Check if `out` directly ends with Setcc + Movzx for this `cond` register
+                let mut fused_cc = None;
+                if out.len() >= 2 {
+                    if let (
+                        MachineInst::Setcc {
+                            cond: cc,
+                            dest: s_dest,
+                        },
+                        MachineInst::Movzx {
+                            dest: m_dest,
+                            src: m_src,
+                        },
+                    ) = (&out[out.len() - 2], &out[out.len() - 1])
+                    {
+                        if let Operand::Reg(r) = cond_op {
+                            if *s_dest == *m_src && *m_dest == r {
+                                fused_cc = Some(*cc);
+                            }
+                        }
                     }
-                };
-                out.push(MachineInst::Test {
-                    lhs: cond_r,
-                    rhs: cond_r,
-                });
+                }
 
-                if Some(*then_block) == next_block_id {
-                    // Branch inversion: jump to else_block if cond == 0 (Equal); fall through to then_block!
-                    out.push(MachineInst::Jcc {
-                        cond: ConditionCode::Equal,
-                        target: else_label,
-                    });
-                } else if Some(*else_block) == next_block_id {
-                    // Normal jump: jump to then_block if cond != 0 (NotEqual); fall through to else_block!
-                    out.push(MachineInst::Jcc {
-                        cond: ConditionCode::NotEqual,
-                        target: then_label,
-                    });
+                if let Some(cc) = fused_cc {
+                    // Eliminate redundant Setcc and Movzx
+                    out.pop();
+                    out.pop();
+
+                    if Some(*then_block) == next_block_id {
+                        out.push(MachineInst::Jcc {
+                            cond: cc.invert(),
+                            target: else_label,
+                        });
+                    } else if Some(*else_block) == next_block_id {
+                        out.push(MachineInst::Jcc {
+                            cond: cc,
+                            target: then_label,
+                        });
+                    } else {
+                        out.push(MachineInst::Jcc {
+                            cond: cc,
+                            target: then_label,
+                        });
+                        out.push(MachineInst::Jmp(else_label));
+                    }
                 } else {
-                    out.push(MachineInst::Jcc {
-                        cond: ConditionCode::NotEqual,
-                        target: then_label,
+                    let cond_r = match cond_op {
+                        Operand::Reg(r) => r,
+                        _ => {
+                            out.push(MachineInst::Mov {
+                                dest: Operand::Reg(Reg::R10),
+                                src: cond_op,
+                            });
+                            Reg::R10
+                        }
+                    };
+                    out.push(MachineInst::Test {
+                        lhs: cond_r,
+                        rhs: cond_r,
                     });
-                    out.push(MachineInst::Jmp(else_label));
+
+                    if Some(*then_block) == next_block_id {
+                        // Branch inversion: jump to else_block if cond == 0 (Equal); fall through to then_block!
+                        out.push(MachineInst::Jcc {
+                            cond: ConditionCode::Equal,
+                            target: else_label,
+                        });
+                    } else if Some(*else_block) == next_block_id {
+                        // Normal jump: jump to then_block if cond != 0 (NotEqual); fall through to else_block!
+                        out.push(MachineInst::Jcc {
+                            cond: ConditionCode::NotEqual,
+                            target: then_label,
+                        });
+                    } else {
+                        out.push(MachineInst::Jcc {
+                            cond: ConditionCode::NotEqual,
+                            target: then_label,
+                        });
+                        out.push(MachineInst::Jmp(else_label));
+                    }
                 }
             }
             Terminator::Return(val) => {

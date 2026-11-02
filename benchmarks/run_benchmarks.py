@@ -5,6 +5,7 @@ import statistics
 import json
 import sys
 import platform
+import argparse
 
 BENCHMARKS = [
     "fib",
@@ -55,6 +56,11 @@ def get_env_metadata():
     }
 
 def main():
+    parser = argparse.ArgumentParser(description="Venta Benchmark Runner")
+    parser.add_argument("--benchmark", "-b", type=str, help="Specific benchmark to run")
+    parser.add_argument("--output", "-o", type=str, default="benchmarks/results/milestone-25-release-audit.json", help="Output JSON path")
+    args = parser.parse_args()
+
     run_cmd(f"mkdir -p {BIN_DIR}")
     run_cmd("mkdir -p benchmarks/results")
     
@@ -64,7 +70,9 @@ def main():
         "benchmarks": {}
     }
 
-    for bench in BENCHMARKS:
+    selected_benchmarks = [args.benchmark] if args.benchmark else BENCHMARKS
+
+    for bench in selected_benchmarks:
         print(f"=== Compiling and running benchmark: {bench} ===")
         results["benchmarks"][bench] = {}
         
@@ -159,7 +167,7 @@ def main():
     print(f"Toolchains: Vanta {metadata['vantac']} | Rust {metadata['rustc']} | GCC {metadata['gcc']}")
     print("| Benchmark | Metric | Vanta -O0 | Vanta -O1 (No TCO) | Vanta -O1 (No DCE) | Vanta -O1 (No Layout) | Vanta -O1 (Full Opt) | Rust -O3 | GCC -O3 | Full vs -O0 | Vanta/Rust Ratio |")
     print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
-    for bench in BENCHMARKS:
+    for bench in selected_benchmarks:
         v0 = results["benchmarks"][bench]["Vanta -O0"]["median"]
         v_no_tco = results["benchmarks"][bench]["Vanta -O1 (No TCO)"]["median"]
         v_no_dce = results["benchmarks"][bench]["Vanta -O1 (No DCE)"]["median"]
@@ -189,7 +197,7 @@ def main():
         ct_c = results["benchmarks"][bench]["GCC -O3"]["compile_time"]
         print(f"| | Compile Time | {ct_v0:.2f}s | {ct_no_tco:.2f}s | {ct_no_dce:.2f}s | {ct_no_layout:.2f}s | {ct_v1:.2f}s | {ct_rs:.2f}s | {ct_c:.2f}s | - | - |")
 
-    out_json = sys.argv[1] if len(sys.argv) > 1 else "benchmarks/results/milestone-25-release-audit.json"
+    out_json = args.output
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(f"\nSaved benchmark results to {out_json}")
