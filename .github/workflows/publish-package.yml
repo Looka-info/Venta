@@ -1,0 +1,45 @@
+name: Publish to GitHub Packages
+
+on:
+  push:
+    branches:
+      - main
+      - perf/runtime-optimization
+    paths:
+      - 'packages/vanta-lang/**'
+      - '.github/workflows/publish-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-npm:
+    name: Publish @looka-info/vanta-lang (GitHub Packages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@looka-info'
+
+      - name: Publish to GitHub Packages
+        run: |
+          cd packages/vanta-lang
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VER=$(node -p "require('./package.json').version")
+          echo "Target package: ${PKG_NAME}@${PKG_VER}"
+          if npm view "${PKG_NAME}@${PKG_VER}" --registry=https://npm.pkg.github.com > /dev/null 2>&1; then
+            echo "Version ${PKG_VER} of ${PKG_NAME} is already published to GitHub Packages. Skipping."
+          else
+            npm publish
+            echo "Successfully published ${PKG_NAME}@${PKG_VER} to GitHub Packages."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

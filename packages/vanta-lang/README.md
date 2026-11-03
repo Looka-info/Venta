@@ -1,6 +1,6 @@
-# ⚡ vanta-lang
+# ⚡ @looka-info/vanta-lang
 
-**Official Node.js distribution of the Vanta Systems Programming Language.**
+**Official distribution of the Vanta Systems Programming Language for GitHub Packages & npm.**
 
 Vanta is a performance-first, memory-safe systems programming language featuring a custom SSA optimizer, multi-platform native backends (Linux x86-64, Windows x86-64, macOS Apple Silicon ARM64), and a self-contained pure-Rust linker (no LLVM / Cranelift).
 
@@ -18,16 +18,21 @@ Vanta is a performance-first, memory-safe systems programming language featuring
 
 ## 🚀 Quick Install
 
-Install globally via `npm`:
+### From GitHub Packages:
 
+Configure npm to fetch `@looka-info` packages from GitHub Packages:
 ```bash
-npm install -g vanta-lang
+npm config set @looka-info:registry https://npm.pkg.github.com
+```
+
+Install globally:
+```bash
+npm install -g @looka-info/vanta-lang
 ```
 
 Or run directly without installation via `npx`:
-
 ```bash
-npx vanta-lang --version
+npx @looka-info/vanta-lang --version
 ```
 
 ---
@@ -59,10 +64,5 @@ vantac compile main.va -o app_mac --target=macos
 
 ---
 
-## 📖 Links
-
-* **Official Repository:** [https://github.com/Looka-info/Venta](https://github.com/Looka-info/Venta)
-* **Documentation:** [https://github.com/Looka-info/Venta/tree/main/docs](https://github.com/Looka-info/Venta/tree/main/docs)
-* **Installation Guide:** [https://github.com/Looka-info/Venta/blob/main/docs/installation.md](https://github.com/Looka-info/Venta/blob/main/docs/installation.md)
-* **Platform & ABI Specification:** [https://github.com/Looka-info/Venta/blob/main/docs/abi-and-platforms.md](https://github.com/Looka-info/Venta/blob/main/docs/abi-and-platforms.md)
-* **License:** MIT OR Apache-2.0
+## 📄 License
+Dual-licensed under MIT or Apache 2.0.
