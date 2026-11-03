@@ -22,7 +22,7 @@ members = [
 version = "1.0.0-rc.2"
 edition = "2021"
 authors = ["Vanta Language Authors"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/Looka-info/Venta"
 
 [workspace.dependencies]

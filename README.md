@@ -10,7 +10,7 @@
 [![Multi-Platform CI](https://github.com/Looka-info/Venta/actions/workflows/native-platform-ci.yml/badge.svg)](https://github.com/Looka-info/Venta/actions)
 [![Release Candidate](https://img.shields.io/badge/Release-v1.0--RC2-blue.svg)](https://github.com/Looka-info/Venta/releases)
 [![NPM Package](https://img.shields.io/badge/npm-vanta--lang%401.0.0--rc.2-cb3837.svg?logo=npm)](https://www.npmjs.com/package/vanta-lang)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS%20ARM64-orange.svg)](#-native-multi-platform-backends--pure-rust-linker)
 [![VentaNext SSR](https://img.shields.io/badge/VentaNext%20SSR-128k%20req%2Fs-blueviolet.svg)](#-ventanext-full-stack-web-benchmarks-vs-nextjs-actix-fastapi)
 [![GPU Acceleration](https://img.shields.io/badge/GPU%20Acceleration-0.32%20%C2%B5s%20Dispatch-00c853.svg)](#-gpu-acceleration-benchmarks-venta-stdgpu-vs-python-cuda--pytorch)
@@ -1054,8 +1054,4 @@ Venta/
 
 ## 📄 License
 
-Vanta is dual-licensed under either:
-- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or [LICENSE](LICENSE))
-- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-
-at your option.
+Vanta is licensed under the [MIT License](LICENSE).

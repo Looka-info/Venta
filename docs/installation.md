@@ -115,9 +115,7 @@ vanta-v1.0-RC2-x86_64-pc-windows-msvc/
 │   └── vanta/
 │       └── std/            # Full Vanta standard library modules
 ├── release-manifest.json   # Cryptographic SHA-256 and byte-size file inventory
-├── LICENSE                 # Dual-licensing pointer (MIT or Apache-2.0)
-├── LICENSE-MIT             # MIT License text
-├── LICENSE-APACHE          # Apache License 2.0 text
+├── LICENSE                 # MIT License text
 ├── README.md               # Quick-start documentation
 ├── docs/                   # Full offline architecture & language manuals
 └── examples/               # Standalone runnable Vanta example programs

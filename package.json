@@ -35,7 +35,7 @@
     "programming-language"
   ],
   "author": "Venta Language Contributors",
-  "license": "MIT OR Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Looka-info/Venta.git"

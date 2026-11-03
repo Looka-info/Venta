@@ -221,7 +221,7 @@ pub fn render_footer() -> Element {
     f.set_class("fin wrap");
     f.add_raw("<h2>Build fast.</h2>");
     f.add_raw("<div class=\"acts\"><a class=\"btn\" href=\"https://github.com/Looka-info/Venta\">View on GitHub</a><a class=\"btn o\" href=\"https://github.com/Looka-info/Venta/releases\">Download v1.0-RC2</a></div>");
-    f.add_raw("<small>MIT or Apache-2.0. Multi-Platform: Linux x86-64, Windows x86-64, macOS Apple Silicon.</small>");
+    f.add_raw("<small>MIT License. Multi-Platform: Linux x86-64, Windows x86-64, macOS Apple Silicon.</small>");
     f
 }
 

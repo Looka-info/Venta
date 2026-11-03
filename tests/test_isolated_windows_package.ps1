@@ -102,8 +102,6 @@ try {
         "lib\vanta\std\option.va",
         "lib\vanta\std\result.va",
         "LICENSE",
-        "LICENSE-MIT",
-        "LICENSE-APACHE",
         "README.md",
         "release-manifest.json"
     )

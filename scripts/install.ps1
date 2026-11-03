@@ -385,7 +385,7 @@ if (Test-Path $UninstallSrc) {
 # 6. Copy License, Documentation, and Examples
 # -----------------------------------------------------------------------------
 
-$LicenseCandidates = @("LICENSE", "LICENSE-MIT", "LICENSE-APACHE", "README.md")
+$LicenseCandidates = @("LICENSE", "README.md")
 foreach ($lic in $LicenseCandidates) {
     $cand = Join-Path $ScriptDir $lic
     if (-not (Test-Path $cand)) { $cand = Join-Path $RepoRoot $lic }

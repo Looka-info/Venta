@@ -180,7 +180,7 @@ pub fn render_root_layout(title: &str, active_nav: &str, content: &str) -> Strin
     html.push_str("<footer>\n");
     html.push_str("    <p style=\"display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px;\">\n");
     html.push_str("        <img src=\"vanta-file-icon.svg\" width=\"16\" alt=\"Venta\">\n");
-    html.push_str("        <strong>Venta Systems Programming Language</strong> • Dual Licensed under MIT OR Apache-2.0\n    </p>\n");
+    html.push_str("        <strong>Venta Systems Programming Language</strong> • Licensed under MIT\n    </p>\n");
     html.push_str("    <p style=\"color: #6b7280; font-size: 0.82rem;\">Zero LLVM • System V AMD64 Native Backend • 100% Memory Safe</p>\n");
     html.push_str("</footer>\n");
 

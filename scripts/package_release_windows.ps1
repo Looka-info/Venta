@@ -6,7 +6,7 @@
     - vantac.exe (Vanta compiler, PE32+ AMD64)
     - vanta.exe (Vanta CLI driver, PE32+ AMD64)
     - lib/vanta/std/ (standard library)
-    - LICENSE, LICENSE-MIT, LICENSE-APACHE (dual-licensing)
+    - LICENSE (MIT License)
     - README.md, docs/, examples/
     - release-manifest.json (cryptographic hash inventory with per-file SHA-256 and size)
     - ZIP archive and independent SHA-256 sidecar
@@ -152,22 +152,12 @@ if (-not (Test-Path $VantacExe) -or -not (Test-Path $VantaExe)) {
 Test-Pe32PlusExecutable $VantacExe
 Test-Pe32PlusExecutable $VantaExe
 
-# 3. Validate Dual-License Files
-Write-Host "--> Validating license files..." -ForegroundColor Cyan
-$LicenseMit = Join-Path $RepoRoot "LICENSE-MIT"
-$LicenseApache = Join-Path $RepoRoot "LICENSE-APACHE"
+# 3. Validate License File
+Write-Host "--> Validating license file..." -ForegroundColor Cyan
 $LicenseRoot = Join-Path $RepoRoot "LICENSE"
 
-if (-not (Test-Path $LicenseMit) -or (Get-Item $LicenseMit).Length -eq 0) {
-    Write-Error "Packaging failed: LICENSE-MIT is missing or empty."
-    exit 1
-}
-if (-not (Test-Path $LicenseApache) -or (Get-Item $LicenseApache).Length -eq 0) {
-    Write-Error "Packaging failed: LICENSE-APACHE is missing or empty."
-    exit 1
-}
 if (-not (Test-Path $LicenseRoot) -or (Get-Item $LicenseRoot).Length -eq 0) {
-    Write-Error "Packaging failed: LICENSE pointer file is missing or empty."
+    Write-Error "Packaging failed: LICENSE file is missing or empty."
     exit 1
 }
 
@@ -210,10 +200,8 @@ if ($FoundScripts.Count -gt 0) {
     exit 1
 }
 
-# Copy dual-license files and README
+# Copy license file and README
 Copy-Item -Path $LicenseRoot -Destination (Join-Path $StageDir "LICENSE") -Force
-Copy-Item -Path $LicenseMit -Destination (Join-Path $StageDir "LICENSE-MIT") -Force
-Copy-Item -Path $LicenseApache -Destination (Join-Path $StageDir "LICENSE-APACHE") -Force
 
 $ReadmeFile = Join-Path $RepoRoot "README.md"
 if (Test-Path $ReadmeFile) {
@@ -375,8 +363,6 @@ try {
         "bin\vanta.exe",
         "lib\vanta\std\mod.va",
         "LICENSE",
-        "LICENSE-MIT",
-        "LICENSE-APACHE",
         "release-manifest.json"
     )
 

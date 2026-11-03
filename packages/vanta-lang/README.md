@@ -65,4 +65,4 @@ vantac compile main.va -o app_mac --target=macos
 ---
 
 ## 📄 License
-Dual-licensed under MIT or Apache 2.0.
+Licensed under the MIT License.

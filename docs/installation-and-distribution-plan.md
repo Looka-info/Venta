@@ -146,4 +146,4 @@ vanta run
 - [ ] `vantac --version` flag implemented and reporting clean version string.
 - [ ] POSIX `install.sh` script hosted and tested on clean Ubuntu, Debian, Fedora, and Arch installations.
 - [ ] `vanta new` project template generator implemented.
-- [ ] MIT and Apache-2.0 license headers verified on all crates and distribution files.
+- [ ] MIT license headers verified on all crates and distribution files.
