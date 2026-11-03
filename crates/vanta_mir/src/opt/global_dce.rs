@@ -122,6 +122,57 @@ impl GlobalDce {
 
     /// Runs intra-procedural unreachable block elimination and effect-aware
     /// dead instruction pruning on a single function.
+    /// Prunes unused standard library functions (std__*) that have no callers
+    /// anywhere in the program, while preserving ALL user functions (even unused ones).
+    pub fn prune_uncalled_std_functions(program: &mut MirProgram) -> bool {
+        let initial_funcs = program.functions.len();
+        let call_graph = CallGraph::build(program);
+        let mut reachable = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        for func in &program.functions {
+            if !func.name.starts_with("std__")
+                || func.name.starts_with("vanta_rt_")
+                || func.name.starts_with("__")
+            {
+                if reachable.insert(func.name.clone()) {
+                    queue.push_back(func.name.clone());
+                }
+            }
+        }
+
+        for vtable in &program.vtables {
+            for method in &vtable.methods {
+                if reachable.insert(method.clone()) {
+                    queue.push_back(method.clone());
+                }
+            }
+        }
+
+        for lit in &program.string_literals {
+            if let Ok(s) = std::str::from_utf8(&lit.bytes) {
+                for func in &program.functions {
+                    if s == func.name && reachable.insert(func.name.clone()) {
+                        queue.push_back(func.name.clone());
+                    }
+                }
+            }
+        }
+
+        while let Some(caller) = queue.pop_front() {
+            if let Some(callees) = call_graph.callees_of.get(&caller) {
+                for callee in callees {
+                    if reachable.insert(callee.clone()) {
+                        queue.push_back(callee.clone());
+                    }
+                }
+            }
+        }
+
+        program.functions.retain(|f| reachable.contains(&f.name));
+        program.functions.len() != initial_funcs
+    }
+
     pub fn run_on_function(func: &mut MirFunction) -> (bool, usize, usize) {
         let mut changed = false;
         let mut total_blocks_removed = 0;

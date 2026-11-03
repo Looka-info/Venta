@@ -168,6 +168,8 @@ impl OptimizationPipeline {
         if level == OptLevel::None {
             if enable_global_dce {
                 GlobalDce::run_on_program(program, is_executable);
+            } else {
+                GlobalDce::prune_uncalled_std_functions(program);
             }
             return;
         }
@@ -186,6 +188,8 @@ impl OptimizationPipeline {
         // Phase 1: Pre-inlining Global DCE, SROA, and early Mem2Reg
         if enable_global_dce {
             GlobalDce::run_on_program(program, is_executable);
+        } else {
+            GlobalDce::prune_uncalled_std_functions(program);
         }
 
         if enable_sroa {
@@ -297,6 +301,8 @@ impl OptimizationPipeline {
         // Phase 5: Post-Optimization Global DCE (removes functions made dead by inlining or constant folding)
         if enable_global_dce {
             GlobalDce::run_on_program(program, is_executable);
+        } else {
+            GlobalDce::prune_uncalled_std_functions(program);
         }
 
         // Verify post-conditions
