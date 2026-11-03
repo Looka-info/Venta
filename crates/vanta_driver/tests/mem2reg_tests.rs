@@ -36,7 +36,10 @@ fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_
         runtime_path: None,
         enable_reg_alloc: true,
         enable_mem2reg: false,
-        linker: LinkerKind::Internal,
+        linker: match std::env::var("VANTA_LINKER").as_deref() {
+            Ok("system") => LinkerKind::System,
+            _ => LinkerKind::Internal,
+        },
         ..Default::default()
     };
     let mut session_no_mem = CompilerSession::new();
@@ -84,7 +87,10 @@ fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_
         runtime_path: None,
         enable_reg_alloc: true,
         enable_mem2reg: true,
-        linker: LinkerKind::Internal,
+        linker: match std::env::var("VANTA_LINKER").as_deref() {
+            Ok("system") => LinkerKind::System,
+            _ => LinkerKind::Internal,
+        },
         ..Default::default()
     };
     let mut session_mem = CompilerSession::new();
