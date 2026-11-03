@@ -173,17 +173,18 @@ else
 fi
 
 echo "--> Installing standard library to ${STD_DEST}..."
+STD_SRC_DIR=""
 if [ -d "${SRC_LIB}/std" ]; then
-    for f in "${SRC_LIB}/std/"*.va; do
-        if [ -f "$f" ]; then
-            install_file "$f" "${STD_DEST}/$(basename "$f")" 0644
-        fi
-    done
+    STD_SRC_DIR="${SRC_LIB}/std"
 elif [ -n "${SCRIPT_DIR}" ] && [ -d "${SCRIPT_DIR}/../library/std" ]; then
-    for f in "${SCRIPT_DIR}/../library/std/"*.va; do
-        if [ -f "$f" ]; then
-            install_file "$f" "${STD_DEST}/$(basename "$f")" 0644
-        fi
+    STD_SRC_DIR="${SCRIPT_DIR}/../library/std"
+fi
+
+if [ -n "${STD_SRC_DIR}" ]; then
+    for f in $(cd "${STD_SRC_DIR}" && find . -type f -name "*.va"); do
+        rel_f="${f#./}"
+        mkdir -p "${STD_DEST}/$(dirname "${rel_f}")"
+        install_file "${STD_SRC_DIR}/${rel_f}" "${STD_DEST}/${rel_f}" 0644
     done
 fi
 

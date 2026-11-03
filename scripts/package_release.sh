@@ -74,8 +74,9 @@ cp -p "${REPO_ROOT}/runtime/libvanta_rt.a" "${STAGE_DIR}/lib/vanta/libvanta_rt.a
 chmod 0644 "${STAGE_DIR}/lib/vanta/libvanta_rt.a"
 
 # Copy standard library
-cp -p "${REPO_ROOT}/library/std/"*.va "${STAGE_DIR}/lib/vanta/std/"
-chmod 0644 "${STAGE_DIR}/lib/vanta/std/"*.va
+cp -r -p "${REPO_ROOT}/library/std/"* "${STAGE_DIR}/lib/vanta/std/"
+find "${STAGE_DIR}/lib/vanta/std" -type f -exec chmod 0644 {} +
+find "${STAGE_DIR}/lib/vanta/std" -type d -exec chmod 0755 {} +
 
 # Copy installer and uninstaller scripts
 cp -p "${REPO_ROOT}/scripts/install.sh" "${STAGE_DIR}/install.sh"

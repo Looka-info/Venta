@@ -18,7 +18,8 @@ use vanta_driver::{
 fn run_collections_test(name: &str, source: &str, opt_level: OptLevel, expected_exit_code: i32) {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join(format!("{}.va", name));
-    let exe_path = dir.path().join(format!("{}.exe", name));
+    let exe_suffix = if cfg!(windows) { ".exe" } else { "" };
+    let exe_path = dir.path().join(format!("{}{}", name, exe_suffix));
     fs::write(&src_path, source).unwrap();
 
     let mut opts = CompilerOptions::new(src_path, exe_path.clone());
@@ -41,6 +42,14 @@ fn run_collections_test(name: &str, source: &str, opt_level: OptLevel, expected_
     );
     assert!(exe_path.is_file(), "Executable was not produced");
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&exe_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&exe_path, perms).unwrap();
+    }
+
     let status = Command::new(&exe_path)
         .status()
         .expect("Failed to execute test binary");
@@ -56,7 +65,8 @@ fn run_collections_test(name: &str, source: &str, opt_level: OptLevel, expected_
 fn check_compile_failure(source: &str, expected_code: &str) {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("fail.va");
-    let exe_path = dir.path().join("fail.exe");
+    let exe_suffix = if cfg!(windows) { ".exe" } else { "" };
+    let exe_path = dir.path().join(format!("fail{}", exe_suffix));
     fs::write(&src_path, source).unwrap();
 
     let mut opts = CompilerOptions::new(src_path, exe_path);
