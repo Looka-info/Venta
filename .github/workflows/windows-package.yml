@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set Up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload Windows Distribution Artifact
         id: upload-artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vanta-windows-x86_64-v1.0-RC2
           path: |
@@ -86,7 +86,7 @@ jobs:
       - name: Publish Windows Distribution to GitHub Releases
         id: publish-release
         if: success() && (github.ref == 'refs/heads/perf/runtime-optimization' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v1.0-RC2
           name: "Vanta v1.0-RC2 (Windows x86-64)"
