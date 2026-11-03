@@ -104,7 +104,8 @@ jobs:
             - `vanta.exe`: Standalone Windows CLI executable.
             - `vantac.exe`: Standalone Windows reference compiler executable.
           draft: false
-          prerelease: true
+          prerelease: false
+          make_latest: true
           files: |
             dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip
             dist/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip.sha256
