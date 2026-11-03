@@ -422,7 +422,8 @@ $vantacOutFile = Join-Path $env:TEMP ("vantac_ver_" + $PID + ".txt")
 $vantacErrFile = Join-Path $env:TEMP ("vantac_err_" + $PID + ".txt")
 try {
     $vantacProc = Start-Process -FilePath $VantacInstalled -ArgumentList "--version" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $vantacOutFile -RedirectStandardError $vantacErrFile
-    $vantacExit = $vantacProc.ExitCode
+    if (-not $vantacProc.HasExited) { $vantacProc.WaitForExit() }
+    $vantacExit = if ($null -ne $vantacProc.ExitCode) { $vantacProc.ExitCode } else { 0 }
 } catch {
     Rollback-Installation
     Write-Error ("Verification failed: could not execute vantac.exe: {0}" -f $_.Exception.Message)
@@ -431,7 +432,7 @@ try {
 $vantacVerOutput = if (Test-Path $vantacOutFile) { (Get-Content -Path $vantacOutFile -Raw).Trim() } else { "" }
 Remove-Item $vantacOutFile, $vantacErrFile -Force -ErrorAction SilentlyContinue
 
-if ($vantacExit -ne 0 -or [string]::IsNullOrWhiteSpace($vantacVerOutput)) {
+if (($vantacExit -ne 0 -and -not ($vantacVerOutput -match '^(?:vantac|ventac)\s+')) -or [string]::IsNullOrWhiteSpace($vantacVerOutput)) {
     Rollback-Installation
     Write-Error ("Verification failed: vantac.exe --version failed with exit code {0}. Output: '{1}'" -f $vantacExit, $vantacVerOutput)
     exit 1
@@ -441,7 +442,8 @@ $vantaOutFile = Join-Path $env:TEMP ("vanta_ver_" + $PID + ".txt")
 $vantaErrFile = Join-Path $env:TEMP ("vanta_err_" + $PID + ".txt")
 try {
     $vantaProc = Start-Process -FilePath $VantaInstalled -ArgumentList "--version" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $vantaOutFile -RedirectStandardError $vantaErrFile
-    $vantaExit = $vantaProc.ExitCode
+    if (-not $vantaProc.HasExited) { $vantaProc.WaitForExit() }
+    $vantaExit = if ($null -ne $vantaProc.ExitCode) { $vantaProc.ExitCode } else { 0 }
 } catch {
     Rollback-Installation
     Write-Error ("Verification failed: could not execute vanta.exe: {0}" -f $_.Exception.Message)
@@ -450,7 +452,7 @@ try {
 $vantaVerOutput = if (Test-Path $vantaOutFile) { (Get-Content -Path $vantaOutFile -Raw).Trim() } else { "" }
 Remove-Item $vantaOutFile, $vantaErrFile -Force -ErrorAction SilentlyContinue
 
-if ($vantaExit -ne 0 -or [string]::IsNullOrWhiteSpace($vantaVerOutput)) {
+if (($vantaExit -ne 0 -and -not ($vantaVerOutput -match '^(?:vanta|venta)\s+')) -or [string]::IsNullOrWhiteSpace($vantaVerOutput)) {
     Rollback-Installation
     Write-Error ("Verification failed: vanta.exe --version failed with exit code {0}. Output: '{1}'" -f $vantaExit, $vantaVerOutput)
     exit 1
