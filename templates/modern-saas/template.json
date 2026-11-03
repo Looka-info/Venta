@@ -1,0 +1,117 @@
+{
+  "id": "modern-saas",
+  "name": "Modern SaaS Website",
+  "category": "SaaS landing pages",
+  "description": "Lumen SaaS revenue analytics platform with live MRR metrics track, three-tier pricing cards, interactive FAQ accordion, and clean modern aesthetic.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/modern-saas",
+  "features": [
+    "App Router Manifest",
+    "Live MRR Metric Track",
+    "Three-Tier Pricing Cards",
+    "Interactive FAQ Accordion",
+    "Health & Stats JSON API",
+    "Zero-GC Native Telemetry"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Overview",
+      "description": "Hero headline, live revenue track, pricing tiers, and FAQ accordion"
+    },
+    {
+      "path": "/features",
+      "title": "Features",
+      "description": "Platform capabilities, zero-config webhooks, and cohort retention"
+    },
+    {
+      "path": "/pricing",
+      "title": "Pricing",
+      "description": "Starter $0, Growth $149, and Scale $499 comparison"
+    },
+    {
+      "path": "/changelog",
+      "title": "Changelog",
+      "description": "Release history and performance milestone notes"
+    },
+    {
+      "path": "/api/health",
+      "title": "Health API",
+      "description": "JSON status endpoint"
+    },
+    {
+      "path": "/api/stats",
+      "title": "Stats API",
+      "description": "Live cluster throughput metrics"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/api/health/route.va",
+      "size_bytes": 207,
+      "sha256": "97da5d0318ec10cc90241e8b7fafbd610930690902fa98e9c8470ac15a54c28d"
+    },
+    {
+      "path": "app/api/stats/route.va",
+      "size_bytes": 178,
+      "sha256": "31bc6c9534833732c78e03cbd99765a3078420b8c844cb62688a8de08a5f2b60"
+    },
+    {
+      "path": "app/changelog/page.va",
+      "size_bytes": 766,
+      "sha256": "f57a857372b3252e37857e46e736b158075a6288a9ba3f202854e6f3c03ea429"
+    },
+    {
+      "path": "app/components/tokens.va",
+      "size_bytes": 6011,
+      "sha256": "f3f8c0d06e7470228e980c71e3657c6c98b8cc35ea548ff6e55ffb347970427d"
+    },
+    {
+      "path": "app/features/page.va",
+      "size_bytes": 944,
+      "sha256": "394324807e2dd8c9b870960ed4d4f294e9d447c26cd091f4d70dfe2c27167c27"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 7029,
+      "sha256": "700ae62167688adba07045fdec8df4333c8cbaf33da9caa12eac88f687a110fa"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 3074,
+      "sha256": "114cb407f8a59e09c851a991fd032516c3e95bb17a8faa5d005f2fa6f89bd0b8"
+    },
+    {
+      "path": "app/pricing/page.va",
+      "size_bytes": 998,
+      "sha256": "49c1e533a29190036d0855feb78b8ebc4f82332224b1b7702b0632c9a2fa8194"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 288,
+      "sha256": "9a678d598950ee5c3a6fb151fc700621bbe9b1705c024bf8964414dfada6ba87"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 586,
+      "sha256": "dbd9d4ec06c518c8707b6d8ec85a927e446b7854a6dbafa0699a5656a605bd33"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 2252,
+      "sha256": "cb317422e17ac75e6e988de3c77cd19179469b5f35091aa425c6280773516229"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 258,
+      "sha256": "ac39f2aa7358ae297ca107aab30fb7f66c924eb249daa7ebc5aadc415fcdc937"
+    }
+  ]
+}

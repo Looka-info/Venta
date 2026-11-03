@@ -1,0 +1,11 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Capabilities.</h2><div class=\"g c4 team\">\n");
+    html.push_str("<div><b>Brand Architecture</b><span>Positioning, verbal identity, design systems, and trademark assets.</span></div>\n");
+    html.push_str("<div><b>Digital Flagships</b><span>Zero-bloat web engineering, mobile applications, and commerce systems.</span></div>\n");
+    html.push_str("<div><b>Motion &amp; 3D</b><span>Brand launch films, product animations, and interactive spatial graphics.</span></div>\n");
+    html.push_str("<div><b>Packaging &amp; Print</b><span>Custom structural packaging, print production, and signage systems.</span></div>\n");
+    html.push_str("</div></section>");
+    html
+}

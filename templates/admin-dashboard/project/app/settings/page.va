@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad set\" style=\"padding-top:120px;\"><h2 class=\"big\">Preferences.</h2><label>Email me weekly summaries<input type=\"checkbox\" checked></label><label>Notify on failed payments<input type=\"checkbox\" checked></label><label>Require two-factor sign-in<input type=\"checkbox\"></label><label>Real-time Slack webhooks<input type=\"checkbox\" checked></label><label>Automated daily backup export<input type=\"checkbox\" checked></label></section>");
+    html
+}

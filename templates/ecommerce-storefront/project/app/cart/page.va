@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:140px;\"><h2 class=\"big\">Your Shopping Bag.</h2><div class=\"g\" style=\"grid-template-columns: 2fr 1fr; gap: 32px;\"><div class=\"tw\"><table><tr><th>Item</th><th>Quantity</th><th>Unit Price</th><th>Total</th></tr><tr><td>Stoneware Bowl, Oat</td><td>1</td><td>$48</td><td>$48</td></tr><tr><td>Everyday Mug, Moss</td><td>2</td><td>$26</td><td>$52</td></tr></table></div><div class=\"card\"><h4>Order Summary</h4><p style=\"margin:12px 0;\">Subtotal: <b>$100</b></p><p style=\"margin:12px 0; color:var(--acc);\">Shipping: <b>Free (Orders &gt; $60)</b></p><hr style=\"border:0; border-top:1px solid var(--line); margin:16px 0;\"><button class=\"btn\" style=\"width:100%;\">Proceed to Checkout</button></div></div></section>");
+    html
+}

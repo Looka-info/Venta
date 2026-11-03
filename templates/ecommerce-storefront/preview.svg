@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" rx="16" fill="#f4efe6"/>
+  <!-- Top Announcement Bar -->
+  <rect x="0" y="0" width="800" height="30" fill="#1f3d2b"/>
+  <text x="400" y="20" fill="#f1ead9" font-family="'Avenir Next', sans-serif" font-size="11" text-anchor="middle">Free shipping on orders over $60. Made in small batches in Portugal.</text>
+
+  <!-- Nav -->
+  <text x="36" y="66" fill="#231f1a" font-family="Georgia, serif" font-weight="600" font-size="22">Fieldnote</text>
+  <text x="170" y="64" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="13">Dinnerware</text>
+  <text x="260" y="64" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="13">Linen</text>
+  <text x="320" y="64" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="13">Kitchen</text>
+  <text x="390" y="64" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="13">Gifts</text>
+  <rect x="690" y="46" width="74" height="28" rx="99" fill="#231f1a"/>
+  <text x="708" y="64" fill="#f4efe6" font-family="'Avenir Next', sans-serif" font-weight="600" font-size="12">Bag (0)</text>
+
+  <!-- Hero Headline -->
+  <text x="36" y="130" fill="#231f1a" font-family="Georgia, serif" font-weight="400" font-size="52" letter-spacing="-0.04em">Made to be used.</text>
+  <text x="36" y="160" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="15">Hand-glazed stoneware and washed linen in soft, lived-in colors.</text>
+
+  <!-- Product Cards -->
+  <rect x="36" y="196" width="166" height="260" rx="12" fill="#f4efe6" stroke="#ddd4c2" stroke-width="1"/>
+  <rect x="46" y="206" width="146" height="140" rx="8" fill="#e9dfcb"/>
+  <path d="M75 250 h88 l-8 60 a36 10 0 0 1-72 0 z" fill="#f8f3e9"/>
+  <text x="46" y="366" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="600" font-size="13">Stoneware Bowl</text>
+  <text x="46" y="384" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="11">Set of 2</text>
+  <text x="46" y="416" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="bold" font-size="14">$48</text>
+
+  <rect x="222" y="196" width="166" height="260" rx="12" fill="#f4efe6" stroke="#ddd4c2" stroke-width="1"/>
+  <rect x="232" y="206" width="146" height="140" rx="8" fill="#e9dfcb"/>
+  <path d="M280 245 h50 v70 a25 8 0 0 1-50 0 z" fill="#2d5a3f"/>
+  <path d="M330 260 c20 0 20 36 0 36" fill="none" stroke="#2d5a3f" stroke-width="7"/>
+  <text x="232" y="366" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="600" font-size="13">Everyday Mug</text>
+  <text x="232" y="384" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="11">350 ml, Moss</text>
+  <text x="232" y="416" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="bold" font-size="14">$26</text>
+
+  <rect x="408" y="196" width="166" height="260" rx="12" fill="#f4efe6" stroke="#ddd4c2" stroke-width="1"/>
+  <rect x="418" y="206" width="146" height="140" rx="8" fill="#e9dfcb"/>
+  <rect x="438" y="236" width="106" height="70" rx="4" fill="#d8c3a5"/>
+  <path d="M438 260 h106 M438 284 h106" stroke="#c4ab86" stroke-width="2"/>
+  <text x="418" y="366" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="600" font-size="13">Washed Linen</text>
+  <text x="418" y="384" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="11">180 cm, Flax</text>
+  <text x="418" y="416" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="bold" font-size="14">$64</text>
+
+  <rect x="594" y="196" width="166" height="260" rx="12" fill="#f4efe6" stroke="#ddd4c2" stroke-width="1"/>
+  <rect x="604" y="206" width="146" height="140" rx="8" fill="#e9dfcb"/>
+  <path d="M660 230 h34 v20 c24 16 28 44 28 64 H632 c0-20 4-48 28-64 z" fill="#b4532a"/>
+  <text x="604" y="366" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="600" font-size="13">Carafe</text>
+  <text x="604" y="384" fill="#6b645a" font-family="'Avenir Next', sans-serif" font-size="11">1 litre, Terracotta</text>
+  <text x="604" y="416" fill="#231f1a" font-family="'Avenir Next', sans-serif" font-weight="bold" font-size="14">$54</text>
+</svg>

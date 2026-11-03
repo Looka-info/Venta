@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"status\":\"ok\",\"email\":\"alex.rivera@systems.dev\",\"gpg_fingerprint\":\"9B32 E42F C889 104A\",\"availability\":\"open_for_consulting\"}")
+}

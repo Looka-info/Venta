@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">API Reference.</h2><p style=\"color:var(--mut); margin-bottom:28px;\">Detailed options and environment flags for <code class=\"i\">kiln.config.js</code>.</p><div class=\"tw\"><table><tr><th>Key</th><th>Type</th><th>Description</th></tr><tr><td><code class=\"i\">target</code></td><td>string</td><td>Platform compilation target (e.g. \"static\", \"edge\", \"node\").</td></tr><tr><td><code class=\"i\">sourcemap</code></td><td>boolean</td><td>Emit inline cryptographic debug mappings.</td></tr><tr><td><code class=\"i\">clean</code></td><td>boolean</td><td>Purge destination directory prior to bundle pass.</td></tr></table></div></section>");
+    html
+}

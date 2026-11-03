@@ -140,6 +140,7 @@ pub fn render_root_layout(title: &str, active_nav: &str, content: &str) -> Strin
     html.push_str("        <ul class=\"nav-links\">\n");
 
     let is_home = active_nav.equals("home");
+    let is_templates = active_nav.equals("templates");
     let is_showcase = active_nav.equals("showcase");
     let is_dash = active_nav.equals("dashboard");
     let is_docs = active_nav.equals("docs");
@@ -148,6 +149,9 @@ pub fn render_root_layout(title: &str, active_nav: &str, content: &str) -> Strin
     html.push_str("            <li><a href=\"/\"");
     if is_home { html.push_str(" class=\"active\""); }
     html.push_str(">Home</a></li>\n");
+    html.push_str("            <li><a href=\"/templates\"");
+    if is_templates { html.push_str(" class=\"active\""); }
+    html.push_str(">Templates</a></li>\n");
 
     html.push_str("            <li><a href=\"/showcase\"");
     if is_showcase { html.push_str(" class=\"active\""); }

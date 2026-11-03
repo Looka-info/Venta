@@ -1,0 +1,17 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<header class=\"hero pad\"><h1 class=\"big\"><span class=\"m\"><span>Made to</span></span><span class=\"m\"><span>be used.</span></span></h1><div class=\"r\"><p>Hand-glazed stoneware and washed linen in soft, lived-in colors.</p><a class=\"btn\" href=\"#shop\">Shop bestsellers</a></div></header>\n");
+    html.push_str("<div class=\"mq big\" aria-hidden=\"true\"><div><span>Stoneware</span><span>Linen</span><span>Small batch</span><span>Hand glazed</span><span>Stoneware</span><span>Linen</span><span>Small batch</span></div></div>\n");
+    html.push_str("<section class=\"hs\"><div class=\"track\">\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 200\" preserveAspectRatio=\"xMidYMid slice\"><rect width=\"400\" height=\"200\" fill=\"#d6c6a6\"/><path d=\"M130 50h140l-14 110a64 20 0 0 1-112 0z\" fill=\"#f4ede0\"/></svg><h3 class=\"big\">Dinnerware</h3><p>Bowls, plates and mugs with a soft, uneven glaze.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 200\" preserveAspectRatio=\"xMidYMid slice\"><rect width=\"400\" height=\"200\" fill=\"#c8b290\"/><g stroke=\"#b39a72\" stroke-width=\"3\"><path d=\"M0 60H400M0 100H400M0 140H400\"/></g></svg><h3 class=\"big\">Linen</h3><p>Washed flax runners, napkins and aprons that soften with every wash.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 200\" preserveAspectRatio=\"xMidYMid slice\"><rect width=\"400\" height=\"200\" fill=\"#b4532a\"/><path d=\"M180 30h40v30c40 24 46 60 46 110H134c0-50 6-86 46-110z\" fill=\"#f4ede0\"/></svg><h3 class=\"big\">Kitchen</h3><p>Carafes, crocks and serving boards for everyday cooking.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 200\" preserveAspectRatio=\"xMidYMid slice\"><rect width=\"400\" height=\"200\" fill=\"#2d5a3f\"/><circle cx=\"200\" cy=\"100\" r=\"62\" fill=\"#f4ede0\"/><circle cx=\"200\" cy=\"100\" r=\"36\" fill=\"#2d5a3f\"/></svg><h3 class=\"big\">Gifts</h3><p>Boxed sets, ready to give, with a handwritten card.</p></div></div></section>\n");
+    html.push_str("<section class=\"sec pad\" id=\"shop\"><h2 class=\"big\">Bestsellers.</h2><div class=\"g c4\">\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M50 70h100l-10 70a40 12 0 0 1-80 0z\" fill=\"#f8f3e9\"/></svg><h4>Stoneware Bowl, Oat</h4><p>Set of 2</p><div class=\"r2\"><b>$48</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M70 60h60v85a30 10 0 0 1-60 0z\" fill=\"#2d5a3f\"/><path d=\"M130 80c26 0 26 44 0 44\" fill=\"none\" stroke=\"#2d5a3f\" stroke-width=\"9\"/></svg><h4>Everyday Mug, Moss</h4><p>350 ml</p><div class=\"r2\"><b>$26</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><rect x=\"30\" y=\"60\" width=\"140\" height=\"90\" rx=\"6\" fill=\"#d8c3a5\"/><path d=\"M30 90h140M30 120h140\" stroke=\"#c4ab86\" stroke-width=\"3\"/></svg><h4>Washed Linen Runner</h4><p>180 cm, Flax</p><div class=\"r2\"><b>$64</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M85 40h30v25c30 20 34 55 34 80H51c0-25 4-60 34-80z\" fill=\"#b4532a\"/></svg><h4>Carafe, Terracotta</h4><p>1 litre</p><div class=\"r2\"><b>$54</b><button>Add</button></div></div></div></section>");
+    html
+}

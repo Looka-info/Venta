@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Initiate Collaboration.</h2><p style=\"font-size:clamp(20px,2.4vw,32px); line-height:1.4; margin-bottom:28px;\">We accept a maximum of four client engagements per quarter to ensure partner-level dedication.</p><div class=\"g\" style=\"grid-template-columns:1fr 1fr; gap:24px;\"><div class=\"card\"><h4>Berlin Studio</h4><p style=\"color:var(--mut);\">Torstraße 140, 10119 Berlin<br>berlin@halftone.studio</p></div><div class=\"card\"><h4>Lagos Studio</h4><p style=\"color:var(--mut);\">14 Victoria Island, Lagos<br>lagos@halftone.studio</p></div></div></section>");
+    html
+}

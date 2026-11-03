@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-docs-website",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#3b82f6",
+    "background": "#090a10",
+    "accent": "#ffd700"
+  }
+}

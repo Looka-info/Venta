@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"users\":[{\"id\":1,\"name\":\"Sarah Jenkins\",\"role\":\"Cluster Admin\"},{\"id\":2,\"name\":\"Marcus Chen\",\"role\":\"Security Lead\"},{\"id\":3,\"name\":\"Elena Rostova\",\"role\":\"Site Reliability\"}]}")
+}

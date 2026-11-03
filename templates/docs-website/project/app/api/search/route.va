@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"results\":[{\"title\":\"Quickstart\",\"url\":\"/\",\"snippet\":\"Get started with VentaNext in seconds.\"},{\"title\":\"Architecture\",\"url\":\"/guide/architecture\",\"snippet\":\"14-pass SSA optimizer and native code emitter.\"},{\"title\":\"Components\",\"url\":\"/guide/components\",\"snippet\":\"Outside-in nested layout composition.\"}]}")
+}

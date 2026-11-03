@@ -15,6 +15,9 @@ use vanta_parser::ast::{Item, PrimType, TypeExpr, TypeExprKind};
 use vanta_parser::Parser;
 use vanta_source::{FileId, SourceFile};
 
+pub mod template_registry;
+pub use template_registry::*;
+
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Official 3D Gold Lightning vector icon for Venta (.va) files and favicons.

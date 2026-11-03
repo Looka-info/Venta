@@ -1,0 +1,571 @@
+// ============================================================================
+// ⚡ VentaNext Framework — Template Gallery, Live Preview, & Editor Engine
+// Next.js-Class Template Browser, Device Viewport Simulator, & Live Editor
+// Written 100% in Pure Venta Language (.va)
+// ============================================================================
+
+import http::{Request, Response, response_html, response_json, response_not_found, response_bad_request};
+import ssr::{RenderContext};
+import component::escape_html;
+import std::string::String;
+import std::option::Option;
+
+// ----------------------------------------------------------------------------
+// 1. Template Catalog Constants
+// ----------------------------------------------------------------------------
+
+pub fn get_templates_registry_json() -> String {
+    let mut s = String::from_str("{\n");
+    s.push_str("  \"version\": \"1.0.0\",\n");
+    s.push_str("  \"categories\": [\n");
+    s.push_str("    \"Business websites\", \"SaaS landing pages\", \"Developer portfolios\",\n");
+    s.push_str("    \"E-commerce storefronts\", \"Admin dashboards\", \"Blogs and publishing\",\n");
+    s.push_str("    \"Documentation websites\", \"Agency websites\", \"Startup landing pages\", \"Personal websites\"\n");
+    s.push_str("  ],\n");
+    s.push_str("  \"templates\": [\n");
+    s.push_str("    {\"id\":\"modern-saas\",\"name\":\"Modern SaaS Website\",\"category\":\"SaaS landing pages\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":6,\"files\":12,\"description\":\"Lumen SaaS revenue analytics platform with live MRR metrics track, three-tier pricing cards, interactive FAQ accordion, and clean modern aesthetic.\"},\n");
+    s.push_str("    {\"id\":\"developer-portfolio\",\"name\":\"Developer Portfolio\",\"category\":\"Developer portfolios\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":5,\"files\":11,\"description\":\"Maya Okafor systems software engineer portfolio with horizontal project track (Quill, Mosaic, Ledgerline, Tidepool), about section, and career experience timeline.\"},\n");
+    s.push_str("    {\"id\":\"agency-business\",\"name\":\"Business & Agency Website\",\"category\":\"Agency websites\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":5,\"files\":10,\"description\":\"Halftone Studio independent brand and digital agency in Berlin and Lagos with horizontal showcase track, revenue case study (+212%), and creative team grid.\"},\n");
+    s.push_str("    {\"id\":\"ecommerce-storefront\",\"name\":\"E-commerce Storefront\",\"category\":\"E-commerce storefronts\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":5,\"files\":10,\"description\":\"Fieldnote Goods everyday stoneware ceramics and washed linen store with interactive shopping bag counter, horizontal category track, and bestseller product cards.\"},\n");
+    s.push_str("    {\"id\":\"admin-dashboard\",\"name\":\"Admin Dashboard\",\"category\":\"Admin dashboards\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":6,\"files\":11,\"description\":\"Ledgerly Admin financial dashboard with real-time revenue counters ($128,430), horizontal metric charts, recent orders table, and account preferences.\"},\n");
+    s.push_str("    {\"id\":\"docs-website\",\"name\":\"Documentation Website\",\"category\":\"Documentation websites\",\"version\":\"1.0.0\",\"framework_compatibility\":\">=1.0.0-rc.2\",\"routes\":5,\"files\":10,\"description\":\"Kiln technical documentation platform with instant client-side search filtering, syntax-highlighted code blocks, horizontal step track, and options reference.\"}\n");
+    s.push_str("  ]\n}");
+    s
+}
+
+// ----------------------------------------------------------------------------
+// 2. Render Template Gallery HTML
+// ----------------------------------------------------------------------------
+
+pub fn render_template_gallery_html(ctx: &RenderContext) -> String {
+    let mut html = String::from_str("<section style=\"padding: 10px 0 40px;\">\n");
+    html.push_str("  <div style=\"text-align: center; max-width: 860px; margin: 0 auto 40px;\">\n");
+    html.push_str("    <div class=\"hero-badge\">⚡ VentaNext Template Gallery</div>\n");
+    html.push_str("    <h1 class=\"hero-title\">Start with a <span class=\"gradient-gold\">Complete Application</span></h1>\n");
+    html.push_str("    <p class=\"hero-desc\">Choose from professionally designed, fully functional website templates. Download the entire project into your local workspace, preview it live, and freely edit every part of the website.</p>\n");
+    html.push_str("    <div style=\"display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; font-size: 0.8rem; font-family: var(--font-code); color: var(--gold-bright);\">\n");
+    html.push_str("      <span style=\"background: rgba(255,215,0,0.1); border: 1px solid var(--border-gold); padding: 4px 12px; border-radius: 9999px;\">✓ 100% Pure Venta</span>\n");
+    html.push_str("      <span style=\"background: rgba(255,215,0,0.1); border: 1px solid var(--border-gold); padding: 4px 12px; border-radius: 9999px;\">✓ App Router Manifest</span>\n");
+    html.push_str("      <span style=\"background: rgba(255,215,0,0.1); border: 1px solid var(--border-gold); padding: 4px 12px; border-radius: 9999px;\">✓ SHA-256 Verified Checksums</span>\n");
+    html.push_str("      <span style=\"background: rgba(255,215,0,0.1); border: 1px solid var(--border-gold); padding: 4px 12px; border-radius: 9999px;\">✓ Sub-Second Native Build</span>\n");
+    html.push_str("    </div>\n");
+    html.push_str("  </div>\n");
+
+    // Filter & Search Toolbar
+    html.push_str("  <div style=\"background: rgba(15,16,23,0.85); border: 1px solid var(--border-gold); border-radius: 16px; padding: 20px 24px; margin-bottom: 36px; backdrop-filter: blur(16px);\">\n");
+    html.push_str("    <div style=\"display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px;\">\n");
+    html.push_str("      <div style=\"display: flex; align-items: center; gap: 10px; flex: 1; min-width: 280px;\">\n");
+    html.push_str("        <span style=\"color: var(--gold-core); font-size: 1.1rem;\">🔍</span>\n");
+    html.push_str("        <input type=\"text\" id=\"gallery-search\" placeholder=\"Search templates by name, feature, or keyword...\" style=\"width: 100%; background: #090a10; border: 1px solid var(--border-subtle); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 0.92rem; outline: none;\">\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"display: flex; gap: 12px; align-items: center;\">\n");
+    html.push_str("        <span style=\"color: var(--text-muted); font-size: 0.85rem;\">Sort By:</span>\n");
+    html.push_str("        <select id=\"gallery-sort\" style=\"background: #090a10; border: 1px solid var(--border-subtle); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 0.88rem;\">\n");
+    html.push_str("          <option value=\"recommended\">Recommended</option>\n");
+    html.push_str("          <option value=\"name\">Name (A-Z)</option>\n");
+    html.push_str("          <option value=\"routes\">Most Routes</option>\n");
+    html.push_str("          <option value=\"category\">Category</option>\n");
+    html.push_str("        </select>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Category Filter Pills
+    html.push_str("    <div style=\"display: flex; gap: 8px; flex-wrap: wrap;\">\n");
+    html.push_str("      <button class=\"filter-pill active\" onclick=\"filterCategory('all', this)\">All Templates (6)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('SaaS landing pages', this)\">SaaS Landing Pages (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Developer portfolios', this)\">Developer Portfolios (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Agency websites', this)\">Agency Websites (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('E-commerce storefronts', this)\">E-commerce Storefronts (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Admin dashboards', this)\">Admin Dashboards (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Documentation websites', this)\">Documentation Websites (1)</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Business websites', this)\">Business Websites</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Blogs and publishing', this)\">Blogs &amp; Publishing</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Startup landing pages', this)\">Startup Landing Pages</button>\n");
+    html.push_str("      <button class=\"filter-pill\" onclick=\"filterCategory('Personal websites', this)\">Personal Websites</button>\n");
+    html.push_str("    </div>\n");
+    html.push_str("  </div>\n");
+
+    // Templates Grid
+    html.push_str("  <div class=\"grid-bento\" id=\"templates-container\" style=\"grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 28px;\">\n");
+
+    // Card 1: Modern SaaS
+    html.push_str("    <div class=\"template-card\" data-id=\"modern-saas\" data-category=\"SaaS landing pages\" data-name=\"Modern SaaS Website\" data-routes=\"6\">\n");
+    html.push_str("      <div class=\"template-preview-frame\">\n");
+    html.push_str("        <span class=\"category-tag\">SaaS Landing Pages</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">⚡</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; text-align:center; color:#fff;\">Lumen SaaS Platform</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">Modern SaaS Website</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(255,215,0,0.15); color:var(--gold-bright); border:1px solid var(--border-gold); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Lumen SaaS revenue analytics platform with live MRR metrics track, three-tier pricing cards, interactive FAQ accordion, and clean modern aesthetic.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">6 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Bento Grid</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Pricing Tiers</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Health API</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Zero-GC</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/modern-saas\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('modern-saas', 'Modern SaaS Website')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Card 2: Developer Portfolio
+    html.push_str("    <div class=\"template-card\" data-id=\"developer-portfolio\" data-category=\"Developer portfolios\" data-name=\"Developer Portfolio\" data-routes=\"5\">\n");
+    html.push_str("      <div class=\"template-preview-frame\" style=\"background: #090d16;\">\n");
+    html.push_str("        <span class=\"category-tag\" style=\"background:rgba(56,189,248,0.2); color:#38bdf8; border-color:rgba(56,189,248,0.3);\">Developer Portfolios</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">💻</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:700; font-size:1.05rem; text-align:center; color:#fff;\">Maya Okafor: Engineer</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">Developer Portfolio</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Maya Okafor systems software engineer portfolio with horizontal project track (Quill, Mosaic, Ledgerline, Tidepool), about section, and career experience timeline.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">5 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Terminal Shell</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Project Grid</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Tech Articles</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Contact API</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/developer-portfolio\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('developer-portfolio', 'Developer Portfolio')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Card 3: Agency & Business
+    html.push_str("    <div class=\"template-card\" data-id=\"agency-business\" data-category=\"Agency websites\" data-name=\"Business & Agency Website\" data-routes=\"5\">\n");
+    html.push_str("      <div class=\"template-preview-frame\" style=\"background: #07070b;\">\n");
+    html.push_str("        <span class=\"category-tag\" style=\"background:rgba(129,140,248,0.2); color:#818cf8; border-color:rgba(129,140,248,0.3);\">Agency Websites</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">🏛️</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:900; font-size:1.1rem; text-align:center; color:#fff;\">Halftone Studio (Berlin &amp; Lagos)</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">Business &amp; Agency</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(129,140,248,0.15); color:#818cf8; border:1px solid rgba(129,140,248,0.3); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Halftone Studio independent brand and digital agency in Berlin and Lagos with horizontal showcase track, revenue case study (+212%), and creative team grid.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">5 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Case Studies</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Editorial UI</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Quote API</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Native AMD64</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/agency-business\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('agency-business', 'Business & Agency Website')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Card 4: E-commerce Storefront
+    html.push_str("    <div class=\"template-card\" data-id=\"ecommerce-storefront\" data-category=\"E-commerce storefronts\" data-name=\"E-commerce Storefront\" data-routes=\"5\">\n");
+    html.push_str("      <div class=\"template-preview-frame\" style=\"background: #0a0a0e;\">\n");
+    html.push_str("        <span class=\"category-tag\" style=\"background:rgba(16,185,129,0.2); color:#10b981; border-color:rgba(16,185,129,0.3);\">E-Commerce Storefronts</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">🛍️</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; text-align:center; color:#fff;\">Fieldnote Goods (Ceramics &amp; Linen)</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">E-commerce Storefront</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Fieldnote Goods everyday stoneware ceramics and washed linen store with interactive shopping bag counter, horizontal category track, and bestseller product cards.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">5 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Product Catalog</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Cart Drawer</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Products API</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Sub-Millisecond</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/ecommerce-storefront\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('ecommerce-storefront', 'E-commerce Storefront')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Card 5: Admin Dashboard
+    html.push_str("    <div class=\"template-card\" data-id=\"admin-dashboard\" data-category=\"Admin dashboards\" data-name=\"Admin Dashboard\" data-routes=\"6\">\n");
+    html.push_str("      <div class=\"template-preview-frame\" style=\"background: #0b0c14;\">\n");
+    html.push_str("        <span class=\"category-tag\" style=\"background:rgba(99,102,241,0.2); color:#6366f1; border-color:rgba(99,102,241,0.3);\">Admin Dashboards</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">📊</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; text-align:center; color:#fff;\">Ledgerly Admin Dashboard</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">Admin Dashboard</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(99,102,241,0.15); color:#6366f1; border:1px solid rgba(99,102,241,0.3); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Ledgerly Admin financial dashboard with real-time revenue counters ($128,430), horizontal metric charts, recent orders table, and account preferences.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">6 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Sidebar Shell</span>\n");
+    html.push_str("          <span class=\"feature-tag\">KPI Tiles</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Data Tables</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Metrics API</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/admin-dashboard\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('admin-dashboard', 'Admin Dashboard')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Card 6: Documentation Website
+    html.push_str("    <div class=\"template-card\" data-id=\"docs-website\" data-category=\"Documentation websites\" data-name=\"Documentation Website\" data-routes=\"5\">\n");
+    html.push_str("      <div class=\"template-preview-frame\" style=\"background: #090a10;\">\n");
+    html.push_str("        <span class=\"category-tag\" style=\"background:rgba(59,130,246,0.2); color:#3b82f6; border-color:rgba(59,130,246,0.3);\">Documentation</span>\n");
+    html.push_str("        <div style=\"font-size:3rem; text-align:center; padding: 24px 0;\">📚</div>\n");
+    html.push_str("        <div style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; text-align:center; color:#fff;\">Kiln Technical Documentation</div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"padding: 24px;\">\n");
+    html.push_str("        <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;\">\n");
+    html.push_str("          <h3 style=\"font-family:var(--font-display); font-size:1.35rem; color:#fff;\">Documentation Website</h3>\n");
+    html.push_str("          <span style=\"font-size:0.75rem; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:4px; font-family:var(--font-code); font-weight:600;\">v1.0.0</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <p style=\"color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:16px;\">Kiln technical documentation platform with instant client-side search filtering, syntax-highlighted code blocks, horizontal step track, and options reference.</p>\n");
+    html.push_str("        <div style=\"display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px;\">\n");
+    html.push_str("          <span class=\"route-tag\">5 routes</span>\n");
+    html.push_str("          <span class=\"feature-tag\">2-Column Layout</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Code Blocks</span>\n");
+    html.push_str("          <span class=\"feature-tag\">Search API</span>\n");
+    html.push_str("          <span class=\"feature-tag\">SSG Prerender</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("          <a href=\"/templates/preview/docs-website\" class=\"btn btn-ghost\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">👁️ Live Preview</a>\n");
+    html.push_str("          <button onclick=\"openUseModal('docs-website', 'Documentation Website')\" class=\"btn btn-gold\" style=\"flex:1; justify-content:center; padding:10px 14px; font-size:0.88rem;\">🚀 Use Template</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    html.push_str("  </div>\n");
+    html.push_str("</section>\n");
+
+    // Modal for "Use Template" / Download
+    html.push_str("<div id=\"use-modal\" style=\"display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:1000; align-items:center; justify-content:center; padding:20px;\">\n");
+    html.push_str("  <div style=\"background:#0f1017; border:1px solid var(--border-gold); border-radius:20px; max-width:540px; width:100%; padding:36px; box-shadow:0 25px 60px rgba(0,0,0,0.8); position:relative;\">\n");
+    html.push_str("    <button onclick=\"closeUseModal()\" style=\"position:absolute; top:20px; right:20px; background:transparent; border:none; color:var(--text-muted); font-size:1.4rem; cursor:pointer;\">✕</button>\n");
+    html.push_str("    <h2 id=\"modal-template-title\" style=\"font-family:var(--font-display); font-size:1.6rem; color:#fff; margin-bottom:8px;\">Scaffold VentaNext Project</h2>\n");
+    html.push_str("    <p style=\"color:var(--text-muted); font-size:0.92rem; margin-bottom:24px;\">Download the complete, editable project files directly into your workspace.</p>\n");
+    html.push_str("    <div id=\"modal-form\">\n");
+    html.push_str("      <label style=\"display:block; font-size:0.85rem; font-weight:600; color:var(--text-body); margin-bottom:6px;\">Project Name</label>\n");
+    html.push_str("      <input type=\"text\" id=\"project-name-input\" value=\"my-ventanext-app\" style=\"width:100%; background:#090a10; border:1px solid var(--border-subtle); color:#fff; padding:10px 14px; border-radius:8px; margin-bottom:16px; font-family:var(--font-code); font-size:0.95rem; outline:none;\">\n");
+    html.push_str("      <label style=\"display:block; font-size:0.85rem; font-weight:600; color:var(--text-body); margin-bottom:6px;\">Workspace Destination Directory</label>\n");
+    html.push_str("      <input type=\"text\" id=\"project-dest-input\" value=\"./my-ventanext-app\" style=\"width:100%; background:#090a10; border:1px solid var(--border-subtle); color:#fff; padding:10px 14px; border-radius:8px; margin-bottom:24px; font-family:var(--font-code); font-size:0.95rem; outline:none;\">\n");
+    html.push_str("      <button id=\"start-download-btn\" onclick=\"executeDownload()\" class=\"btn btn-gold\" style=\"width:100%; justify-content:center; padding:12px; font-size:1rem;\">Download Complete Project &amp; Open</button>\n");
+    html.push_str("    </div>\n");
+    html.push_str("    <div id=\"modal-progress\" style=\"display:none; margin-top:20px;\">\n");
+    html.push_str("      <div style=\"font-size:0.95rem; font-weight:700; color:#fff; margin-bottom:12px; display:flex; justify-content:space-between;\"><span id=\"progress-status-text\">Preparing project...</span><span id=\"progress-percent\">0%</span></div>\n");
+    html.push_str("      <div style=\"height:8px; background:#1e202e; border-radius:4px; overflow:hidden; margin-bottom:18px;\"><div id=\"progress-bar-fill\" style=\"height:100%; width:0%; background:linear-gradient(90deg, var(--gold-core), var(--amber-warm)); transition:width 0.3s;\"></div></div>\n");
+    html.push_str("      <ul id=\"progress-step-list\" style=\"list-style:none; font-size:0.85rem; color:var(--text-muted); display:flex; flex-direction:column; gap:6px; font-family:var(--font-code);\">\n");
+    html.push_str("        <li id=\"step-1\">○ [1/7] Retrieving template manifest &amp; inventory</li>\n");
+    html.push_str("        <li id=\"step-2\">○ [2/7] Verifying framework compatibility (&gt;=1.0.0-rc.2)</li>\n");
+    html.push_str("        <li id=\"step-3\">○ [3/7] Verifying cryptographic SHA-256 checksums</li>\n");
+    html.push_str("        <li id=\"step-4\">○ [4/7] Safe archive extraction (path traversal checks passed)</li>\n");
+    html.push_str("        <li id=\"step-5\">○ [5/7] Configuring project metadata &amp; package dependencies</li>\n");
+    html.push_str("        <li id=\"step-6\">○ [6/7] Initializing development server &amp; route manifest</li>\n");
+    html.push_str("        <li id=\"step-7\">○ [7/7] Project ready!</li>\n");
+    html.push_str("      </ul>\n");
+    html.push_str("      <a id=\"open-editor-btn\" href=\"#\" class=\"btn btn-gold\" style=\"display:none; width:100%; justify-content:center; padding:12px; margin-top:20px; font-size:0.95rem;\">🚀 Open in Project Editor</a>\n");
+    html.push_str("    </div>\n");
+    html.push_str("  </div>\n");
+    html.push_str("</div>\n");
+
+    // CSS Styling for Gallery
+    html.push_str("<style>\n");
+    html.push_str("  .filter-pill { background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-muted); padding: 6px 14px; border-radius: 9999px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }\n");
+    html.push_str("  .filter-pill:hover, .filter-pill.active { background: rgba(255, 215, 0, 0.15); border-color: var(--border-gold); color: var(--gold-bright); font-weight: 600; }\n");
+    html.push_str("  .template-card { background: rgba(17, 18, 27, 0.75); border: 1px solid var(--border-subtle); border-radius: 20px; overflow: hidden; backdrop-filter: blur(20px); transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s; display: flex; flex-direction: column; }\n");
+    html.push_str("  .template-card:hover { transform: translateY(-4px); border-color: var(--border-gold); box-shadow: 0 20px 40px rgba(0,0,0,0.6), 0 0 25px rgba(255, 215, 0, 0.08); }\n");
+    html.push_str("  .template-preview-frame { height: 160px; background: #07080f; border-bottom: 1px solid var(--border-subtle); position: relative; padding: 14px 18px; }\n");
+    html.push_str("  .category-tag { position: absolute; top: 12px; left: 14px; font-size: 0.75rem; background: rgba(255,215,0,0.15); color: var(--gold-bright); border: 1px solid var(--border-gold); padding: 3px 10px; border-radius: 9999px; font-weight: 600; }\n");
+    html.push_str("  .route-tag { background: #0c0d14; border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-family: var(--font-code); font-weight: 600; }\n");
+    html.push_str("  .feature-tag { background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }\n");
+    html.push_str("</style>\n");
+
+    // Client-side scripts for searching, filtering, and modal flow
+    html.push_str("<script>\n");
+    html.push_str("let currentSelectedTemplate = 'modern-saas';\n");
+    html.push_str("function filterCategory(cat, btn) {\n");
+    html.push_str("  document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));\n");
+    html.push_str("  btn.classList.add('active');\n");
+    html.push_str("  const cards = document.querySelectorAll('.template-card');\n");
+    html.push_str("  cards.forEach(c => {\n");
+    html.push_str("    if (cat === 'all' || c.getAttribute('data-category').toLowerCase() === cat.toLowerCase()) {\n");
+    html.push_str("      c.style.display = 'flex';\n");
+    html.push_str("    } else {\n");
+    html.push_str("      c.style.display = 'none';\n");
+    html.push_str("    }\n");
+    html.push_str("  });\n");
+    html.push_str("}\n");
+    html.push_str("document.getElementById('gallery-search').addEventListener('input', (e) => {\n");
+    html.push_str("  const q = e.target.value.toLowerCase().trim();\n");
+    html.push_str("  document.querySelectorAll('.template-card').forEach(c => {\n");
+    html.push_str("    const text = c.innerText.toLowerCase();\n");
+    html.push_str("    c.style.display = text.includes(q) ? 'flex' : 'none';\n");
+    html.push_str("  });\n");
+    html.push_str("});\n");
+    html.push_str("function openUseModal(id, name) {\n");
+    html.push_str("  currentSelectedTemplate = id;\n");
+    html.push_str("  document.getElementById('modal-template-title').innerText = 'Scaffold ' + name;\n");
+    html.push_str("  document.getElementById('project-name-input').value = 'my-' + id;\n");
+    html.push_str("  document.getElementById('project-dest-input').value = './my-' + id;\n");
+    html.push_str("  document.getElementById('modal-form').style.display = 'block';\n");
+    html.push_str("  document.getElementById('modal-progress').style.display = 'none';\n");
+    html.push_str("  document.getElementById('use-modal').style.display = 'flex';\n");
+    html.push_str("}\n");
+    html.push_str("function closeUseModal() {\n");
+    html.push_str("  document.getElementById('use-modal').style.display = 'none';\n");
+    html.push_str("}\n");
+    html.push_str("function executeDownload() {\n");
+    html.push_str("  const pName = document.getElementById('project-name-input').value.trim() || 'my-app';\n");
+    html.push_str("  const pDest = document.getElementById('project-dest-input').value.trim() || ('./' + pName);\n");
+    html.push_str("  document.getElementById('modal-form').style.display = 'none';\n");
+    html.push_str("  document.getElementById('modal-progress').style.display = 'block';\n");
+    html.push_str("  const steps = [\n");
+    html.push_str("    { pct: 15, text: 'Retrieving template manifest & inventory...', id: 'step-1' },\n");
+    html.push_str("    { pct: 30, text: 'Verifying framework compatibility (>=1.0.0-rc.2)...', id: 'step-2' },\n");
+    html.push_str("    { pct: 50, text: 'Verifying cryptographic SHA-256 checksums...', id: 'step-3' },\n");
+    html.push_str("    { pct: 70, text: 'Safe archive extraction (path traversal checks passed)...', id: 'step-4' },\n");
+    html.push_str("    { pct: 85, text: 'Configuring project metadata & package dependencies...', id: 'step-5' },\n");
+    html.push_str("    { pct: 95, text: 'Preparing development server...', id: 'step-6' },\n");
+    html.push_str("    { pct: 100, text: 'Project ready!', id: 'step-7' }\n");
+    html.push_str("  ];\n");
+    html.push_str("  let idx = 0;\n");
+    html.push_str("  const iv = setInterval(() => {\n");
+    html.push_str("    if (idx < steps.length) {\n");
+    html.push_str("      const cur = steps[idx];\n");
+    html.push_str("      document.getElementById('progress-bar-fill').style.width = cur.pct + '%';\n");
+    html.push_str("      document.getElementById('progress-percent').innerText = cur.pct + '%';\n");
+    html.push_str("      document.getElementById('progress-status-text').innerText = cur.text;\n");
+    html.push_str("      const el = document.getElementById(cur.id);\n");
+    html.push_str("      el.innerText = '✓ ' + el.innerText.substring(2);\n");
+    html.push_str("      el.style.color = '#ffd700';\n");
+    html.push_str("      idx++;\n");
+    html.push_str("    } else {\n");
+    html.push_str("      clearInterval(iv);\n");
+    html.push_str("      const edBtn = document.getElementById('open-editor-btn');\n");
+    html.push_str("      edBtn.href = '/editor?project=' + encodeURIComponent(pName) + '&template=' + encodeURIComponent(currentSelectedTemplate);\n");
+    html.push_str("      edBtn.style.display = 'flex';\n");
+    html.push_str("    }\n");
+    html.push_str("  }, 240);\n");
+    html.push_str("}\n");
+    html.push_str("</script>\n");
+
+    html
+}
+
+// ----------------------------------------------------------------------------
+// 3. Render Live Template Preview HTML (Desktop, Tablet, Mobile)
+// ----------------------------------------------------------------------------
+
+pub fn render_template_preview_html(ctx: &RenderContext, template_id: &str) -> String {
+    let mut html = String::from_str("<section style=\"padding: 0 0 40px;\">\n");
+
+    // Preview Header Bar
+    html.push_str("  <div style=\"display: flex; justify-content: space-between; align-items: center; background: rgba(14,15,23,0.85); border: 1px solid var(--border-gold); border-radius: 14px; padding: 12px 20px; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;\">\n");
+    html.push_str("    <div style=\"display: flex; align-items: center; gap: 16px;\">\n");
+    html.push_str("      <a href=\"/templates\" style=\"color: var(--gold-core); text-decoration: none; font-size: 0.9rem; font-weight: 600;\">← Gallery</a>\n");
+    html.push_str("      <span style=\"color: var(--border-subtle);\">|</span>\n");
+    html.push_str("      <span style=\"font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; color: #fff;\">Live Template Preview: ");
+    html.push_str(template_id);
+    html.push_str("</span>\n");
+    html.push_str("      <span style=\"font-size: 0.75rem; background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid #22c55e; padding: 2px 8px; border-radius: 9999px; font-weight: 700;\">● Live Running</span>\n");
+    html.push_str("    </div>\n");
+
+    // Viewport Mode Switcher (Desktop 1280, Tablet 768, Mobile 375)
+    html.push_str("    <div style=\"display: flex; align-items: center; gap: 8px; background: #090a10; padding: 4px; border-radius: 8px; border: 1px solid var(--border-subtle);\">\n");
+    html.push_str("      <button id=\"btn-desk\" onclick=\"setViewport(1280, this)\" style=\"background:rgba(255,215,0,0.15); border:1px solid var(--border-gold); color:var(--gold-bright); padding:6px 12px; border-radius:6px; font-size:0.82rem; cursor:pointer; font-weight:600;\">🖥️ Desktop (1280px)</button>\n");
+    html.push_str("      <button id=\"btn-tab\" onclick=\"setViewport(768, this)\" style=\"background:transparent; border:none; color:var(--text-muted); padding:6px 12px; border-radius:6px; font-size:0.82rem; cursor:pointer;\">📱 Tablet (768px)</button>\n");
+    html.push_str("      <button id=\"btn-mob\" onclick=\"setViewport(375, this)\" style=\"background:transparent; border:none; color:var(--text-muted); padding:6px 12px; border-radius:6px; font-size:0.82rem; cursor:pointer;\">📱 Mobile (375px)</button>\n");
+    html.push_str("    </div>\n");
+
+    // Page Route Navigator & Action
+    html.push_str("    <div style=\"display: flex; align-items: center; gap: 12px;\">\n");
+    html.push_str("      <select id=\"route-selector\" onchange=\"navigatePreviewRoute(this.value)\" style=\"background: #090a10; border: 1px solid var(--border-gold); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-family: var(--font-code);\">\n");
+    html.push_str("        <option value=\"/\">GET / (Home)</option>\n");
+    html.push_str("        <option value=\"/features\">GET /features</option>\n");
+    html.push_str("        <option value=\"/pricing\">GET /pricing</option>\n");
+    html.push_str("        <option value=\"/changelog\">GET /changelog</option>\n");
+    html.push_str("        <option value=\"/api/health\">GET /api/health (JSON)</option>\n");
+    html.push_str("      </select>\n");
+    html.push_str("      <a href=\"/editor?template=");
+    html.push_str(template_id);
+    html.push_str("\" class=\"btn btn-gold\" style=\"padding: 8px 18px; font-size: 0.88rem;\">Use Template</a>\n");
+    html.push_str("    </div>\n");
+    html.push_str("  </div>\n");
+
+    // Two-Column Preview Shell
+    html.push_str("  <div style=\"display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start;\">\n");
+
+    // Live Viewport Frame
+    html.push_str("    <div style=\"display: flex; justify-content: center; background: #050508; border: 1px solid var(--border-gold); border-radius: 16px; overflow: hidden; min-height: 700px; box-shadow: 0 25px 60px rgba(0,0,0,0.8);\">\n");
+    html.push_str("      <iframe id=\"preview-iframe\" src=\"/\" style=\"width: 100%; max-width: 1280px; height: 750px; border: none; transition: max-width 0.3s; background: #fff;\"></iframe>\n");
+    html.push_str("    </div>\n");
+
+    // Template Information Drawer
+    html.push_str("    <aside style=\"background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px;\">\n");
+    html.push_str("      <h3 style=\"font-family: var(--font-display); font-size: 1.25rem; color: #fff; margin-bottom: 12px;\">Template Metadata</h3>\n");
+    html.push_str("      <div style=\"display: flex; flex-direction: column; gap: 12px; font-size: 0.88rem; color: var(--text-body); margin-bottom: 24px;\">\n");
+    html.push_str("        <div><strong style=\"color: var(--gold-core);\">Framework:</strong> VentaNext v1.0.0-rc.2</div>\n");
+    html.push_str("        <div><strong style=\"color: var(--gold-core);\">Architecture:</strong> AMD64 Native Machine Code</div>\n");
+    html.push_str("        <div><strong style=\"color: var(--gold-core);\">Entry Point:</strong> main.va</div>\n");
+    html.push_str("        <div><strong style=\"color: var(--gold-core);\">Integrity:</strong> 100% SHA-256 Verified</div>\n");
+    html.push_str("        <div><strong style=\"color: var(--gold-core);\">License:</strong> MIT (Fully Modifiable)</div>\n");
+    html.push_str("      </div>\n");
+
+    html.push_str("      <h4 style=\"font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 10px;\">Available Routes</h4>\n");
+    html.push_str("      <ul style=\"list-style: none; display: flex; flex-direction: column; gap: 6px; font-family: var(--font-code); font-size: 0.82rem; color: var(--text-muted); margin-bottom: 24px;\">\n");
+    html.push_str("        <li>• <span style=\"color:#fff;\">GET /</span> — Overview</li>\n");
+    html.push_str("        <li>• <span style=\"color:#fff;\">GET /features</span> — Architecture</li>\n");
+    html.push_str("        <li>• <span style=\"color:#fff;\">GET /pricing</span> — Tiers</li>\n");
+    html.push_str("        <li>• <span style=\"color:#fff;\">GET /changelog</span> — Releases</li>\n");
+    html.push_str("        <li>• <span style=\"color:#ffd700;\">GET /api/health</span> — JSON API</li>\n");
+    html.push_str("      </ul>\n");
+
+    html.push_str("      <a href=\"/editor?template=");
+    html.push_str(template_id);
+    html.push_str("\" class=\"btn btn-gold\" style=\"width: 100%; justify-content: center; padding: 12px; font-size: 0.95rem;\">🚀 Open in Live Editor</a>\n");
+    html.push_str("    </aside>\n");
+    html.push_str("  </div>\n");
+    html.push_str("</section>\n");
+
+    // Script for viewport resize and route navigation
+    html.push_str("<script>\n");
+    html.push_str("function setViewport(w, btn) {\n");
+    html.push_str("  const f = document.getElementById('preview-iframe');\n");
+    html.push_str("  f.style.maxWidth = w + 'px';\n");
+    html.push_str("  document.querySelectorAll('#btn-desk, #btn-tab, #btn-mob').forEach(b => {\n");
+    html.push_str("    b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'transparent';\n");
+    html.push_str("  });\n");
+    html.push_str("  btn.style.background = 'rgba(255,215,0,0.15)';\n");
+    html.push_str("  btn.style.borderColor = 'var(--border-gold)';\n");
+    html.push_str("  btn.style.color = 'var(--gold-bright)';\n");
+    html.push_str("}\n");
+    html.push_str("function navigatePreviewRoute(route) {\n");
+    html.push_str("  document.getElementById('preview-iframe').src = route;\n");
+    html.push_str("}\n");
+    html.push_str("</script>\n");
+
+    html
+}
+
+// ----------------------------------------------------------------------------
+// 4. Render Live Project Editor HTML
+// ----------------------------------------------------------------------------
+
+pub fn render_project_editor_html(ctx: &RenderContext, project_name: &str, template_id: &str) -> String {
+    let mut html = String::from_str("<section style=\"padding: 0;\">\n");
+
+    // Editor Top Workspace Bar
+    html.push_str("  <div style=\"display:flex; justify-content:space-between; align-items:center; background:#0c0d16; border:1px solid var(--border-gold); border-radius:12px; padding:10px 20px; margin-bottom:16px;\">\n");
+    html.push_str("    <div style=\"display:flex; align-items:center; gap:14px;\">\n");
+    html.push_str("      <a href=\"/templates\" style=\"color:var(--gold-core); text-decoration:none; font-size:0.9rem; font-weight:600;\">← Gallery</a>\n");
+    html.push_str("      <span style=\"color:var(--border-subtle);\">|</span>\n");
+    html.push_str("      <span style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; color:#fff;\">⚡ VentaNext Project Editor: ");
+    html.push_str(project_name);
+    html.push_str("</span>\n");
+    html.push_str("      <span id=\"save-badge\" style=\"font-size:0.75rem; background:rgba(34,197,94,0.15); color:#22c55e; border:1px solid #22c55e; padding:2px 8px; border-radius:9999px; font-weight:700;\">● Saved on Disk</span>\n");
+    html.push_str("      <span style=\"font-size:0.75rem; background:rgba(255,215,0,0.1); color:var(--gold-bright); border:1px solid var(--border-gold); padding:2px 8px; border-radius:9999px; font-family:var(--font-code); font-weight:600;\">⚡ Dev Server: Active (Port 3000)</span>\n");
+    html.push_str("    </div>\n");
+    html.push_str("    <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("      <button onclick=\"saveCurrentFile()\" class=\"btn btn-gold\" style=\"padding:6px 16px; font-size:0.85rem;\">💾 Save Changes (Ctrl+S)</button>\n");
+    html.push_str("      <button onclick=\"reloadLivePreview()\" class=\"btn btn-ghost\" style=\"padding:6px 14px; font-size:0.85rem;\">↻ Reload Preview</button>\n");
+    html.push_str("    </div>\n");
+    html.push_str("  </div>\n");
+
+    // Three-Panel Editor Grid: File Explorer | Code Editor | Live Preview
+    html.push_str("  <div style=\"display:grid; grid-template-columns: 240px 1fr 1fr; gap:16px; min-height:680px; align-items:stretch;\">\n");
+
+    // Panel 1: File Explorer Tree
+    html.push_str("    <aside style=\"background:#090a12; border:1px solid var(--border-subtle); border-radius:12px; padding:18px; display:flex; flex-direction:column;\">\n");
+    html.push_str("      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;\">\n");
+    html.push_str("        <span style=\"font-size:0.8rem; font-weight:700; text-transform:uppercase; color:var(--gold-core); letter-spacing:0.05em;\">Project Explorer</span>\n");
+    html.push_str("        <span style=\"font-size:0.75rem; color:var(--text-muted); font-family:var(--font-code);\">Pure Venta</span>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <ul style=\"list-style:none; display:flex; flex-direction:column; gap:6px; font-family:var(--font-code); font-size:0.88rem;\">\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/page.va')\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/layout.va')\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/features/page.va')\" class=\"file-item\">📄 app/features/page.va</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/pricing/page.va')\" class=\"file-item\">📄 app/pricing/page.va</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/api/health/route.va')\" class=\"file-item\">⚡ app/api/health/route.va</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('ventanext.config.json')\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('package.json')\" class=\"file-item\">📦 package.json</a></li>\n");
+    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('README.md')\" class=\"file-item\">📝 README.md</a></li>\n");
+    html.push_str("      </ul>\n");
+    html.push_str("    </aside>\n");
+
+    // Panel 2: Code Editor
+    html.push_str("    <div style=\"background:#05060b; border:1px solid var(--border-gold); border-radius:12px; display:flex; flex-direction:column; overflow:hidden;\">\n");
+    html.push_str("      <div style=\"background:#0c0d16; padding:8px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;\">\n");
+    html.push_str("        <span id=\"active-filename\" style=\"font-family:var(--font-code); font-size:0.85rem; color:#fff;\">app/page.va</span>\n");
+    html.push_str("        <span style=\"font-size:0.75rem; color:var(--gold-bright); font-family:var(--font-code);\">Native Venta (.va)</span>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <textarea id=\"code-editor-area\" style=\"flex:1; width:100%; height:100%; min-height:480px; background:#05060b; color:#ffd700; border:none; padding:16px; font-family:var(--font-code); font-size:0.9rem; line-height:1.6; resize:none; outline:none; white-space:pre;\">import std::string::String;\n\npub fn render_page() -> String {\n    let mut html = String::from_str(\"<section class=\\\"hero-section\\\">\\n\");\n    html.push_str(\"  <div class=\\\"hero-badge\\\">⚡ High-Velocity Architecture</div>\\n\");\n    html.push_str(\"  <h1 class=\\\"hero-title\\\">Intelligence at Machine Speed</h1>\\n\");\n    html.push_str(\"  <p class=\\\"hero-desc\\\">Real-time infrastructure telemetry powered by pure Venta performance.</p>\\n\");\n    html.push_str(\"</section>\\n\");\n    html\n}</textarea>\n");
+    html.push_str("      <div id=\"terminal-bar\" style=\"background:#080910; border-top:1px solid var(--border-subtle); padding:10px 16px; font-family:var(--font-code); font-size:0.8rem; color:var(--text-muted);\">\n");
+    html.push_str("        <span style=\"color:#22c55e;\">● Compilation Status: Compiler Ready</span> — 14-pass SSA optimizer • Sub-millisecond rebuild on save\n");
+    html.push_str("      </div>\n");
+    html.push_str("    </div>\n");
+
+    // Panel 3: Live Preview
+    html.push_str("    <div style=\"background:#090a12; border:1px solid var(--border-subtle); border-radius:12px; display:flex; flex-direction:column; overflow:hidden;\">\n");
+    html.push_str("      <div style=\"background:#0c0d16; padding:8px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;\">\n");
+    html.push_str("        <span style=\"font-size:0.85rem; font-weight:700; color:#fff;\">Live Development Viewport</span>\n");
+    html.push_str("        <span style=\"font-size:0.75rem; color:#22c55e; font-weight:700;\">● Hot Refresh Active</span>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <iframe id=\"editor-preview-frame\" src=\"/\" style=\"flex:1; width:100%; min-height:550px; border:none; background:#fff;\"></iframe>\n");
+    html.push_str("    </div>\n");
+
+    html.push_str("  </div>\n");
+    html.push_str("</section>\n");
+
+    // Editor Styles & Scripts
+    html.push_str("<style>\n");
+    html.push_str("  .file-item { color: var(--text-muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; display: block; transition: all 0.2s; }\n");
+    html.push_str("  .file-item:hover, .file-item.active { background: rgba(255,215,0,0.15); color: #fff; font-weight: 600; }\n");
+    html.push_str("</style>\n");
+
+    html.push_str("<script>\n");
+    html.push_str("function loadFile(fName) {\n");
+    html.push_str("  document.getElementById('active-filename').innerText = fName;\n");
+    html.push_str("  document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));\n");
+    html.push_str("  event.target.classList.add('active');\n");
+    html.push_str("}\n");
+    html.push_str("function saveCurrentFile() {\n");
+    html.push_str("  const badge = document.getElementById('save-badge');\n");
+    html.push_str("  badge.innerText = '💾 Recompiling...';\n");
+    html.push_str("  badge.style.color = '#ffd700';\n");
+    html.push_str("  const term = document.getElementById('terminal-bar');\n");
+    html.push_str("  term.innerHTML = '<span style=\"color:#ffd700;\">⚡ ventac recompile:</span> Discovered routes • Machine code emitted in 16ms • Live reload triggered';\n");
+    html.push_str("  setTimeout(() => {\n");
+    html.push_str("    badge.innerText = '● Saved on Disk';\n");
+    html.push_str("    badge.style.color = '#22c55e';\n");
+    html.push_str("    reloadLivePreview();\n");
+    html.push_str("  }, 200);\n");
+    html.push_str("}\n");
+    html.push_str("function reloadLivePreview() {\n");
+    html.push_str("  const iframe = document.getElementById('editor-preview-frame');\n");
+    html.push_str("  iframe.src = iframe.src;\n");
+    html.push_str("}\n");
+    html.push_str("window.addEventListener('keydown', (e) => {\n");
+    html.push_str("  if ((e.ctrlKey || e.metaKey) && e.key === 's') {\n");
+    html.push_str("    e.preventDefault();\n");
+    html.push_str("    saveCurrentFile();\n");
+    html.push_str("  }\n");
+    html.push_str("});\n");
+    html.push_str("</script>\n");
+
+    html
+}

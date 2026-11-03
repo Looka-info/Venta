@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" rx="16" fill="#efe9dc"/>
+  <!-- Nav -->
+  <text x="36" y="44" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="18">Maya Okafor</text>
+  <text x="180" y="42" fill="#6b6558" font-family="Georgia, serif" font-size="13">About</text>
+  <text x="240" y="42" fill="#6b6558" font-family="Georgia, serif" font-size="13">Experience</text>
+  <text x="330" y="42" fill="#6b6558" font-family="Georgia, serif" font-size="13">Contact</text>
+
+  <!-- Hero Headline -->
+  <text x="36" y="128" fill="#1d1b16" font-family="Georgia, serif" font-weight="400" font-size="56" letter-spacing="-0.05em">Maya Okafor.</text>
+  <text x="36" y="162" fill="#6b6558" font-family="Georgia, serif" font-size="16">Software engineer in Lisbon building fast, quiet tools for teams that ship.</text>
+
+  <!-- Projects Track Cards -->
+  <rect x="36" y="200" width="225" height="160" rx="12" fill="#efe9dc" stroke="#d2cab8" stroke-width="1.5"/>
+  <path d="M50 280 L100 230 L150 260 L200 220 L240 250" fill="none" stroke="#1d1b16" stroke-width="2"/>
+  <circle cx="100" cy="230" r="6" fill="#c2410c"/>
+  <circle cx="200" cy="220" r="6" fill="#c2410c"/>
+  <text x="50" y="320" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="18">Quill</text>
+  <text x="50" y="340" fill="#6b6558" font-family="monospace" font-size="11">Rust · 3.1k stars</text>
+
+  <rect x="281" y="200" width="225" height="160" rx="12" fill="#efe9dc" stroke="#d2cab8" stroke-width="1.5"/>
+  <rect x="300" y="230" width="80" height="55" fill="none" stroke="#1d1b16" stroke-width="2"/>
+  <rect x="400" y="230" width="80" height="55" fill="#c2410c"/>
+  <text x="300" y="320" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="18">Mosaic</text>
+  <text x="300" y="340" fill="#6b6558" font-family="monospace" font-size="11">TypeScript · 1.4k stars</text>
+
+  <rect x="526" y="200" width="238" height="160" rx="12" fill="#efe9dc" stroke="#d2cab8" stroke-width="1.5"/>
+  <circle cx="580" cy="255" r="28" fill="none" stroke="#1d1b16" stroke-width="2"/>
+  <circle cx="645" cy="255" r="28" fill="#c2410c"/>
+  <circle cx="710" cy="255" r="28" fill="none" stroke="#1d1b16" stroke-width="2"/>
+  <text x="546" y="320" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="18">Tidepool</text>
+  <text x="546" y="340" fill="#6b6558" font-family="monospace" font-size="11">Go · 540 stars</text>
+
+  <!-- Experience Timeline -->
+  <line x1="36" y1="390" x2="764" y2="390" stroke="#d2cab8" stroke-width="1"/>
+  <text x="36" y="420" fill="#c2410c" font-family="monospace" font-size="12">2023 to now</text>
+  <text x="160" y="420" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="14">Staff Engineer, Fathom</text>
+  <text x="160" y="438" fill="#6b6558" font-family="Georgia, serif" font-size="12">Rewrote query planner. P95 latency fell from 1.8 s to 240 ms.</text>
+
+  <text x="36" y="470" fill="#c2410c" font-family="monospace" font-size="12">2020 to 2023</text>
+  <text x="160" y="470" fill="#1d1b16" font-family="Georgia, serif" font-weight="bold" font-size="14">Senior Engineer, Basecamp&amp;Co</text>
+</svg>

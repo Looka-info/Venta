@@ -1,30 +1,250 @@
 // ============================================================================
-// ⚡ VentaNext Framework — CLI Route Generator (`ventanext-gen`)
-// Scans app/ directory, validates routes, and generates route manifest and dispatchers
+// ⚡ VentaNext Framework — CLI Route Generator & Template Engine (`ventanext-gen`)
+// Scans app/ directory, validates routes, generates dispatchers, and manages
+// the official VentaNext Template Gallery and project scaffolding.
 // ============================================================================
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use ventanext_codegen::{
-    export_static_site, generate_manifest_json, generate_venta_code, scan_app_directory,
-    write_generated_routes,
+    create_project_from_template, export_static_site, generate_manifest_json, generate_venta_code,
+    scan_app_directory, write_generated_routes, RegistryCatalog, TemplateManifest,
 };
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn print_usage() {
     eprintln!(
-        r#"VentaNext Route Generator & Static Site Exporter v1.0.0-rc.2
+        r#"VentaNext Route Generator, Template Engine & Scaffolder v{version}
 USAGE:
+    ventanext-gen <COMMAND> [OPTIONS]
     ventanext-gen <APP_DIR> [OPTIONS]
 
-OPTIONS:
+COMMANDS:
+    templates [OPTIONS]                 List all templates in the official registry
+    new <TEMPLATE_ID> [NAME] [OPTIONS]  Scaffold a new complete project from a template
+    verify-template <TEMPLATE_DIR>      Verify manifest and cryptographic checksums
+
+OPTIONS (for route generation on <APP_DIR>):
     -o <FILE>                Output path for generated pure Venta code (default: stdout)
     --manifest-json <FILE>   Output path for JSON manifest
     --export <OUT_DIR>       Prerender and export static site (SSG) to target directory
     -h, --help               Print help information
-"#
+
+OPTIONS (for templates and new):
+    --registry <DIR>         Path to templates directory (default: ./templates)
+    --dest <DIR>             Destination directory for new project (default: ./<NAME>)
+    --category <CAT>         Filter templates by category
+    --search <QUERY>         Search templates by keyword
+"#,
+        version = VERSION
     );
+}
+
+fn find_templates_root(custom_dir: Option<&Path>) -> PathBuf {
+    if let Some(d) = custom_dir {
+        if d.exists() {
+            return d.to_path_buf();
+        }
+    }
+    let candidates = [
+        PathBuf::from("templates"),
+        PathBuf::from("../templates"),
+        PathBuf::from("../../templates"),
+        PathBuf::from("c:/Users/mumer/OneDrive/Documents/Venta/templates"),
+    ];
+    for c in &candidates {
+        if c.exists() && c.join("registry.json").exists() {
+            return c.clone();
+        }
+    }
+    PathBuf::from("templates")
+}
+
+fn handle_templates(args: &[String]) {
+    let mut custom_reg: Option<PathBuf> = None;
+    let mut filter_cat: Option<String> = None;
+    let mut search_query: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--registry" && i + 1 < args.len() {
+            custom_reg = Some(PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else if args[i] == "--category" && i + 1 < args.len() {
+            filter_cat = Some(args[i + 1].clone());
+            i += 2;
+        } else if args[i] == "--search" && i + 1 < args.len() {
+            search_query = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    let root = find_templates_root(custom_reg.as_deref());
+    let reg_file = root.join("registry.json");
+    if !reg_file.exists() {
+        eprintln!(
+            "[ventanext ERROR] Template registry not found at {:?}. Use --registry <DIR>.",
+            reg_file
+        );
+        process::exit(1);
+    }
+
+    match RegistryCatalog::load_from_file(&reg_file) {
+        Ok(cat) => {
+            let list = if let Some(ref q) = search_query {
+                cat.search(q)
+            } else if let Some(ref c) = filter_cat {
+                cat.filter_by_category(c)
+            } else {
+                cat.templates.iter().collect()
+            };
+
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "   ⚡ VentaNext Official Template Gallery (Total: {} templates)",
+                list.len()
+            );
+            println!(
+                "================================================================================"
+            );
+            for t in list {
+                println!("• ID:           {}", t.id);
+                println!("  Name:         {}", t.name);
+                println!("  Category:     {}", t.category);
+                println!("  Version:      v{} ({})", t.version, t.framework_compatibility);
+                println!("  Description:  {}", t.description);
+                println!("  Pages:        {} routes | Files: {} verified files", t.page_count, t.file_count);
+                println!("  Features:     {}", t.features.join(", "));
+                println!("--------------------------------------------------------------------------------");
+            }
+            println!("To scaffold a project, run: ventanext-gen new <TEMPLATE_ID> <PROJECT_NAME>");
+        }
+        Err(e) => {
+            eprintln!("[ventanext ERROR] Failed to load template registry: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn handle_new(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Error: 'ventanext-gen new' requires a template ID.");
+        eprintln!("Run 'ventanext-gen templates' to view available templates.");
+        process::exit(1);
+    }
+
+    let template_id = &args[0];
+    let project_name = if args.len() > 1 && !args[1].starts_with('-') {
+        &args[1]
+    } else {
+        template_id
+    };
+
+    let mut custom_dest: Option<PathBuf> = None;
+    let mut custom_reg: Option<PathBuf> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--dest" && i + 1 < args.len() {
+            custom_dest = Some(PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else if args[i] == "--registry" && i + 1 < args.len() {
+            custom_reg = Some(PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    let dest_dir = custom_dest.unwrap_or_else(|| PathBuf::from(project_name));
+    let templates_root = find_templates_root(custom_reg.as_deref());
+    let cache_dir = PathBuf::from(".ventanext/cache/templates");
+
+    println!(
+        "[ventanext] Preparing project '{}' from template '{}'...",
+        project_name, template_id
+    );
+    println!("[ventanext] Destination: {:?}", dest_dir);
+
+    match create_project_from_template(
+        template_id,
+        &dest_dir,
+        project_name,
+        &templates_root,
+        Some(&cache_dir),
+        VERSION,
+    ) {
+        Ok(rep) => {
+            println!(
+                "================================================================================"
+            );
+            println!("   ✨ Project Scaffolding Succeeded!");
+            println!(
+                "================================================================================"
+            );
+            println!("• Project Name:     {}", rep.project_name);
+            println!("• Template:         {}", rep.template_id);
+            println!("• Destination:      {:?}", rep.destination);
+            println!("• Files Created:    {} files ({} bytes)", rep.files_created, rep.total_bytes);
+            println!("• Offline Cache:    {}", if rep.from_offline_cache { "Active (from cache)" } else { "Populated" });
+            println!("• Entry Point:      {:?}", rep.entry_point);
+            println!("\nNext Steps:");
+            println!("  1. cd {:?}", dest_dir);
+            println!("  2. vanta run main.va --port 3000");
+            println!(
+                "================================================================================"
+            );
+        }
+        Err(e) => {
+            eprintln!("\n[ventanext ERROR] Scaffolding aborted: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn handle_verify_template(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Error: 'ventanext-gen verify-template' requires a template directory.");
+        process::exit(1);
+    }
+    let t_dir = PathBuf::from(&args[0]);
+    let manifest_path = t_dir.join("template.json");
+    if !manifest_path.exists() {
+        eprintln!("Error: template.json not found in {:?}", t_dir);
+        process::exit(1);
+    }
+
+    match TemplateManifest::load_from_file(&manifest_path) {
+        Ok(manifest) => {
+            let project_dir = t_dir.join("project");
+            println!("[ventanext] Verifying manifest for '{}' (v{})...", manifest.id, manifest.version);
+            for entry in &manifest.file_inventory {
+                let file_path = project_dir.join(&entry.path);
+                if !file_path.exists() {
+                    eprintln!("[FAIL] Missing file: {:?}", file_path);
+                    process::exit(1);
+                }
+                let data = fs::read(&file_path).unwrap();
+                let hash = ventanext_codegen::compute_sha256(&data);
+                if hash != entry.sha256 {
+                    eprintln!("[FAIL] Hash mismatch for {:?}", entry.path);
+                    process::exit(1);
+                }
+            }
+            println!("[OK] All {} file(s) cryptographically verified against SHA-256 signatures.", manifest.file_inventory.len());
+        }
+        Err(e) => {
+            eprintln!("[ventanext ERROR] Invalid manifest: {}", e);
+            process::exit(1);
+        }
+    }
 }
 
 fn main() {
@@ -39,6 +259,28 @@ fn main() {
         process::exit(0);
     }
 
+    if args[1] == "-V" || args[1] == "--version" {
+        println!("ventanext-gen {}", VERSION);
+        process::exit(0);
+    }
+
+    match args[1].as_str() {
+        "templates" => {
+            handle_templates(&args[2..]);
+            return;
+        }
+        "new" => {
+            handle_new(&args[2..]);
+            return;
+        }
+        "verify-template" => {
+            handle_verify_template(&args[2..]);
+            return;
+        }
+        _ => {}
+    }
+
+    // Default route scanning behavior for backwards compatibility
     let app_dir = PathBuf::from(&args[1]);
     let mut out_va_path: Option<PathBuf> = None;
     let mut out_json_path: Option<PathBuf> = None;

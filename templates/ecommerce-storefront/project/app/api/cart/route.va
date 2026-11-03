@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"item_count\":2,\"currency\":\"USD\",\"subtotal\":284.00,\"tax\":0.00,\"shipping\":\"free_express\",\"items\":[\"kb-01\",\"mat-03\"]}")
+}

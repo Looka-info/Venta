@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Customers &amp; Accounts.</h2><p style=\"color:var(--mut); margin-bottom:30px;\">Manage active enterprise subscribers, billing tiers, and administrative roles.</p><div class=\"tw\"><table><tr><th>Account</th><th>Primary Contact</th><th>Plan</th><th>Monthly Spend</th><th>Status</th></tr><tr><td>Northwind Ltd</td><td>sarah@northwind.com</td><td>Enterprise Tier</td><td>$1,240 / mo</td><td><span class=\"pill ok\">Active</span></td></tr><tr><td>Tessera Inc</td><td>alex@tessera.io</td><td>Growth Plan</td><td>$860 / mo</td><td><span class=\"pill pe\">Review</span></td></tr><tr><td>Orbit Labs</td><td>elena@orbitlabs.dev</td><td>Enterprise Tier</td><td>$3,100 / mo</td><td><span class=\"pill ok\">Active</span></td></tr><tr><td>Fathom Co</td><td>marcus@fathom.co</td><td>Starter Plan</td><td>$420 / mo</td><td><span class=\"pill fa\">Overdue</span></td></tr></table></div></section>");
+    html
+}

@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-developer-portfolio",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#38bdf8",
+    "background": "#0b0f19",
+    "accent": "#ffd700"
+  }
+}

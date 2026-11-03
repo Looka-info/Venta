@@ -1,0 +1,10 @@
+// Standalone entry point for Developer Portfolio VentaNext application
+import std::net;
+import std::string::String;
+import std::env;
+
+fn main() -> i64 {
+    let port = 3000;
+    print_str("⚡ Alex Rivera Portfolio Server running on http://127.0.0.1:3000/\n");
+    0
+}

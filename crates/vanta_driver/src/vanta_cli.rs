@@ -38,6 +38,9 @@ COMMANDS:
     compile <file.va> [-o <out>] [--json]   Compile a {lang_name} program to a native binary
     check <file.va> [--json]                Verify syntax, types, borrows, and MIR without compiling
     fmt [files...] [--check]       Format {lang_name} source files canonically
+    templates [OPTIONS]            Browse VentaNext website template gallery
+    new <template> [name]          Create a full project from a VentaNext template
+    create <template> [name]       Alias for 'new'
 
 OPTIONS:
     -V, --version                  Print version information
@@ -85,11 +88,37 @@ fn main() {
         "compile" => handle_compile(&args[2..]),
         "check" => handle_check(&args[2..]),
         "fmt" => handle_fmt(&args[2..]),
+        "templates" | "new" | "create" => handle_templates_forward(&args[1..]),
         unknown => {
             eprintln!("Error: Unknown command '{}'", unknown);
             print_usage_stderr();
             process::exit(2);
         }
+    }
+}
+
+fn handle_templates_forward(args: &[String]) {
+    let mut bin = PathBuf::from("ventanext-gen");
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            let candidate = parent.join(if cfg!(windows) { "ventanext-gen.exe" } else { "ventanext-gen" });
+            if candidate.exists() {
+                bin = candidate;
+            }
+        }
+    }
+
+    let status = Command::new(&bin).args(args).status();
+    match status {
+        Ok(s) => process::exit(s.code().unwrap_or(1)),
+        Err(_) => match Command::new("ventanext-gen").args(args).status() {
+            Ok(s) => process::exit(s.code().unwrap_or(1)),
+            Err(e) => {
+                eprintln!("Error: Failed to invoke 'ventanext-gen': {}", e);
+                eprintln!("Ensure 'ventanext-gen' is installed and in your PATH.");
+                process::exit(1);
+            }
+        },
     }
 }
 

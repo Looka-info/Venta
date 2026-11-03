@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-admin-dashboard",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#6366f1",
+    "background": "#0b0c14",
+    "accent": "#22c55e"
+  }
+}

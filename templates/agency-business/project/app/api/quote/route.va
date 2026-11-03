@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"studio\":\"Vanguard Systems & Design\",\"engagement_minimum_usd\":50000,\"next_available_slot\":\"Q1 2027\",\"status\":\"accepting_select_clients\"}")
+}

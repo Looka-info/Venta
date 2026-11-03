@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" rx="16" fill="#f1f2f5"/>
+  <!-- Top Nav -->
+  <rect x="0" y="0" width="800" height="56" fill="#ffffff" fill-opacity="0.9" stroke="#d9dde4" stroke-width="1"/>
+  <text x="36" y="36" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="18" letter-spacing="-0.04em">Ledgerly</text>
+  <rect x="140" y="16" width="76" height="26" rx="6" fill="#ffffff" stroke="#d9dde4" stroke-width="1"/>
+  <text x="152" y="33" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="600" font-size="12">Overview</text>
+  <text x="235" y="33" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="12">Analytics</text>
+  <text x="310" y="33" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="12">Customers</text>
+  <text x="390" y="33" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="12">Settings</text>
+  <circle cx="750" cy="28" r="16" fill="#0f172a"/>
+  <text x="742" y="32" fill="#ffffff" font-family="Inter, system-ui, sans-serif" font-weight="bold" font-size="10">AM</text>
+
+  <!-- Hero Headline -->
+  <text x="36" y="94" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="13">Revenue, last 30 days</text>
+  <text x="36" y="152" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="900" font-size="52" letter-spacing="-0.06em">$128,430</text>
+  
+  <!-- KPI Pills -->
+  <text x="36" y="190" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="16">3,284</text>
+  <text x="36" y="206" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="11">Active customers</text>
+
+  <text x="170" y="190" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="16">4.6%</text>
+  <text x="170" y="206" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="11">Conversion</text>
+
+  <text x="270" y="190" fill="#047857" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="16">+12.4%</text>
+  <text x="270" y="206" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-size="11">vs previous</text>
+
+  <!-- Metric Graph Cards -->
+  <rect x="36" y="234" width="225" height="110" rx="12" fill="#ffffff" stroke="#d9dde4" stroke-width="1"/>
+  <path d="M50 310 C80 290, 110 300, 140 270 S 210 260, 240 250" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="50" y="260" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="20">$128k</text>
+
+  <rect x="281" y="234" width="225" height="110" rx="12" fill="#ffffff" stroke="#d9dde4" stroke-width="1"/>
+  <path d="M295 310 C325 300, 360 280, 400 270 S 460 250, 485 245" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="295" y="260" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="20">3,284</text>
+
+  <rect x="526" y="234" width="238" height="110" rx="12" fill="#ffffff" stroke="#d9dde4" stroke-width="1"/>
+  <path d="M540 270 C570 280, 610 260, 650 290 S 710 300, 745 320" fill="none" stroke="#b91c1c" stroke-width="3"/>
+  <text x="540" y="260" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="20">$2.1k</text>
+
+  <!-- Orders Table Strip -->
+  <rect x="36" y="364" width="728" height="106" rx="12" fill="#ffffff" stroke="#d9dde4" stroke-width="1"/>
+  <text x="56" y="394" fill="#64748b" font-family="Inter, system-ui, sans-serif" font-weight="600" font-size="11">RECENT ORDERS</text>
+  <text x="56" y="420" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-size="13">#10482 · Northwind Ltd · $1,240</text>
+  <rect x="680" y="408" width="54" height="20" rx="10" fill="#d1fae5"/>
+  <text x="694" y="422" fill="#065f46" font-family="Inter, system-ui, sans-serif" font-weight="bold" font-size="10">Paid</text>
+  <text x="56" y="450" fill="#0f172a" font-family="Inter, system-ui, sans-serif" font-size="13">#10481 · Tessera Inc · $860</text>
+  <rect x="680" y="438" width="54" height="20" rx="10" fill="#fef3c7"/>
+  <text x="688" y="452" fill="#92400e" font-family="Inter, system-ui, sans-serif" font-weight="bold" font-size="10">Pending</text>
+</svg>

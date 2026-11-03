@@ -1,0 +1,102 @@
+{
+  "id": "agency-business",
+  "name": "Business & Agency Website",
+  "category": "Agency websites",
+  "description": "Halftone Studio independent brand and digital agency in Berlin and Lagos with horizontal showcase track, revenue case study (+212%), and creative team grid.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/agency-business",
+  "features": [
+    "Difference-Blend Navigation",
+    "Horizontal Client Track",
+    "Animated Impact Metric (+212%)",
+    "Creative Team Profile Grid",
+    "Client Testimonial Callouts",
+    "Studio Project Quote API"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Agency",
+      "description": "Global studio intro, showcase track, revenue case study, and team"
+    },
+    {
+      "path": "/services",
+      "title": "Capabilities",
+      "description": "Brand architecture, digital flagships, motion, and packaging"
+    },
+    {
+      "path": "/work",
+      "title": "Case Studies",
+      "description": "Alpine Rail and Plume Bank impact highlights"
+    },
+    {
+      "path": "/contact",
+      "title": "Contact",
+      "description": "Collaboration inquiry and Berlin/Lagos studio locations"
+    },
+    {
+      "path": "/api/quote",
+      "title": "Quote API",
+      "description": "Studio engagement parameters and availability"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/api/quote/route.va",
+      "size_bytes": 232,
+      "sha256": "740136582b77c8eeaf3b942e37975b4e1b223e9b3444bf19411ed8aa4598c593"
+    },
+    {
+      "path": "app/contact/page.va",
+      "size_bytes": 751,
+      "sha256": "d67e8e3905b5541139593b17027807e7f2ea7ee9d12cfb0d02c7d28f3dccfc0a"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 7551,
+      "sha256": "e315a28dd39107d6bd638e963be5c1bc1323f5c41851fd3317b1a12f7f131395"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 3328,
+      "sha256": "98d5731d9e143703b90f7a4587ffb834789e2a22323cb8a39271b4cf3e904252"
+    },
+    {
+      "path": "app/services/page.va",
+      "size_bytes": 844,
+      "sha256": "1554a63455987c5e6da7f52edfa3c6d8974bd5d6167b1248d4c8f190545405e8"
+    },
+    {
+      "path": "app/work/page.va",
+      "size_bytes": 1044,
+      "sha256": "ac61b27e4f2bc2f63f03c5404ebbc54d929b3af415f42723e3c8d9a6f37cfe04"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 270,
+      "sha256": "3c771c0e7a34419e479d930c9b9defb727bbfa88185e6d433e4dd6ac1ad51b59"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 609,
+      "sha256": "242871dc18670f05b51309706bd5a27e0ba288f464a5664710d84a0ed2a1acd8"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 640,
+      "sha256": "8de6e72543f8f209d346334dc80eeff31f95613b5a4e6eecf91d15cff63452be"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 262,
+      "sha256": "b54cbb5fb9a6baa8d1aa9475051e2580c2d68fc34a63d92dc028662d1a613725"
+    }
+  ]
+}

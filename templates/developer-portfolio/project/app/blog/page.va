@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Writing.</h2><div class=\"job\"><span class=\"m2\">Oct 2026</span><div><h4>Why We Chose Affine Types Over Reference Counting</h4><p>How linear and affine ownership semantics eliminate destructor churn in low-latency servers.</p></div></div><div class=\"job\"><span class=\"m2\">Jun 2026</span><div><h4>Deterministic Query Engines at Scale</h4><p>Building query execution plans that guarantee bit-identical results across architectures.</p></div></div></section>");
+    html
+}

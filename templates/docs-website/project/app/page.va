@@ -1,0 +1,19 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<header class=\"hero pad\"><h1 class=\"big\"><span class=\"m\"><span>Docs for</span></span><span class=\"m\"><span>builders.</span></span></h1><div class=\"r\"><p>Kiln compiles and bundles your project in milliseconds. Get from zero to a production build in five minutes.</p><div class=\"sb\"><input id=\"q\" placeholder=\"Search the docs\" aria-label=\"Search the docs\"><kbd>Ctrl K</kbd></div></div></header>\n");
+    html.push_str("<div class=\"mq big\" aria-hidden=\"true\"><div><span>Install</span><span>Configure</span><span>Build</span><span>Deploy</span><span>Install</span><span>Configure</span><span>Build</span></div></div>\n");
+    html.push_str("<section class=\"hs\"><div class=\"track\">\n");
+    html.push_str("<div class=\"p\"><h3 class=\"big\"><small>Step 1</small>Install</h3><pre><span class=\"f\">npm</span> install --save-dev kiln</pre><p>Kiln needs Node 20 or newer. Install it as a dev dependency so everyone on the team uses the same version.</p></div>\n");
+    html.push_str("<div class=\"p\"><h3 class=\"big\"><small>Step 2</small>Configure</h3><pre><span class=\"c\">// kiln.config.js</span>\n");
+    html.push_str("<span class=\"k\">export default</span> {\n");
+    html.push_str("  <span class=\"f\">entry</span>: <span class=\"s\">\"src/index.js\"</span>,\n");
+    html.push_str("  <span class=\"f\">outDir</span>: <span class=\"s\">\"dist\"</span>,\n");
+    html.push_str("  <span class=\"f\">minify</span>: <span class=\"t\">true</span>,\n");
+    html.push_str("};</pre><p>Every option is optional. Run <code class=\"i\">kiln init</code> to generate this file.</p></div>\n");
+    html.push_str("<div class=\"p\"><h3 class=\"big\"><small>Step 3</small>Build</h3><pre><span class=\"f\">npx</span> kiln build\n");
+    html.push_str("<span class=\"c\"># built 128 modules in 212 ms</span></pre><p>Incremental builds reuse the cache and usually finish in under 50 ms.</p></div>\n");
+    html.push_str("<div class=\"p\"><h3 class=\"big\"><small>Step 4</small>Deploy</h3><pre><span class=\"f\">npx</span> kiln deploy --target static</pre><p>Upload the <code class=\"i\">dist</code> folder to any static host, or use a built-in adapter.</p></div></div></section>\n");
+    html.push_str("<section class=\"sec pad\" id=\"ref\"><h2 class=\"big\">Options.</h2><div class=\"tw\"><table><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr><tr><td><code class=\"i\">entry</code></td><td>string</td><td>\"src/index.js\"</td><td>The file Kiln starts from.</td></tr><tr><td><code class=\"i\">outDir</code></td><td>string</td><td>\"dist\"</td><td>Where built files are written.</td></tr><tr><td><code class=\"i\">minify</code></td><td>boolean</td><td>true</td><td>Shrink output for production.</td></tr></table></div><div class=\"note\"><b>Tip.</b> Set <code class=\"i\">minify: false</code> while debugging to keep readable output.</div></section>");
+    html
+}

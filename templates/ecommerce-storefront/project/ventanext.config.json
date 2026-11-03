@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-ecommerce-storefront",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#10b981",
+    "background": "#0a0a0d",
+    "accent": "#f59e0b"
+  }
+}

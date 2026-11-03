@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-agency-business",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#818cf8",
+    "background": "#07070b",
+    "accent": "#c084fc"
+  }
+}

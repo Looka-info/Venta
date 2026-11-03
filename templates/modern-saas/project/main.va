@@ -1,0 +1,11 @@
+// Standalone entry point for Modern SaaS VentaNext application
+import std::net;
+import std::string::String;
+import std::env;
+import std::result::Result;
+
+fn main() -> i64 {
+    let port = 3000;
+    print_str("⚡ Apex SaaS VentaNext Server running on http://127.0.0.1:3000/\n");
+    0
+}

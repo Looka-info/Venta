@@ -1,0 +1,112 @@
+{
+  "id": "admin-dashboard",
+  "name": "Admin Dashboard",
+  "category": "Admin dashboards",
+  "description": "Ledgerly Admin financial dashboard with real-time revenue counters ($128,430), horizontal metric charts, recent orders table, and account preferences.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/admin-dashboard",
+  "features": [
+    "Top Navigation with User Avatar",
+    "Live Revenue Counter Animation",
+    "Horizontal Metric Vector Charts",
+    "Recent Orders Status Table",
+    "Toggle Preference Switches",
+    "Financial Telemetry JSON API"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Overview",
+      "description": "Revenue counter, KPI pills, metric vector charts, and orders"
+    },
+    {
+      "path": "/analytics",
+      "title": "Analytics",
+      "description": "Throughput metrics and latency percentile SLAs"
+    },
+    {
+      "path": "/users",
+      "title": "Customers",
+      "description": "Subscriber accounts and billing status table"
+    },
+    {
+      "path": "/settings",
+      "title": "Preferences",
+      "description": "Notification settings and security toggles"
+    },
+    {
+      "path": "/api/metrics",
+      "title": "Metrics API",
+      "description": "Revenue and conversion telemetry endpoint"
+    },
+    {
+      "path": "/api/users",
+      "title": "Users API",
+      "description": "Customer accounts list endpoint"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/analytics/page.va",
+      "size_bytes": 1110,
+      "sha256": "4c32bef3013ae3c0cc2ba2566ef96748b5151632f50270036ddd478cea1a4251"
+    },
+    {
+      "path": "app/api/metrics/route.va",
+      "size_bytes": 222,
+      "sha256": "de3b388abbea0dc3abeede282494addbf6ee6c4036bd0dc13d387daf3ade61af"
+    },
+    {
+      "path": "app/api/users/route.va",
+      "size_bytes": 290,
+      "sha256": "f2ee0e3ba5df4bb0540eb4a093229edfa2290fb196b897e470051a1f65b0c365"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 8308,
+      "sha256": "30c7ffcd070c10ea2f470addf5091d26ca41180b6db4a87d79459f8c317840f5"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 2753,
+      "sha256": "d35d083fd97f921ff3dfa7f99c984b258c520276fc6fc6af1e52ab41e7addf18"
+    },
+    {
+      "path": "app/settings/page.va",
+      "size_bytes": 580,
+      "sha256": "3d5a88319e6fdb7de08bcdf4baa6334448a9f306398e5d40f4a9725adc660d2d"
+    },
+    {
+      "path": "app/users/page.va",
+      "size_bytes": 1069,
+      "sha256": "69e69d1c46e8aa8ae1be0295c5b044ad3f21b8dbf85f08500452f6e94d23b1c3"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 278,
+      "sha256": "5825050c768ad1f380253018b23fd02128343d13ea4a9cfdddafdc0ea1358dbf"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 612,
+      "sha256": "7a46deaa8f0d6286f63348b6667f36a28ca143f0e061eec5823e589600b8b46d"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 739,
+      "sha256": "34b7db854446e4dca2cbac65e9b223f64e0fdfc9ab1e69fda872d4612f62f149"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 262,
+      "sha256": "892968c635496bf2c906fcc8786cde9a2ba06fe9517c2a5d7319ee61760e323a"
+    }
+  ]
+}

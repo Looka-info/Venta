@@ -1,0 +1,102 @@
+{
+  "id": "ecommerce-storefront",
+  "name": "E-commerce Storefront",
+  "category": "E-commerce storefronts",
+  "description": "Fieldnote Goods everyday stoneware ceramics and washed linen store with interactive shopping bag counter, horizontal category track, and bestseller product cards.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/ecommerce-storefront",
+  "features": [
+    "Free Shipping Announcement Bar",
+    "Horizontal Ceramic Collection Track",
+    "Inline SVG Product Illustrations",
+    "Interactive Bag (N) Counter",
+    "Full Shop Catalog Grid",
+    "Shopping Cart Simulator"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Home",
+      "description": "Artisanal stoneware hero, collection track, and bestseller cards"
+    },
+    {
+      "path": "/shop",
+      "title": "Catalog",
+      "description": "Complete collection of ceramics, linen, and kitchenware"
+    },
+    {
+      "path": "/cart",
+      "title": "Bag",
+      "description": "Active shopping bag summary with free shipping threshold"
+    },
+    {
+      "path": "/api/products",
+      "title": "Products API",
+      "description": "Live product catalog endpoint"
+    },
+    {
+      "path": "/api/cart",
+      "title": "Cart API",
+      "description": "Current session cart totals endpoint"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/api/cart/route.va",
+      "size_bytes": 216,
+      "sha256": "80d58ae7f7fb2aae1e33899e86c9169d2c2da0d3c3c0da716ff8b8e4cfbbc1b6"
+    },
+    {
+      "path": "app/api/products/route.va",
+      "size_bytes": 373,
+      "sha256": "ee334e30997d92b2dba388b78b68a0cbd3d95127b8aa29c057c37f495478e42b"
+    },
+    {
+      "path": "app/cart/page.va",
+      "size_bytes": 884,
+      "sha256": "deeb86f3c5b974147b7cd46e515cb4e9e44a0d1c2442de0e977baabac2acc55f"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 7820,
+      "sha256": "1bdaca7af5e8e24c2d36e1d9ab182e38ea306fb6d0ae379457d08ffde80510f0"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 3465,
+      "sha256": "01658eb3e13bdd38128044e9893bfdb0d25865ce6c31ece5a26320e9fa18a943"
+    },
+    {
+      "path": "app/shop/page.va",
+      "size_bytes": 2071,
+      "sha256": "6fe4a05e96bd27f2d57dff7679a951e20988c9aa4c0044dd0d7bd0147d3bbebe"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 274,
+      "sha256": "7b0c6c47c0ebe8694f6bf623d7e724a1e0b4921a7b18175c7565378ffd219bfa"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 604,
+      "sha256": "9f85de1c6d28a20a9da4f56c72532195f0ebb82c340ab33beda4877959a401dc"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 590,
+      "sha256": "9e1a4f98a4f999dc5305ab18334526459f10b264a89f2705b955a66563dea7b0"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 267,
+      "sha256": "26d06aab6666eb05b7c9ceaa54f3d06fc3a02e637225946030b355c7b73ec1cc"
+    }
+  ]
+}

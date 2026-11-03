@@ -6,5 +6,6 @@
 pub mod http;
 pub mod router;
 pub mod ssr;
+pub mod gallery;
 pub mod middleware;
 pub mod server;

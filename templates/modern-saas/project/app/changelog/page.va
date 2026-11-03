@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Changelog.</h2><div class=\"job\"><span class=\"m2\" style=\"font-size:16px;\">v2.4.0 &middot; Nov 2026</span><div><h4>Sub-Millisecond Multi-Currency Normalization</h4><p style=\"color:var(--mut);\">All foreign subscription conversions now calculate live through our zero-GC FX exchange cache.</p></div></div><div class=\"job\"><span class=\"m2\" style=\"font-size:16px;\">v2.3.0 &middot; Sep 2026</span><div><h4>Direct Snowflake Data Warehouse Mirroring</h4><p style=\"color:var(--mut);\">Automatic CDC pipe into your cloud warehouse every 15 minutes.</p></div></div></section>");
+    html
+}

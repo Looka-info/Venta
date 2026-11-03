@@ -45,6 +45,11 @@ pub fn build_generated_manifest() -> RouteManifest {
     m.add_page_route_with_mode("/shop/[[...filter]]", 1, 8, 2);
     m.add_page_route_with_mode("/[id]/bar", 1, 9, 2);
     m.add_page_route_with_mode("/", 1, 10, 1);
+    m.add_page_route_with_mode("/templates", 1, 120, 1);
+    m.add_page_route_with_mode("/templates/preview/[id]", 1, 121, 2);
+    m.add_page_route_with_mode("/editor", 1, 122, 2);
+    m.add_api_route("GET", "/api/templates", 210);
+    m.add_api_route("HEAD", "/api/templates", 210);
     m
 }
 

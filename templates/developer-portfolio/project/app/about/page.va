@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">About Maya.</h2><p style=\"font-size:clamp(20px,2.4vw,32px); line-height:1.4; color:var(--fg); margin-bottom:24px;\">I'm a systems engineer based in Lisbon, Portugal. I work on compilers, storage runtimes, and developer tooling.</p><p style=\"color:var(--mut); max-width:60ch; line-height:1.6;\">Previously, I led the core query engine refactor at Fathom and built distributed synchronization infrastructure at Basecamp&amp;Co. When not hacking on compilers, I brew espresso and restore vintage acoustic guitars.</p></section>");
+    html
+}

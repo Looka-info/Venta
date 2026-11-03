@@ -1,0 +1,13 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:140px;\"><h2 class=\"big\">The Collection.</h2><p style=\"color:var(--mut); margin-bottom:32px;\">Handcrafted stoneware pottery, tableware, and washed European flax textiles.</p><div class=\"g c4\">\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M50 70h100l-10 70a40 12 0 0 1-80 0z\" fill=\"#f8f3e9\"/></svg><h4>Stoneware Bowl, Oat</h4><p>Set of 2</p><div class=\"r2\"><b>$48</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M70 60h60v85a30 10 0 0 1-60 0z\" fill=\"#2d5a3f\"/><path d=\"M130 80c26 0 26 44 0 44\" fill=\"none\" stroke=\"#2d5a3f\" stroke-width=\"9\"/></svg><h4>Everyday Mug, Moss</h4><p>350 ml</p><div class=\"r2\"><b>$26</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><rect x=\"30\" y=\"60\" width=\"140\" height=\"90\" rx=\"6\" fill=\"#d8c3a5\"/><path d=\"M30 90h140M30 120h140\" stroke=\"#c4ab86\" stroke-width=\"3\"/></svg><h4>Washed Linen Runner</h4><p>180 cm, Flax</p><div class=\"r2\"><b>$64</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><path d=\"M85 40h30v25c30 20 34 55 34 80H51c0-25 4-60 34-80z\" fill=\"#b4532a\"/></svg><h4>Carafe, Terracotta</h4><p>1 litre</p><div class=\"r2\"><b>$54</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><circle cx=\"100\" cy=\"100\" r=\"70\" fill=\"#f4ede0\"/></svg><h4>Dinner Plate, Dune</h4><p>Set of 4</p><div class=\"r2\"><b>$82</b><button>Add</button></div></div>\n");
+    html.push_str("<div class=\"pd\"><svg viewBox=\"0 0 200 200\"><rect x=\"40\" y=\"40\" width=\"120\" height=\"120\" rx=\"10\" fill=\"#c8b290\"/></svg><h4>Flax Napkins, Olive</h4><p>Set of 4</p><div class=\"r2\"><b>$36</b><button>Add</button></div></div>\n");
+    html.push_str("</div></section>");
+    html
+}

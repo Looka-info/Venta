@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"throughput_rps\":124500,\"p99_latency_ms\":0.14,\"active_nodes\":18,\"cache_hit_ratio\":0.998}")
+}

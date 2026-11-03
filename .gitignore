@@ -21,6 +21,7 @@ __pycache__/
 /bin/
 !packages/vanta-lang/bin/**
 .venta/
+.ventanext/
 tools/self_host/*_bin
 tools/self_host/tests/*.s
 tools/self_host/tests/*_bin

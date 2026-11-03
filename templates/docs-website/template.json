@@ -1,0 +1,102 @@
+{
+  "id": "docs-website",
+  "name": "Documentation Website",
+  "category": "Documentation websites",
+  "description": "Kiln technical documentation platform with instant client-side search filtering, syntax-highlighted code blocks, horizontal step track, and options reference.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/docs-website",
+  "features": [
+    "Instant Search Filter Input",
+    "Horizontal Step-by-Step Track",
+    "Syntax-Highlighted Code Blocks",
+    "Config Options Reference Table",
+    "Admonition Tip Callout",
+    "Fast Incremental Build Pipeline"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Quickstart",
+      "description": "Docs hero, search input, 4-step quickstart track, and options table"
+    },
+    {
+      "path": "/guide/architecture",
+      "title": "Architecture",
+      "description": "AST pipeline and 14-pass SSA optimizer details"
+    },
+    {
+      "path": "/guide/components",
+      "title": "Components",
+      "description": "Native Venta SSR component composition"
+    },
+    {
+      "path": "/reference/api",
+      "title": "API Reference",
+      "description": "Kiln configuration schema and build flags"
+    },
+    {
+      "path": "/api/search",
+      "title": "Search API",
+      "description": "Documentation query endpoint"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/api/search/route.va",
+      "size_bytes": 427,
+      "sha256": "ccf8451387f9087706cbf7de462d83648c846b047374049f3fb6ac7295e90c18"
+    },
+    {
+      "path": "app/guide/architecture/page.va",
+      "size_bytes": 988,
+      "sha256": "98a71440510f9cb5d43ed77d3fa5928efd6c21af6bd1c13979014c4587ca89c5"
+    },
+    {
+      "path": "app/guide/components/page.va",
+      "size_bytes": 935,
+      "sha256": "cbaa0b37cecc2237e0cb428a51a04e7f3fa40d0a971811d7089b5304d155b9af"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 8368,
+      "sha256": "4a55a0d4c5cebe408073a684dae4b56f6b70a8251623816fdf369a5ad9dd33c3"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 2997,
+      "sha256": "3336bc8873d2fd24c1c62bb244700cd7d651cbde86d18faf821dde2bb6cc2d0b"
+    },
+    {
+      "path": "app/reference/api/page.va",
+      "size_bytes": 827,
+      "sha256": "a10a4d4078ed568a593a4d6eaa208330708d5d58d4a1c53449def740b7a65d03"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 266,
+      "sha256": "9bddd9db8c5ad6b23880ce495543901aeb030a9993b3b626aecd9d32345341dd"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 624,
+      "sha256": "c5ac4211480369b8ea1725afe004da21e69dfbededd322a6e0cb4a7b3ec127ca"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 693,
+      "sha256": "9f7fbe44445c368b051e5e58cb09a35ae000f6675747694ec95652f0e64fdf85"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 259,
+      "sha256": "b0a15822343c1b382c57220cf6e1b5dc5ba44804b00980cccc67a632bb9faf0b"
+    }
+  ]
+}

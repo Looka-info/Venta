@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" rx="16" fill="#f6f5f0"/>
+  <!-- Nav -->
+  <text x="36" y="42" fill="#14151a" font-family="system-ui, sans-serif" font-weight="800" font-size="18">Lumen</text>
+  <text x="120" y="40" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="13">Product</text>
+  <text x="190" y="40" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="13">Customers</text>
+  <text x="280" y="40" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="13">Pricing</text>
+  <text x="350" y="40" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="13">Docs</text>
+  <rect x="680" y="24" width="84" height="28" rx="99" fill="#14151a"/>
+  <text x="696" y="42" fill="#f6f5f0" font-family="system-ui, sans-serif" font-weight="bold" font-size="11">Start free</text>
+
+  <!-- Hero Headline -->
+  <text x="36" y="116" fill="#14151a" font-family="system-ui, sans-serif" font-weight="800" font-size="44" letter-spacing="-0.05em">Know why revenue moves.</text>
+  <text x="36" y="146" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="15">Lumen connects billing, product usage, and support data so finance and growth see the same numbers.</text>
+
+  <!-- Pricing Cards -->
+  <rect x="36" y="184" width="225" height="280" rx="14" fill="#ffffff" stroke="#dcdbd2" stroke-width="1"/>
+  <text x="56" y="218" fill="#14151a" font-family="system-ui, sans-serif" font-weight="bold" font-size="16">Starter</text>
+  <text x="56" y="264" fill="#14151a" font-family="system-ui, sans-serif" font-weight="900" font-size="36" letter-spacing="-0.04em">$0</text>
+  <text x="56" y="300" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="12">• 1 billing source</text>
+  <text x="56" y="324" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="12">• 30 days history</text>
+  <rect x="56" y="390" width="185" height="34" rx="99" fill="#14151a"/>
+  <text x="110" y="412" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="600" font-size="12">Get started</text>
+
+  <rect x="281" y="174" width="238" height="295" rx="14" fill="#14151a"/>
+  <text x="305" y="210" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="bold" font-size="16">Growth</text>
+  <text x="305" y="258" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="900" font-size="40" letter-spacing="-0.04em">$149</text>
+  <text x="305" y="296" fill="#dcdbd2" font-family="system-ui, sans-serif" font-size="12">• 5 billing sources</text>
+  <text x="305" y="320" fill="#dcdbd2" font-family="system-ui, sans-serif" font-size="12">• Unlimited history</text>
+  <text x="305" y="344" fill="#dcdbd2" font-family="system-ui, sans-serif" font-size="12">• Cohort retention</text>
+  <rect x="305" y="396" width="190" height="36" rx="99" fill="#2f4bff"/>
+  <text x="350" y="419" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="bold" font-size="12">Start free trial</text>
+
+  <rect x="539" y="184" width="225" height="280" rx="14" fill="#ffffff" stroke="#dcdbd2" stroke-width="1"/>
+  <text x="559" y="218" fill="#14151a" font-family="system-ui, sans-serif" font-weight="bold" font-size="16">Scale</text>
+  <text x="559" y="264" fill="#14151a" font-family="system-ui, sans-serif" font-weight="900" font-size="36" letter-spacing="-0.04em">$499</text>
+  <text x="559" y="300" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="12">• SSO and audit log</text>
+  <text x="559" y="324" fill="#6b6b64" font-family="system-ui, sans-serif" font-size="12">• Warehouse sync</text>
+  <rect x="559" y="390" width="185" height="34" rx="99" fill="#14151a"/>
+  <text x="610" y="412" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="600" font-size="12">Talk to sales</text>
+</svg>

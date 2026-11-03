@@ -1,0 +1,6 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Analytics &amp; Metrics.</h2><div class=\"kp\" style=\"margin-bottom:40px;\"><div><b>142,890</b><span>Daily Requests</span></div><div><b>0.12 ms</b><span>Median Latency (p50)</span></div><div><b>0.38 ms</b><span>Tail Latency (p99)</span></div><div><b class=\"up\">99.995%</b><span>Service Uptime</span></div></div><div class=\"tw\"><table><tr><th>Metric</th><th>24h Average</th><th>7d Trend</th><th>Target SLA</th></tr><tr><td>Ingestion Throughput</td><td>18,420 RPS</td><td><span class=\"pill ok\">+8.4%</span></td><td>&gt; 15,000 RPS</td></tr><tr><td>Compute Node Health</td><td>16 / 16 online</td><td><span class=\"pill ok\">Optimal</span></td><td>16 Nodes</td></tr><tr><td>SSL Handshake Time</td><td>14 ms</td><td><span class=\"pill ok\">-2 ms</span></td><td>&lt; 25 ms</td></tr><tr><td>Edge Cache Hit Rate</td><td>94.2%</td><td><span class=\"pill ok\">+1.1%</span></td><td>&gt; 90.0%</td></tr></table></div></section>");
+    html
+}

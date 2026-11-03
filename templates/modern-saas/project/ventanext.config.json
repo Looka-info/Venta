@@ -1,0 +1,13 @@
+{
+  "name": "ventanext-modern-saas",
+  "version": "1.0.0",
+  "framework": "VentaNext",
+  "framework_version": "1.0.0-rc.2",
+  "app_dir": "app",
+  "port": 3000,
+  "theme": {
+    "primary": "#ffd700",
+    "background": "#050507",
+    "accent": "#ff9f1c"
+  }
+}

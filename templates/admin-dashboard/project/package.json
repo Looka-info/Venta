@@ -1,0 +1,18 @@
+{
+  "name": "ventanext-admin-dashboard",
+  "version": "1.0.0",
+  "description": "Enterprise Control Panel & Systems Telemetry Dashboard in Pure VentaNext",
+  "main": "main.va",
+  "scripts": {
+    "dev": "ventanext-gen app/ -o ventanext/generated_routes.va && vanta run main.va --port 3000",
+    "build": "ventanext-gen app/ --export dist",
+    "test": "vanta check app/page.va"
+  },
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "keywords": ["ventanext", "dashboard", "admin", "telemetry", "data-table", "analytics"],
+  "author": "Venta Community",
+  "license": "MIT"
+}

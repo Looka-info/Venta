@@ -1,0 +1,13 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Components.</h2><p style=\"color:var(--mut); margin-bottom:28px;\">Kiln components are written in native Venta syntax with server-side rendered layouts and streaming boundary support.</p><pre><span class=\"k\">import</span> std::string::String;\n");
+    html.push_str("\n");
+    html.push_str("<span class=\"k\">pub fn</span> <span class=\"f\">render_button</span>(label: &amp;str) -&gt; String {\n");
+    html.push_str("    <span class=\"k\">let mut</span> b = String::from_str(<span class=\"s\">\"&lt;button class=\\\"btn\\\"&gt;\"</span>);\n");
+    html.push_str("    b.push_str(label);\n");
+    html.push_str("    b.push_str(<span class=\"s\">\"&lt;/button&gt;\"</span>);\n");
+    html.push_str("    b\n");
+    html.push_str("}</pre></section>");
+    html
+}

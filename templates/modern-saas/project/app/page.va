@@ -1,0 +1,17 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<header class=\"hero pad\"><h1 class=\"big\"><span class=\"m\"><span>Know why</span></span><span class=\"m\"><span>revenue moves.</span></span></h1><div class=\"r\"><p>Lumen connects billing, product usage, and support data so finance and growth see the same numbers.</p><a class=\"btn\" href=\"#price\">Start free trial</a></div></header>\n");
+    html.push_str("<div class=\"mq big\" aria-hidden=\"true\"><div><span>MRR</span><span>Churn</span><span>Retention</span><span>NRR</span><span>Cohorts</span><span>Forecasts</span><span>MRR</span><span>Churn</span><span>Retention</span><span>NRR</span></div></div>\n");
+    html.push_str("<section class=\"hs\"><div class=\"track\">\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 160\"><path d=\"M0 130C60 120 90 70 150 80S250 40 310 50 380 20 400 10\"/></svg><h3 class=\"big\">Live MRR</h3><p>New, expansion, contraction, and churn broken out by plan, cohort, and region.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 160\"><path d=\"M30 150V90M110 150V60M190 150V100M270 150V40M350 150V20\" stroke-width=\"22\"/></svg><h3 class=\"big\">Cohorts</h3><p>See which signup months stick around, and what they did in the first week.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 160\"><rect x=\"40\" y=\"20\" width=\"320\" height=\"120\" rx=\"10\"/><path d=\"M70 60h160M70 90h220M70 115h100\"/></svg><h3 class=\"big\">Reports</h3><p>Board-ready summaries to Slack or email every Monday at 8 a.m.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 160\"><circle cx=\"200\" cy=\"80\" r=\"56\"/><path d=\"M200 40v44l28 16\"/></svg><h3 class=\"big\">Alerts</h3><p>Get pinged when churn, failed payments, or trial conversion drift off trend.</p></div></div></section>\n");
+    html.push_str("<section class=\"sec pad\" id=\"price\"><h2 class=\"big\">Simple pricing.</h2><div class=\"g c3 pr\">\n");
+    html.push_str("<div class=\"card\"><h4>Starter</h4><b>$0</b><ul><li>1 billing source</li><li>30 days of history</li></ul><a class=\"btn\" href=\"#\">Get started</a></div>\n");
+    html.push_str("<div class=\"card h\"><h4>Growth</h4><b>$149</b><ul><li>5 billing sources</li><li>Unlimited history</li><li>Cohort reports</li></ul><a class=\"btn\" href=\"#\">Start free trial</a></div>\n");
+    html.push_str("<div class=\"card\"><h4>Scale</h4><b>$499</b><ul><li>SSO and audit log</li><li>Warehouse sync</li></ul><a class=\"btn\" href=\"#\">Talk to sales</a></div></div></section>\n");
+    html.push_str("<section class=\"sec pad\"><h2 class=\"big\">Questions.</h2><details><summary>Which billing tools work?</summary><p>Stripe, Paddle, Chargebee, and Recurly, plus CSV import.</p></details><details><summary>How long is setup?</summary><p>Most teams see real numbers within 20 minutes.</p></details><details><summary>Is my data secure?</summary><p>Encrypted at rest and in transit. SOC 2 Type II audited.</p></details></section>");
+    html
+}

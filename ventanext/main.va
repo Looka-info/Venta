@@ -8,6 +8,7 @@ mod http;
 mod router;
 mod component;
 mod ssr;
+mod gallery;
 mod middleware;
 mod generated_routes;
 mod server;

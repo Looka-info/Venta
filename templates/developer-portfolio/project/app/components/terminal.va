@@ -1,0 +1,21 @@
+import std::string::String;
+
+pub fn render_terminal_window(command: &str, output: &str) -> String {
+    let mut html = String::from_str("<div class=\"term-window\">\n");
+    html.push_str("  <div class=\"term-header\">\n");
+    html.push_str("    <span class=\"dot dot-red\"></span>\n");
+    html.push_str("    <span class=\"dot dot-yellow\"></span>\n");
+    html.push_str("    <span class=\"dot dot-green\"></span>\n");
+    html.push_str("    <span class=\"term-title\">venta@terminal:~</span>\n");
+    html.push_str("  </div>\n");
+    html.push_str("  <div class=\"term-body\">\n");
+    html.push_str("    <p><span class=\"term-prompt\">$ </span>");
+    html.push_str(command);
+    html.push_str("</p>\n");
+    html.push_str("    <p class=\"term-out\">");
+    html.push_str(output);
+    html.push_str("</p>\n");
+    html.push_str("  </div>\n");
+    html.push_str("</div>\n");
+    html
+}

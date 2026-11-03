@@ -1,0 +1,10 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Transparent Pricing.</h2><div class=\"g c3 pr\">\n");
+    html.push_str("<div class=\"card\"><h4>Starter</h4><b>$0</b><ul><li>1 billing source</li><li>30 days history</li><li>Email notifications</li></ul><a class=\"btn\" href=\"#\">Get started</a></div>\n");
+    html.push_str("<div class=\"card h\"><h4>Growth</h4><b>$149</b><ul><li>5 billing sources</li><li>Unlimited retention</li><li>Cohort retention matrices</li><li>Slack &amp; Webhook alerts</li></ul><a class=\"btn\" href=\"#\">Start 14-day trial</a></div>\n");
+    html.push_str("<div class=\"card\"><h4>Scale</h4><b>$499</b><ul><li>Unlimited sources</li><li>Snowflake / BigQuery sync</li><li>Custom SSO &amp; SAML</li><li>Dedicated account engineer</li></ul><a class=\"btn\" href=\"#\">Contact Sales</a></div>\n");
+    html.push_str("</div></section>");
+    html
+}

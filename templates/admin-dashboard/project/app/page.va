@@ -1,0 +1,14 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<header class=\"hero pad\"><small>Revenue, last 30 days</small><h1 class=\"big\"><span class=\"cnt\" data-to=\"128430\" data-pre=\"$\">$128,430</span></h1><div class=\"r\"><div class=\"kp\"><div><b>3,284</b><span>Active customers</span></div><div><b>4.6%</b><span>Conversion</span></div><div><b class=\"up\">+12.4%</b><span>vs previous period</span></div></div><a class=\"btn\" href=\"#orders\">View orders</a></div></header>\n");
+    html.push_str("<div class=\"mq big\" aria-hidden=\"true\"><div><span>Revenue</span><span>Customers</span><span>Refunds</span><span>Payouts</span><span>Revenue</span><span>Customers</span><span>Refunds</span></div></div>\n");
+    html.push_str("<section class=\"hs\"><div class=\"track\">\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 140\"><path d=\"M0 110C50 100 80 70 130 80S220 40 280 50 360 20 400 10\"/></svg><h3 class=\"big\">$128k</h3><p>Revenue is up 12.4%, led by annual plans.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 140\"><path d=\"M0 120C60 110 100 100 160 80S270 70 330 40 380 30 400 20\"/></svg><h3 class=\"big\">3,284</h3><p>Active customers, with 212 new this month.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 140\" style=\"stroke:#b91c1c\"><path d=\"M0 40C60 50 100 30 160 60S270 50 330 80 380 70 400 90\"/></svg><h3 class=\"big\">$2.1k</h3><p>Refunds ticked up 0.8%, mostly one product line.</p></div>\n");
+    html.push_str("<div class=\"p\"><svg viewBox=\"0 0 400 140\"><path d=\"M0 100C70 90 110 110 170 70S280 60 340 40 390 40 400 30\"/></svg><h3 class=\"big\">4.6%</h3><p>Checkout conversion improved after the new payment form.</p></div></div></section>\n");
+    html.push_str("<section class=\"sec pad\" id=\"orders\"><h2 class=\"big\">Recent orders.</h2><div class=\"tw\"><table><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th></tr><tr><td>#10482</td><td>Northwind Ltd</td><td>$1,240</td><td><span class=\"pill ok\">Paid</span></td></tr><tr><td>#10481</td><td>Tessera Inc</td><td>$860</td><td><span class=\"pill pe\">Pending</span></td></tr><tr><td>#10480</td><td>Orbit Labs</td><td>$3,100</td><td><span class=\"pill ok\">Paid</span></td></tr><tr><td>#10479</td><td>Fathom Co</td><td>$420</td><td><span class=\"pill fa\">Failed</span></td></tr></table></div></section>\n");
+    html.push_str("<section class=\"sec pad set\"><h2 class=\"big\">Settings.</h2><label>Email me weekly summaries<input type=\"checkbox\" checked></label><label>Notify on failed payments<input type=\"checkbox\" checked></label><label>Require two-factor sign-in<input type=\"checkbox\"></label></section>");
+    html
+}

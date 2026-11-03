@@ -24,6 +24,10 @@ import ssr::{
     render_about_page, render_blog_slug_page, render_docs_path_page, render_showcase_page, render_404_page,
     get_venta_file_icon_svg
 };
+import gallery::{
+    render_template_gallery_html, render_template_preview_html, render_project_editor_html,
+    get_templates_registry_json
+};
 
 import std::net;
 import std::string::String;
@@ -44,6 +48,9 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_page_route("/docs/[...path]", layout_root_and_docs(), 106);
     m.add_page_route("/foo/[...rest]", layout_root(), 110);
     m.add_page_route("/[id]/bar", layout_root(), 111);
+    m.add_page_route("/templates", layout_root(), 120);
+    m.add_page_route("/templates/preview/[id]", layout_root(), 121);
+    m.add_page_route("/editor", layout_root(), 122);
 
     // 2. Typed API Routes
     m.add_api_route("GET", "/api/status", 200);
@@ -51,6 +58,7 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_api_route("GET", "/api/posts/[id]", 202);
     m.add_api_route("POST", "/api/echo", 203);
     m.add_api_route("GET", "/api/health", 204);
+    m.add_api_route("GET", "/api/templates", 210);
 
     m
 }
@@ -185,6 +193,9 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 } else if m_res.page_id == 204 {
                     let json = "{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}\n";
                     resp = response_json(json);
+                } else if m_res.page_id == 210 {
+                    let t_json = get_templates_registry_json();
+                    resp = response_json(t_json.as_str());
                 } else {
                     let id_str = i64_to_string(m_res.page_id);
                     let clean_method = escape_json(req.method.as_str());
@@ -229,6 +240,15 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                 } else if m_res.page_id == 111 {
                     title = "Dynamic ID Bar";
                     active_nav = "home";
+                } else if m_res.page_id == 120 {
+                    title = "Template Gallery";
+                    active_nav = "templates";
+                } else if m_res.page_id == 121 {
+                    title = "Live Template Preview";
+                    active_nav = "templates";
+                } else if m_res.page_id == 122 {
+                    title = "Project Editor";
+                    active_nav = "templates";
                 }
 
                 let ctx = make_render_context(
@@ -285,6 +305,24 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                         }
                         s.push_str("</p>");
                         page_markup = s;
+                    } else if m_res.page_id == 120 {
+                        page_markup = render_template_gallery_html(&ctx);
+                    } else if m_res.page_id == 121 {
+                        let id_opt = req.params.get("id");
+                        let mut id_str = String::from_str("modern-saas");
+                        match id_opt {
+                            Option::Some(s) => { id_str = s; }
+                            Option::None => {}
+                        }
+                        page_markup = render_template_preview_html(&ctx, id_str.as_str());
+                    } else if m_res.page_id == 122 {
+                        let mut p_name = String::from_str("my-ventanext-app");
+                        let q_proj = req.query.get("project");
+                        match q_proj {
+                            Option::Some(s) => { p_name = s; }
+                            Option::None => {}
+                        }
+                        page_markup = render_project_editor_html(&ctx, p_name.as_str(), "modern-saas");
                     } else {
                         let mut s = String::from_str("<h1>Page ");
                         s.push_str(i64_to_string(m_res.page_id).as_str());

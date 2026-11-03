@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"cluster_id\":\"us-east-alpha\",\"node_count\":16,\"total_rps\":142890,\"p50_latency_ms\":0.12,\"p99_latency_ms\":0.38,\"gc_pause_ms\":0.0}")
+}

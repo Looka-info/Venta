@@ -1,0 +1,5 @@
+import std::string::String;
+
+pub fn GET() -> String {
+    String::from_str("{\"products\":[{\"id\":\"kb-01\",\"name\":\"Split Mechanical Keyboard\",\"price\":189.00,\"in_stock\":true},{\"id\":\"hp-02\",\"name\":\"Zero-Latency Planar Headphones\",\"price\":349.00,\"in_stock\":true},{\"id\":\"mat-03\",\"name\":\"Titanium Desk Mat\",\"price\":95.00,\"in_stock\":true}]}")
+}

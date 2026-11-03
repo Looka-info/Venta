@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" rx="16" fill="#101214"/>
+  <!-- Nav -->
+  <rect x="0" y="0" width="800" height="56" fill="#16191c" stroke="#262a2e" stroke-width="1"/>
+  <text x="36" y="36" fill="#eceae4" font-family="'Segoe UI', sans-serif" font-weight="800" font-size="18" letter-spacing="-0.04em">Kiln</text>
+  <text x="110" y="34" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="13">Guides</text>
+  <text x="180" y="34" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="13">Reference</text>
+  <text x="270" y="34" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="13">Plugins</text>
+  <rect x="710" y="16" width="54" height="26" rx="99" fill="#7ee0b5"/>
+  <text x="723" y="33" fill="#0a1511" font-family="'Segoe UI', sans-serif" font-weight="bold" font-size="12">v2.4</text>
+
+  <!-- Hero Headline -->
+  <text x="36" y="120" fill="#eceae4" font-family="'Segoe UI', sans-serif" font-weight="900" font-size="44" letter-spacing="-0.05em">Docs for builders.</text>
+  <text x="36" y="150" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="14">Kiln bundles your project in milliseconds. From zero to production in five minutes.</text>
+
+  <!-- Search Bar -->
+  <rect x="36" y="174" width="440" height="42" rx="10" fill="#16191c" stroke="#33383d" stroke-width="1"/>
+  <text x="56" y="200" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="14">Search the docs...</text>
+  <rect x="420" y="184" width="44" height="22" rx="4" fill="#262a2e"/>
+  <text x="426" y="199" fill="#eceae4" font-family="monospace" font-size="10">Ctrl K</text>
+
+  <!-- Code Blocks (Steps) -->
+  <rect x="36" y="238" width="350" height="220" rx="12" fill="#0a0c0e" stroke="#262a2e" stroke-width="1"/>
+  <text x="56" y="268" fill="#7ee0b5" font-family="monospace" font-weight="bold" font-size="12">STEP 1: INSTALL</text>
+  <text x="56" y="300" fill="#89b4fa" font-family="monospace" font-size="14">npm <tspan fill="#eceae4">install --save-dev kiln</tspan></text>
+  <text x="56" y="340" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="12">Installs native Venta toolchain and runtime</text>
+  <text x="56" y="360" fill="#8d9298" font-family="'Segoe UI', sans-serif" font-size="12">with deterministic cryptographic caching.</text>
+
+  <rect x="410" y="238" width="354" height="220" rx="12" fill="#0a0c0e" stroke="#262a2e" stroke-width="1"/>
+  <text x="430" y="268" fill="#7ee0b5" font-family="monospace" font-weight="bold" font-size="12">STEP 2: CONFIGURE</text>
+  <text x="430" y="300" fill="#f2a1c4" font-family="monospace" font-size="13">export default <tspan fill="#eceae4">{</tspan></text>
+  <text x="446" y="324" fill="#89b4fa" font-family="monospace" font-size="13">entry<tspan fill="#eceae4">: </tspan><tspan fill="#a6e3a1">"src/index.js"</tspan><tspan fill="#eceae4">,</tspan></text>
+  <text x="446" y="348" fill="#89b4fa" font-family="monospace" font-size="13">outDir<tspan fill="#eceae4">: </tspan><tspan fill="#a6e3a1">"dist"</tspan><tspan fill="#eceae4">,</tspan></text>
+  <text x="446" y="372" fill="#89b4fa" font-family="monospace" font-size="13">minify<tspan fill="#eceae4">: </tspan><tspan fill="#f9c27b">true</tspan></text>
+  <text x="430" y="396" fill="#eceae4" font-family="monospace" font-size="13">};</text>
+</svg>

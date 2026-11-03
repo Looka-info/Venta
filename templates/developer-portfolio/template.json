@@ -1,0 +1,107 @@
+{
+  "id": "developer-portfolio",
+  "name": "Developer Portfolio",
+  "category": "Developer portfolios",
+  "description": "Maya Okafor systems software engineer portfolio with horizontal project track (Quill, Mosaic, Ledgerline, Tidepool), about section, and career experience timeline.",
+  "version": "1.0.0",
+  "framework_compatibility": ">=1.0.0-rc.2",
+  "entry_point": "main.va",
+  "preview_asset": "preview.svg",
+  "download_source": "local://templates/developer-portfolio",
+  "features": [
+    "Georgia Typographic Identity",
+    "Horizontal Project Track",
+    "Open-Source Star Metrics",
+    "Experience Career Timeline",
+    "Technical Writing Blog",
+    "Contact GPG & Inquiry API"
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "title": "Home",
+      "description": "Hero bio, project showcase track, about section, and experience timeline"
+    },
+    {
+      "path": "/projects",
+      "title": "Projects",
+      "description": "Selected open-source libraries and compiler systems"
+    },
+    {
+      "path": "/blog",
+      "title": "Writing",
+      "description": "Technical articles on systems programming and affine types"
+    },
+    {
+      "path": "/about",
+      "title": "About",
+      "description": "Engineering background and philosophy"
+    },
+    {
+      "path": "/api/contact",
+      "title": "Contact API",
+      "description": "GPG fingerprint and contact endpoint"
+    }
+  ],
+  "dependencies": {
+    "vanta": ">=1.0.0-rc.2",
+    "ventanext": ">=1.0.0-rc.2"
+  },
+  "file_inventory": [
+    {
+      "path": "app/about/page.va",
+      "size_bytes": 714,
+      "sha256": "da9d71205ffe97319985c798b13986982b974502bd738150500972a76ecad8d0"
+    },
+    {
+      "path": "app/api/contact/route.va",
+      "size_bytes": 223,
+      "sha256": "77c66525099d2480d6418ce4c2ccf54351cb89f98d9fb2d76c52eb6149a283d8"
+    },
+    {
+      "path": "app/blog/page.va",
+      "size_bytes": 649,
+      "sha256": "969b324c0d464dda16e9ad3a88332d72a7cc29ef6bb1c03e970d516bc9847b63"
+    },
+    {
+      "path": "app/components/terminal.va",
+      "size_bytes": 889,
+      "sha256": "57d2c55e96d4a2df0aab03b87e2230838b07c7ec6bb00ab7cf4663006e9b2a18"
+    },
+    {
+      "path": "app/layout.va",
+      "size_bytes": 7147,
+      "sha256": "0a0598b9b7ba7970f6359fe92c1a6b60018767ce1e1afc814dac3a90529f333b"
+    },
+    {
+      "path": "app/page.va",
+      "size_bytes": 3101,
+      "sha256": "3bc12e45563d500e624feec8da217d05fa449fcfa01368e577df0e1b41ff00ee"
+    },
+    {
+      "path": "app/projects/page.va",
+      "size_bytes": 1183,
+      "sha256": "4f2d1507042eec725d2dc9a5d75efca2c04c9680356357a76cb2d78281817a0f"
+    },
+    {
+      "path": "main.va",
+      "size_bytes": 270,
+      "sha256": "a15b4dc80222ba23d78994b6642c9cee7a3037516bac5538125ee097e6c32ef1"
+    },
+    {
+      "path": "package.json",
+      "size_bytes": 614,
+      "sha256": "e631cc66b1c862f47ac7b0c57f707445e90fce65da5854afc707897462f46a43"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 903,
+      "sha256": "1348084e5444e1a1697f470e6391de831080ca937b349b2d89085032455c6982"
+    },
+    {
+      "path": "ventanext.config.json",
+      "size_bytes": 266,
+      "sha256": "9a9ad634834be4d02e5b2fb03b2b447425c609f190d320a4163595df01fd448c"
+    }
+  ]
+}

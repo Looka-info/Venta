@@ -1,0 +1,10 @@
+import std::string::String;
+
+pub fn render_page() -> String {
+    let mut html = String::from_str("<section class=\"sec pad\" style=\"padding-top:120px;\"><h2 class=\"big\">Architecture.</h2><p style=\"color:var(--mut); margin-bottom:28px;\">Kiln is structured around a three-tier pipeline: AST transformation, multi-threaded asset graph resolution, and deterministic dead-code stripping.</p><pre><span class=\"c\">// Compiler stage pipeline</span>\n");
+    html.push_str("<span class=\"k\">Stage 1</span>: Source lexical analysis &amp; parser\n");
+    html.push_str("<span class=\"k\">Stage 2</span>: Intermediate Representation (MIR)\n");
+    html.push_str("<span class=\"k\">Stage 3</span>: Static Single Assignment (14-pass SSA optimizer)\n");
+    html.push_str("<span class=\"k\">Stage 4</span>: Machine code emission &amp; asset packaging</pre><div class=\"note\"><b>Zero GC Overheads.</b> Every intermediate buffer uses stack-allocated affine slices.</div></section>");
+    html
+}
