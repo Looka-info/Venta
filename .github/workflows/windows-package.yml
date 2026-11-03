@@ -89,9 +89,9 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v1.0-RC2
-          name: "Vanta v1.0-RC2 (Windows x86-64)"
+          name: "Vanta v1.0-RC2 (Multi-Platform Native Distribution)"
           body: |
-            ## ⚡ Vanta Systems Programming Language — Windows x86-64 Native Distribution (v1.0-RC2)
+            ## ⚡ Vanta Systems Programming Language — Multi-Platform Native Distribution (v1.0-RC2)
 
             Pure native binary release for Windows AMD64 (`x86_64-pc-windows-msvc`) with custom pure-Rust PE32+ backend and linker.
             Zero external C runtime, SDK, or toolchain dependencies required.
