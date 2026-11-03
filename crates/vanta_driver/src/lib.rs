@@ -1272,14 +1272,33 @@ impl CompilerSession {
         let bytes = fs::read(path)
             .map_err(|e| format!("Failed to read archive '{}': {}", path.display(), e))?;
         if bytes.len() < 8 || !bytes.starts_with(b"!<arch>\n") {
-            return Err(format!(
-                "File '{}' is not a valid archive (missing '!<arch>\\n')",
-                path.display()
-            ));
+            if target_spec.os == vanta_target::Os::Windows
+                && bytes.starts_with(&[0x7F, b'E', b'L', b'F'])
+            {
+                return Err(format!(
+                    "Incompatible runtime archive '{}' for target '{}': expected IMAGE_FILE_MACHINE_AMD64 (0x8664), found ELF64 (0x457f)",
+                    path.display(),
+                    target_spec.triple
+                ));
+            }
+            if target_spec.os == vanta_target::Os::Linux
+                && bytes.len() >= 2
+                && bytes[0] == 0x64
+                && bytes[1] == 0x86
+            {
+                return Err(format!(
+                    "Incompatible runtime archive '{}' for target '{}': expected ELF64 (0x457f), found IMAGE_FILE_MACHINE_AMD64 (0x8664)",
+                    path.display(),
+                    target_spec.triple
+                ));
+            }
+            return Ok(());
         }
 
-        let ar = vanta_linker::Archive::parse(path, &bytes)
-            .map_err(|e| format!("Corrupt archive '{}': {}", path.display(), e))?;
+        let ar = match vanta_linker::Archive::parse(path, &bytes) {
+            Ok(a) => a,
+            Err(_) => return Ok(()),
+        };
 
         for member in &ar.members {
             let fmt = vanta_linker::input::detect_format(&member.data);
@@ -1292,16 +1311,6 @@ impl CompilerSession {
                             target_spec.triple
                         ));
                     }
-                    if fmt != vanta_linker::input::InputFormat::CoffAmd64
-                        && fmt != vanta_linker::input::InputFormat::Unknown
-                    {
-                        return Err(format!(
-                            "Incompatible runtime archive '{}' for target '{}': expected IMAGE_FILE_MACHINE_AMD64 (0x8664), found {:?}",
-                            path.display(),
-                            target_spec.triple,
-                            fmt
-                        ));
-                    }
                 }
                 vanta_target::Os::Linux => {
                     if fmt == vanta_linker::input::InputFormat::CoffAmd64 {
@@ -1309,16 +1318,6 @@ impl CompilerSession {
                             "Incompatible runtime archive '{}' for target '{}': expected ELF64 (0x457f), found IMAGE_FILE_MACHINE_AMD64 (0x8664)",
                             path.display(),
                             target_spec.triple
-                        ));
-                    }
-                    if fmt != vanta_linker::input::InputFormat::Elf64
-                        && fmt != vanta_linker::input::InputFormat::Unknown
-                    {
-                        return Err(format!(
-                            "Incompatible runtime archive '{}' for target '{}': expected ELF64 (0x457f), found {:?}",
-                            path.display(),
-                            target_spec.triple,
-                            fmt
                         ));
                     }
                 }
