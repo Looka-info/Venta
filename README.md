@@ -27,15 +27,15 @@
 ## 📖 Table of Contents
 
 - [🌐 Live Web Showcase & Pure Venta HTTP Server](#live-web-showcase--pure-venta-http-server)
-- [⚡ VentaNext Framework — Next.js for Venta (100% Pure Venta)](#ventanext-framework--nextjs-for-venta-in-pure-venta)
+- [⚡ VentaNext Framework — Next.js for Venta (in Pure Venta)](#-ventanext-framework--nextjs-for-venta-in-pure-venta)
 - [⚡ GPU Acceleration & Hardware Compute (`std::gpu` vs Python CUDA)](#-gpu-acceleration--hardware-compute-stdgpu-vs-python-cuda)
 - [🛡 Native Multi-Platform Backends & Pure-Rust Linker](#-native-multi-platform-backends--pure-rust-linker)
-- [📦 Built-in Static Archive Manager (`ventac archive`)](#-built-in-static-archive-manager-ventac-archive)
+- [📦 Built-in Static Archive Manager (`vantac archive`)](#-built-in-static-archive-manager-vantac-archive)
 - [🔒 Fail-Closed Incremental Build Engine & Link Fingerprinting](#-fail-closed-incremental-build-engine--link-fingerprinting)
 - [⚡ Quick Installation](#quick-installation)
   - [Option 1: Via Node / NPM (Recommended)](#option-1-via-node-npm-recommended)
-  - [Option 2: Universal 1-Line Shell Installer (`curl | bash`)](#option-2-universal-1-line-shell-installer-curl-bash)
-  - [Option 3: Pre-built Release Tarball (GitHub Releases)](#option-3-pre-built-release-tarball-github-releases)
+  - [Option 2: Universal 1-Line Installers](#option-2-universal-1-line-installers)
+  - [Option 3: Pre-built Release Archives (GitHub Releases)](#option-3-pre-built-release-archives-github-releases)
   - [Option 4: Build from Source](#option-4-build-from-source)
 - [🚀 Overview](#overview)
 - [✨ Key Features](#key-features)
@@ -207,7 +207,7 @@ flowchart TD
 
 ---
 
-## 📦 Built-in Static Archive Manager (`ventac archive`)
+## 📦 Built-in Static Archive Manager (`vantac archive`)
 
 Venta includes a built-in static library and archive manager directly within `vantac`. It can construct, inspect, and extract `ar` archives conforming to GNU, BSD, and extended format specifications:
 
@@ -237,28 +237,29 @@ vantac compile main.va -o app --linker=internal --link=libmath.a
 
 ## 🔒 Fail-Closed Incremental Build Engine & Link Fingerprinting
 
-Venta introduces an industrial-grade incremental compilation and caching engine in [`crates/vanta_build/`](crates/vanta_build/) that guarantees **sound, reproducible, fail-closed incremental builds**:
+Venta features an industrial-grade incremental compilation, fragment caching, and link fingerprinting engine in [`crates/vanta_build/`](crates/vanta_build/) that guarantees **sound, reproducible, fail-closed incremental builds**:
 
-### 1. Fail-Closed Compiler Source Identity (Fix 1.1)
-- The compiler source identity is computed via a recursive SHA-256 traversal of the compiler source tree.
-- If workspace root discovery fails, directory traversal encounters errors, or any source file cannot be read, compilation **halts immediately with an explicit error**.
-- **Never fails open**: All-zero (`0000...`) or partial identity fallbacks are forbidden. A compiler can never be built with an unsafe or ambiguous cache identity.
+### 1. Dynamic Toolchain Identity & Compiler Configuration
+- Dynamic commit hash extraction (`git rev-parse HEAD`) with fail-closed SHA-256 recursive digest fallback across the compiler source tree.
+- Comprehensive `TargetFeaturesConfig` captures 26+ compiler switches, optimization flags (`opt_level`, `mem2reg`, `gvn`, `inline`, `loop_unroll`, `global_dce`, `tail_calls`), and CPU target features (`avx`, `avx2`, `fma`, `avx512f`).
+- **Never fails open**: Ambiguous paths, unreadable sources, or missing configurations halt compilation immediately with an explicit error rather than falling back to unverified cache entries.
 
-### 2. Canonical Link Configuration Fingerprinting (Fix 2)
-An executable cache entry is only reused when the complete effective linking configuration is identical:
-- **Target & Linker**: Target triple, object format, and linker kind (`Internal` vs `System`).
-- **Full Argument Vector**: User-supplied flags, search paths (`-L`), and output destinations.
-- **Domain-Separated Hashing**: Resolved libraries, static archives, runtime archives (`libvanta_rt.a`), and startup objects are fingerprinted with deterministic, length-prefixed domain tags.
-- **Single-Source-of-Truth Resolution**: The linker input plan is resolved once; the exact same plan is consumed by both the cache key calculation and the actual linking execution.
+### 2. Canonical Link Fingerprinting & Byte-Level Archive Invalidation
+- **Domain-Separated Hashing**: Resolved system libraries, static archives, runtime archives (`libvanta_rt.a`), and startup objects are fingerprinted with deterministic, length-prefixed domain tags (`Domain::Archive`, `Domain::LinkConfig`).
+- **Streaming Byte-Level Archive Hashing**: Digests the raw byte stream of all static archives (`.a` / `.lib`), reliably invalidating cache entries when internal objects change even if file sizes and timestamps match.
+- **Single-Source-of-Truth Resolution**: The linker input plan is resolved once; the exact same plan is consumed by both cache key calculation and actual linker execution.
 
-### 3. Binary Content Fingerprinting & Delegated Linkers (Fix 2.1)
-- Paths and version strings alone are insufficient to guarantee compiler identity. Venta reads and hashes the **full binary contents** of the effective linker executable using SHA-256.
-- Detects downstream linkers selected by compiler drivers (e.g. Clang/GCC invoking `ld`, `lld`, or `-fuse-ld=gold`, or MSVC `link.exe`).
-- Fails closed with an explicit error if the linker executable is unreadable, moved, or corrupted.
+### 3. Persistent Build Manifests & Zero-Frontend Fast Path
+- Structured `manifest.json` persists compiler ID, target triple, source fingerprints, module interface digests, struct/enum layout hashes, and function signatures.
+- Instantaneous two-level fast path returns compiled outputs directly without AST parsing or semantic analysis when source files, dependencies, and compiler flags are unchanged.
 
-### 4. Lockstep Execution Verification (Fix 2.2)
-- Guarantees the executable recorded in `LinkConfiguration` is provably the exact binary invoked during linking.
-- Employs pinned resolution paths and pre-execution validation to detect post-resolution modification or TOCTOU (time-of-check to time-of-use) drift.
+### 4. Function Fragment Caching & Object Reassembly
+- Fine-grained `FunctionFragment` caching captures function symbols, signatures, 16-byte aligned machine code, relocations, and DWARF 5 debug lines.
+- Modifying a private function body recompiles only the edited fragment while reusing all unmodified functions from cache, stitching cached and fresh fragments into valid ELF64 or PE/COFF objects.
+
+### 5. Binary Content Verification & Delegated Linkers
+- Full SHA-256 binary content hashing of the effective linker executable detects downstream toolchain upgrades or environmental modifications.
+- Lockstep pre-execution verification guarantees the linker binary executed is provably identical to the resolved record, preventing time-of-check to time-of-use (TOCTOU) drift.
 
 ---
 
@@ -297,13 +298,9 @@ curl -fsSL https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/insta
 irm https://raw.githubusercontent.com/Looka-info/Venta/main/scripts/install.ps1 | iex
 ```
 
-### Option 3: Pre-built Release Archives (GitHub Releases & CI Artifacts)
+### Option 3: Pre-built Release Archives (GitHub Releases)
 
-> [!IMPORTANT]
-> **Pre-Release Evaluation Phase Note**:
-> Public GitHub Releases are **not published** during this candidate evaluation phase. Verified release packages (such as `vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip`) are available for download as GitHub Actions workflow artifacts (`vanta-windows-x86_64-v1.0-RC2`) from the [Release Package Workflow Runs](https://github.com/Looka-info/Venta/actions/workflows/windows-package.yml). Direct release download URLs shown below represent future endpoints that activate upon final tag publication.
-
-Standalone pre-compiled release packages are published for all supported tier-1 platforms:
+Standalone pre-compiled release packages are published for all supported tier-1 platforms on [GitHub Releases](https://github.com/Looka-info/Venta/releases/tag/v1.0-RC2):
 
 #### Linux x86-64:
 ```bash
@@ -314,19 +311,22 @@ cd vanta-v1.0-RC2-x86_64-unknown-linux-gnu && ./install.sh
 
 #### Windows x86-64:
 ```powershell
-# 1. Download official Windows release package and checksum sidecar
+# 1. Download official Windows release package
 Invoke-WebRequest -Uri https://github.com/Looka-info/Venta/releases/download/v1.0-RC2/vanta-v1.0-RC2-x86_64-pc-windows-msvc.zip -OutFile vanta-win.zip
 
-# 2. Extract and install (supports -Prefix and -NoPathUpdate)
-Expand-Archive vanta-win.zip -DestinationPath vanta-win
-.\vanta-win\install.ps1 -Prefix "$HOME\.vanta"
+# 2. Extract into user toolchain directory (~/.vanta)
+Expand-Archive vanta-win.zip -DestinationPath ~\.vanta
 
-# 3. Verify
+# 3. Add to User PATH
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$HOME\.vanta\bin*") {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$HOME\.vanta\bin", "User")
+    $env:Path += ";$HOME\.vanta\bin"
+}
+
+# 4. Verify
 vantac --version
 vanta --version
-
-# To safely uninstall without deleting user data:
-& "$HOME\.vanta\uninstall.ps1"
 ```
 
 #### macOS Apple Silicon (ARM64):
@@ -375,7 +375,7 @@ For custom prefixes and uninstallation steps, see the [Full Installation Guide](
 | **Lightning Compilation Speed** | Compiles typical workloads in **~0.24 seconds** — over **8x faster** than `rustc` with LLVM. |
 | **Minimal Binary Footprint** | Produces compact, standalone native executables of **~22 KB** (over **500x smaller** than standard Rust release binaries). |
 | **Fail-Closed Incremental Builds** | Industrial-grade incremental compilation engine (`vanta_build`) with canonical domain-separated `LinkConfiguration` and binary-content SHA-256 fingerprinting. |
-| **Built-in Static Archiver** | Native archive manager (`ventac archive`) supporting GNU 32/64-bit, BSD, and extended archive formats with automatic symbol index extraction. |
+| **Built-in Static Archiver** | Native archive manager (`vantac archive`) supporting GNU 32/64-bit, BSD, and extended archive formats with automatic symbol index extraction. |
 | **VentaNext Full-Stack SSR** | Full-stack server-side framework written 100% in pure Venta featuring dynamic routing, SSR microsecond page generation, and typed JSON APIs in an **86 KB standalone binary**. |
 | **GPU Acceleration (`std::gpu`)** | Zero-copy unified memory buffers, asynchronous stream dispatch, and hardware compute kernels outperforming Python CUDA without GIL contention or multi-gigabyte package bloat. |
 | **Multi-Platform ABI Compliance** | Full native compliance with System V AMD64 (Linux), Microsoft x64 (Windows), and Darwin AAPCS64 (macOS), enabling transparent C library interop and zero FFI marshaling penalties. |
@@ -411,7 +411,7 @@ flowchart TD
         CG_X86 --> LINKER["vanta_linker<br>(Pure-Rust Multi-Format Linker)"]
         CG_ARM --> LINKER
         BUILD["vanta_build<br>(Fail-Closed Fingerprinting)"] <--> LINKER
-        ARCHIVE["ventac archive<br>(GNU / BSD Static Archives)"] -.-> LINKER
+        ARCHIVE["vantac archive<br>(GNU / BSD Static Archives)"] -.-> LINKER
     end
 
     subgraph Output ["Verified Native Outputs"]
@@ -947,11 +947,14 @@ cargo test -p vanta_driver --test linker_e2e_tests --test linker_hardened_tests
 
 # Run Fail-Closed Incremental Build & Fingerprinting Tests
 cargo test -p vanta_build
+cargo test -p vanta_driver --test incremental_tests
 
-# Run specialized ABI and differential tests
-cargo test --test abi_tests
-cargo test --test differential_tests
-cargo test --test version_gate_tests
+# Run specialized ABI, packaging, and differential tests
+cargo test -p vanta_driver --test abi_tests
+cargo test -p vanta_driver --test differential_tests
+cargo test -p vanta_driver --test version_gate_tests
+cargo test -p vanta_driver --test packaging_tests
+cargo test -p vanta_driver --test collections_tests
 
 # Run self-hosted compiler test suite (10 tests + backend unit test)
 ./scripts/test_self_hosted_compiler.sh
@@ -1005,7 +1008,8 @@ Venta/
 │   ├── vanta_target                 # Target triples (linux-x86_64, windows-x86_64, macos-arm64)
 │   ├── vanta_driver                 # CLI toolchain drivers: vantac and vanta
 │   ├── vanta_lsp                    # Language Server Protocol (LSP) implementation
-│   └── vanta_fmt                    # Source code formatter
+│   ├── vanta_fmt                    # Source code formatter
+│   └── ventanext_codegen            # VentaNext route manifest & template code generator
 ├── runtime/
 │   ├── vanta_rt.c                   # Lightweight C runtime (memory, panic, strings)
 │   └── libvanta_rt.a                # Static runtime library
@@ -1015,9 +1019,12 @@ Venta/
 │   ├── http.va                      # HTTP Request/Response model
 │   ├── router.va                    # Router with dynamic param extraction (:id)
 │   ├── ssr.va                       # Server-Side Rendering (SSR) & Component Engine
+│   ├── component.va                 # Declarative VentaNext UI components
 │   ├── middleware.va                # Logging, CORS, Security headers
+│   ├── generated_routes.va          # Precompiled deterministic route manifest
 │   ├── server.va                    # HTTP application server
 │   ├── main.va                      # Full-stack runnable app entry point
+│   ├── test_framework.va            # Automated framework verification test suite
 │   └── README.md                    # Framework documentation
 ├── www/                             # 100% Pure Venta Web Page & Native HTTP Engine
 │   ├── page.va                      # Awwwards-level showcase web page authored in pure Venta
@@ -1032,6 +1039,12 @@ Venta/
 │   ├── backend.va                   # Modular native backend in pure Vanta
 │   ├── backend_test.va              # Native backend verification test
 │   └── tests/                       # 10 native assembly verification programs
+├── tests/                           # Multi-platform packaging and installer tests
+│   ├── test_installer_verification.ps1 # Windows installer validation
+│   ├── test_isolated_windows_package.ps1 # Windows clean prefix packaging test
+│   ├── test_uninstaller_safety.ps1  # Windows uninstaller containment test
+│   ├── gpu_example.va               # GPU hardware compute integration test
+│   └── net_listen_close.va          # Pure Venta TCP socket test
 ├── benchmarks/                      # 18 benchmark suites & JSON results
 ├── scripts/                         # Packaging, npm build, install.sh universal script
 └── docs/                            # Formal language specs, release gates, reports
