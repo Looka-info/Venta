@@ -8,10 +8,7 @@
 //! - Static ELF64 layout, non-executable stack (PT_GNU_STACK), and zero dynamic dependencies.
 
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
 use tempfile::tempdir;
 use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, LinkerKind, OptLevel};
 use vanta_target::TargetTriple;
@@ -84,6 +81,8 @@ fn main() -> i64 {
     // Verify native Linux execution
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
         let mut perms = fs::metadata(&exe_path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&exe_path, perms).unwrap();

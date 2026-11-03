@@ -35,6 +35,7 @@ fn main() -> i64 {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
         let mut perms = fs::metadata(&exe_path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&exe_path, perms).unwrap();
@@ -213,6 +214,7 @@ fn main() -> i64 {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
         let mut perms = fs::metadata(&exe_path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&exe_path, perms).unwrap();
