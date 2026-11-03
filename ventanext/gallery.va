@@ -467,65 +467,165 @@ pub fn render_template_preview_html(ctx: &RenderContext, template_id: &str) -> S
 // ----------------------------------------------------------------------------
 
 pub fn render_project_editor_html(ctx: &RenderContext, project_name: &str, template_id: &str) -> String {
+    let mut tid = template_id;
+    if !tid.equals("modern-saas") && !tid.equals("developer-portfolio") && !tid.equals("agency-business") && !tid.equals("ecommerce-storefront") && !tid.equals("admin-dashboard") && !tid.equals("docs-website") {
+        tid = "modern-saas";
+    }
+
     let mut html = String::from_str("<section style=\"padding: 0;\">\n");
 
     // Editor Top Workspace Bar
-    html.push_str("  <div style=\"display:flex; justify-content:space-between; align-items:center; background:#0c0d16; border:1px solid var(--border-gold); border-radius:12px; padding:10px 20px; margin-bottom:16px;\">\n");
-    html.push_str("    <div style=\"display:flex; align-items:center; gap:14px;\">\n");
+    html.push_str("  <div style=\"display:flex; justify-content:space-between; align-items:center; background:#0c0d16; border:1px solid var(--border-gold); border-radius:12px; padding:10px 20px; margin-bottom:16px; flex-wrap:wrap; gap:12px;\">\n");
+    html.push_str("    <div style=\"display:flex; align-items:center; gap:14px; flex-wrap:wrap;\">\n");
     html.push_str("      <a href=\"/templates\" style=\"color:var(--gold-core); text-decoration:none; font-size:0.9rem; font-weight:600;\">← Gallery</a>\n");
     html.push_str("      <span style=\"color:var(--border-subtle);\">|</span>\n");
     html.push_str("      <span style=\"font-family:var(--font-display); font-weight:800; font-size:1.1rem; color:#fff;\">⚡ VentaNext Project Editor: ");
     html.push_str(project_name);
     html.push_str("</span>\n");
+    html.push_str("      <span style=\"font-size:0.75rem; background:rgba(255,215,0,0.1); color:var(--gold-bright); border:1px solid var(--border-gold); padding:2px 8px; border-radius:9999px; font-family:var(--font-code); font-weight:600;\">Template: ");
+    html.push_str(tid);
+    html.push_str("</span>\n");
     html.push_str("      <span id=\"save-badge\" style=\"font-size:0.75rem; background:rgba(34,197,94,0.15); color:#22c55e; border:1px solid #22c55e; padding:2px 8px; border-radius:9999px; font-weight:700;\">● Saved on Disk</span>\n");
-    html.push_str("      <span style=\"font-size:0.75rem; background:rgba(255,215,0,0.1); color:var(--gold-bright); border:1px solid var(--border-gold); padding:2px 8px; border-radius:9999px; font-family:var(--font-code); font-weight:600;\">⚡ Dev Server: Active (Port 3000)</span>\n");
+    html.push_str("      <span id=\"live-bridge-badge\" style=\"font-size:0.75rem; background:rgba(255,215,0,0.1); color:var(--gold-bright); border:1px solid var(--border-gold); padding:2px 8px; border-radius:9999px; font-family:var(--font-code); font-weight:600;\">⚡ Dev Server: Active (Port 3000)</span>\n");
     html.push_str("    </div>\n");
-    html.push_str("    <div style=\"display:flex; gap:10px;\">\n");
+    html.push_str("    <div style=\"display:flex; gap:10px; align-items:center;\">\n");
+    html.push_str("      <button onclick=\"addNewFilePrompt()\" class=\"btn btn-ghost\" style=\"padding:6px 14px; font-size:0.85rem;\">➕ New File</button>\n");
     html.push_str("      <button onclick=\"saveCurrentFile()\" class=\"btn btn-gold\" style=\"padding:6px 16px; font-size:0.85rem;\">💾 Save Changes (Ctrl+S)</button>\n");
     html.push_str("      <button onclick=\"reloadLivePreview()\" class=\"btn btn-ghost\" style=\"padding:6px 14px; font-size:0.85rem;\">↻ Reload Preview</button>\n");
     html.push_str("    </div>\n");
     html.push_str("  </div>\n");
 
     // Three-Panel Editor Grid: File Explorer | Code Editor | Live Preview
-    html.push_str("  <div style=\"display:grid; grid-template-columns: 240px 1fr 1fr; gap:16px; min-height:680px; align-items:stretch;\">\n");
+    html.push_str("  <div style=\"display:grid; grid-template-columns: 260px 1fr 1fr; gap:16px; min-height:720px; align-items:stretch;\">\n");
 
     // Panel 1: File Explorer Tree
-    html.push_str("    <aside style=\"background:#090a12; border:1px solid var(--border-subtle); border-radius:12px; padding:18px; display:flex; flex-direction:column;\">\n");
+    html.push_str("    <aside style=\"background:#090a12; border:1px solid var(--border-subtle); border-radius:12px; padding:18px; display:flex; flex-direction:column; overflow:auto;\">\n");
     html.push_str("      <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;\">\n");
     html.push_str("        <span style=\"font-size:0.8rem; font-weight:700; text-transform:uppercase; color:var(--gold-core); letter-spacing:0.05em;\">Project Explorer</span>\n");
-    html.push_str("        <span style=\"font-size:0.75rem; color:var(--text-muted); font-family:var(--font-code);\">Pure Venta</span>\n");
+    html.push_str("        <button onclick=\"addNewFilePrompt()\" style=\"background:none; border:none; color:var(--gold-bright); font-size:1.1rem; cursor:pointer;\" title=\"Create New File\">➕</button>\n");
     html.push_str("      </div>\n");
-    html.push_str("      <ul style=\"list-style:none; display:flex; flex-direction:column; gap:6px; font-family:var(--font-code); font-size:0.88rem;\">\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/page.va')\" class=\"file-item active\">📄 app/page.va</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/layout.va')\" class=\"file-item\">📄 app/layout.va</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/features/page.va')\" class=\"file-item\">📄 app/features/page.va</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/pricing/page.va')\" class=\"file-item\">📄 app/pricing/page.va</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('app/api/health/route.va')\" class=\"file-item\">⚡ app/api/health/route.va</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('ventanext.config.json')\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('package.json')\" class=\"file-item\">📦 package.json</a></li>\n");
-    html.push_str("        <li><a href=\"#\" onclick=\"loadFile('README.md')\" class=\"file-item\">📝 README.md</a></li>\n");
+    html.push_str("      <ul id=\"file-tree-list\" style=\"list-style:none; display:flex; flex-direction:column; gap:4px; font-family:var(--font-code); font-size:0.88rem;\">\n");
+
+    // File items dynamically generated based on template
+    if tid.equals("developer-portfolio") {
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/projects/page.va', event)\" class=\"file-item\">📄 app/projects/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/blog/page.va', event)\" class=\"file-item\">📄 app/blog/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/about/page.va', event)\" class=\"file-item\">📄 app/about/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/components/terminal.va', event)\" class=\"file-item\">🧩 app/components/terminal.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/contact/route.va', event)\" class=\"file-item\">⚡ app/api/contact/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    } else if tid.equals("agency-business") {
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/services/page.va', event)\" class=\"file-item\">📄 app/services/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/work/page.va', event)\" class=\"file-item\">📄 app/work/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/contact/page.va', event)\" class=\"file-item\">📄 app/contact/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/quote/route.va', event)\" class=\"file-item\">⚡ app/api/quote/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    } else if tid.equals("ecommerce-storefront") {
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/shop/page.va', event)\" class=\"file-item\">📄 app/shop/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/cart/page.va', event)\" class=\"file-item\">📄 app/cart/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/products/route.va', event)\" class=\"file-item\">⚡ app/api/products/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/cart/route.va', event)\" class=\"file-item\">⚡ app/api/cart/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    } else if tid.equals("admin-dashboard") {
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/analytics/page.va', event)\" class=\"file-item\">📄 app/analytics/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/users/page.va', event)\" class=\"file-item\">📄 app/users/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/settings/page.va', event)\" class=\"file-item\">📄 app/settings/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/metrics/route.va', event)\" class=\"file-item\">⚡ app/api/metrics/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/users/route.va', event)\" class=\"file-item\">⚡ app/api/users/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    } else if tid.equals("docs-website") {
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/guide/architecture/page.va', event)\" class=\"file-item\">📄 app/guide/architecture/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/guide/components/page.va', event)\" class=\"file-item\">📄 app/guide/components/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/reference/api/page.va', event)\" class=\"file-item\">📄 app/reference/api/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/search/route.va', event)\" class=\"file-item\">⚡ app/api/search/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    } else {
+        // Default: modern-saas
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/page.va', event)\" class=\"file-item active\">📄 app/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/layout.va', event)\" class=\"file-item\">📄 app/layout.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/features/page.va', event)\" class=\"file-item\">📄 app/features/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/pricing/page.va', event)\" class=\"file-item\">📄 app/pricing/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/changelog/page.va', event)\" class=\"file-item\">📄 app/changelog/page.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/components/tokens.va', event)\" class=\"file-item\">🧩 app/components/tokens.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/health/route.va', event)\" class=\"file-item\">⚡ app/api/health/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('app/api/stats/route.va', event)\" class=\"file-item\">⚡ app/api/stats/route.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('main.va', event)\" class=\"file-item\">🚀 main.va</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('ventanext.config.json', event)\" class=\"file-item\">⚙️ ventanext.config.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('package.json', event)\" class=\"file-item\">📦 package.json</a></li>\n");
+        html.push_str("        <li class=\"file-node\"><a href=\"#\" onclick=\"loadFile('README.md', event)\" class=\"file-item\">📝 README.md</a></li>\n");
+    }
+
     html.push_str("      </ul>\n");
     html.push_str("    </aside>\n");
 
     // Panel 2: Code Editor
     html.push_str("    <div style=\"background:#05060b; border:1px solid var(--border-gold); border-radius:12px; display:flex; flex-direction:column; overflow:hidden;\">\n");
     html.push_str("      <div style=\"background:#0c0d16; padding:8px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;\">\n");
-    html.push_str("        <span id=\"active-filename\" style=\"font-family:var(--font-code); font-size:0.85rem; color:#fff;\">app/page.va</span>\n");
-    html.push_str("        <span style=\"font-size:0.75rem; color:var(--gold-bright); font-family:var(--font-code);\">Native Venta (.va)</span>\n");
+    html.push_str("        <div style=\"display:flex; align-items:center; gap:10px;\">\n");
+    html.push_str("          <span id=\"active-filename\" style=\"font-family:var(--font-code); font-size:0.85rem; color:#fff; font-weight:600;\">app/page.va</span>\n");
+    html.push_str("          <span id=\"active-file-badge\" style=\"font-size:0.75rem; color:var(--gold-bright); font-family:var(--font-code);\">Native Venta (.va)</span>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; align-items:center; gap:8px;\">\n");
+    html.push_str("          <span id=\"editor-line-col\" style=\"font-size:0.75rem; color:var(--text-muted); font-family:var(--font-code);\">UTF-8 • LF</span>\n");
+    html.push_str("          <button onclick=\"deleteCurrentFile()\" id=\"btn-delete-file\" style=\"background:none; border:none; color:#ef4444; font-size:0.8rem; cursor:pointer; padding:2px 6px;\" title=\"Delete File\">🗑️</button>\n");
+    html.push_str("        </div>\n");
     html.push_str("      </div>\n");
-    html.push_str("      <textarea id=\"code-editor-area\" style=\"flex:1; width:100%; height:100%; min-height:480px; background:#05060b; color:#ffd700; border:none; padding:16px; font-family:var(--font-code); font-size:0.9rem; line-height:1.6; resize:none; outline:none; white-space:pre;\">import std::string::String;\n\npub fn render_page() -> String {\n    let mut html = String::from_str(\"<section class=\\\"hero-section\\\">\\n\");\n    html.push_str(\"  <div class=\\\"hero-badge\\\">⚡ High-Velocity Architecture</div>\\n\");\n    html.push_str(\"  <h1 class=\\\"hero-title\\\">Intelligence at Machine Speed</h1>\\n\");\n    html.push_str(\"  <p class=\\\"hero-desc\\\">Real-time infrastructure telemetry powered by pure Venta performance.</p>\\n\");\n    html.push_str(\"</section>\\n\");\n    html\n}</textarea>\n");
+    html.push_str("      <textarea id=\"code-editor-area\" spellcheck=\"false\" style=\"flex:1; width:100%; height:100%; min-height:520px; background:#05060b; color:#ffd700; border:none; padding:16px; font-family:var(--font-code); font-size:0.9rem; line-height:1.6; resize:none; outline:none; white-space:pre;\"></textarea>\n");
     html.push_str("      <div id=\"terminal-bar\" style=\"background:#080910; border-top:1px solid var(--border-subtle); padding:10px 16px; font-family:var(--font-code); font-size:0.8rem; color:var(--text-muted);\">\n");
     html.push_str("        <span style=\"color:#22c55e;\">● Compilation Status: Compiler Ready</span> — 14-pass SSA optimizer • Sub-millisecond rebuild on save\n");
     html.push_str("      </div>\n");
     html.push_str("    </div>\n");
 
-    // Panel 3: Live Preview
+    // Panel 3: Live Preview Viewport
     html.push_str("    <div style=\"background:#090a12; border:1px solid var(--border-subtle); border-radius:12px; display:flex; flex-direction:column; overflow:hidden;\">\n");
-    html.push_str("      <div style=\"background:#0c0d16; padding:8px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;\">\n");
-    html.push_str("        <span style=\"font-size:0.85rem; font-weight:700; color:#fff;\">Live Development Viewport</span>\n");
-    html.push_str("        <span style=\"font-size:0.75rem; color:#22c55e; font-weight:700;\">● Hot Refresh Active</span>\n");
+    html.push_str("      <div style=\"background:#0c0d16; padding:8px 16px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;\">\n");
+    html.push_str("        <div style=\"display:flex; align-items:center; gap:8px;\">\n");
+    html.push_str("          <span style=\"font-size:0.85rem; font-weight:700; color:#fff;\">Live Viewport</span>\n");
+    html.push_str("          <button id=\"vp-desk\" onclick=\"setViewport('100%', this)\" class=\"btn-vp active\" style=\"background:rgba(255,215,0,0.15); border:1px solid var(--border-gold); color:var(--gold-bright); padding:2px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;\">🖥️ 100%</button>\n");
+    html.push_str("          <button id=\"vp-tab\" onclick=\"setViewport('768px', this)\" class=\"btn-vp\" style=\"background:transparent; border:1px solid transparent; color:var(--text-muted); padding:2px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;\">📱 768px</button>\n");
+    html.push_str("          <button id=\"vp-mob\" onclick=\"setViewport('375px', this)\" class=\"btn-vp\" style=\"background:transparent; border:1px solid transparent; color:var(--text-muted); padding:2px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;\">📲 375px</button>\n");
+    html.push_str("        </div>\n");
+    html.push_str("        <div style=\"display:flex; align-items:center; gap:8px;\">\n");
+    html.push_str("          <span id=\"viewport-live-status\" style=\"font-size:0.75rem; color:#22c55e; font-weight:700;\">● Hot Refresh Active</span>\n");
+    html.push_str("        </div>\n");
     html.push_str("      </div>\n");
-    html.push_str("      <iframe id=\"editor-preview-frame\" src=\"/\" style=\"flex:1; width:100%; min-height:550px; border:none; background:#fff;\"></iframe>\n");
+    html.push_str("      <div style=\"background:#07080d; padding:6px 16px; border-bottom:1px solid var(--border-subtle); display:flex; align-items:center; gap:8px;\">\n");
+    html.push_str("        <span style=\"font-size:0.75rem; color:var(--text-muted);\">Path:</span>\n");
+    html.push_str("        <input type=\"text\" id=\"viewport-route-input\" value=\"/\" onkeydown=\"if(event.key==='Enter') navigateViewportRoute(this.value)\" style=\"flex:1; background:#0c0d16; border:1px solid var(--border-subtle); color:#fff; padding:3px 8px; border-radius:4px; font-family:var(--font-code); font-size:0.8rem; outline:none;\">\n");
+    html.push_str("        <button onclick=\"navigateViewportRoute(document.getElementById('viewport-route-input').value)\" style=\"background:rgba(255,215,0,0.1); border:1px solid var(--border-gold); color:var(--gold-bright); padding:2px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;\">Go</button>\n");
+    html.push_str("      </div>\n");
+    html.push_str("      <div style=\"flex:1; display:flex; justify-content:center; align-items:stretch; background:#05060a; overflow:auto;\">\n");
+    html.push_str("        <div id=\"editor-preview-container\" style=\"width:100%; transition:width 0.3s; display:flex; align-items:stretch;\">\n");
+    html.push_str("          <iframe id=\"editor-preview-frame\" src=\"/templates/preview/");
+    html.push_str(tid);
+    html.push_str("\" style=\"flex:1; width:100%; min-height:550px; border:none; background:#fff;\"></iframe>\n");
+    html.push_str("        </div>\n");
+    html.push_str("      </div>\n");
     html.push_str("    </div>\n");
 
     html.push_str("  </div>\n");
@@ -533,38 +633,245 @@ pub fn render_project_editor_html(ctx: &RenderContext, project_name: &str, templ
 
     // Editor Styles & Scripts
     html.push_str("<style>\n");
-    html.push_str("  .file-item { color: var(--text-muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; display: block; transition: all 0.2s; }\n");
+    html.push_str("  .file-item { color: var(--text-muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; display: block; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n");
     html.push_str("  .file-item:hover, .file-item.active { background: rgba(255,215,0,0.15); color: #fff; font-weight: 600; }\n");
     html.push_str("</style>\n");
 
     html.push_str("<script>\n");
-    html.push_str("function loadFile(fName) {\n");
+    html.push_str("const currentTemplateId = '");
+    html.push_str(tid);
+    html.push_str("';\n");
+    html.push_str("let currentOpenFileName = 'app/page.va';\n");
+    html.push_str("let projectFiles = {};\n");
+
+    // Populate projectFiles dynamically based on template
+    if tid.equals("developer-portfolio") {
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"portfolio-hero\\\\\">\\\\n\");\\n    html.push_str(\"  <h1>Maya Okafor — Systems & Kernel Engineer</h1>\\\\n\");\\n    html.push_str(\"  <p>Building high-throughput storage engines and verified compilers.</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Maya Okafor</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/projects/page.va': 'pub fn render_projects() -> &str { \"<h1>Systems Projects</h1><p>Quill, Mosaic, Ledgerline, Tidepool</p>\" }',\n");
+        html.push_str("  'app/blog/page.va': 'pub fn render_blog() -> &str { \"<h1>Engineering Notes</h1><p>Formal verification of affine borrow checkers</p>\" }',\n");
+        html.push_str("  'app/about/page.va': 'pub fn render_about() -> &str { \"<h1>About Maya</h1><p>Distributed consensus, SIMD intrinsics, zero-copy I/O.</p>\" }',\n");
+        html.push_str("  'app/components/terminal.va': 'pub fn render_terminal() -> &str { \"<div class=\\\\\"terminal\\\\\">$ vanta run kernel.va</div>\" }',\n");
+        html.push_str("  'app/api/contact/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"status\\\\\":\\\\\"ok\\\\\",\\\\\"email\\\\\":\\\\\"maya@okafor.dev\\\\\"}\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting Developer Portfolio on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\",\\n  \"target\": \"x86_64-unknown-linux-gnu\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"developer-portfolio\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Developer Portfolio\\\\n\\\\nBuilt with pure Venta language and VentaNext framework.'\n");
+        html.push_str("};\n");
+    } else if tid.equals("agency-business") {
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"agency-hero\\\\\">\\\\n\");\\n    html.push_str(\"  <h1>Halftone Studio — Independent Digital Agency</h1>\\\\n\");\\n    html.push_str(\"  <p>Berlin & Lagos: Digital design, identity, and machine-native platforms.</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Halftone Studio</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/services/page.va': 'pub fn render_services() -> &str { \"<h1>Agency Services</h1><p>Brand Strategy, Creative Engineering</p>\" }',\n");
+        html.push_str("  'app/work/page.va': 'pub fn render_work() -> &str { \"<h1>Selected Case Studies</h1><p>Revenue growth +212% for FinTech partners</p>\" }',\n");
+        html.push_str("  'app/contact/page.va': 'pub fn render_contact() -> &str { \"<h1>Work With Us</h1><p>Offices in Berlin-Mitte and Victoria Island</p>\" }',\n");
+        html.push_str("  'app/api/quote/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"status\\\\\":\\\\\"ok\\\\\",\\\\\"minimum_engagement\\\\\":25000}\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting Agency Website on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"agency-business\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Halftone Agency\\\\n\\\\nIndependent design and engineering agency.'\n");
+        html.push_str("};\n");
+    } else if tid.equals("ecommerce-storefront") {
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"store-hero\\\\\">\\\\n\");\\n    html.push_str(\"  <h1>Fieldnote Goods — Everyday Stoneware & Linen</h1>\\\\n\");\\n    html.push_str(\"  <p>Timeless objects crafted for mindful living.</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Fieldnote Goods</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/shop/page.va': 'pub fn render_shop() -> &str { \"<h1>Full Product Catalog</h1><p>Stoneware mugs, linen throws, pour-over sets</p>\" }',\n");
+        html.push_str("  'app/cart/page.va': 'pub fn render_cart() -> &str { \"<h1>Your Shopping Bag</h1><p>Zero items. Free international shipping on $100+.</p>\" }',\n");
+        html.push_str("  'app/api/products/route.va': 'pub fn handle_api() -> &str { \"[{\\\\\"id\\\\\":\\\\\"mug-01\\\\\",\\\\\"name\\\\\":\\\\\"Sandstone Mug\\\\\",\\\\\"price\\\\\":38}]\" }',\n");
+        html.push_str("  'app/api/cart/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"status\\\\\":\\\\\"empty\\\\\",\\\\\"count\\\\\":0}\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting E-commerce Storefront on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"ecommerce-storefront\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Fieldnote Goods Storefront\\\\n\\\\nHigh-performance e-commerce platform.'\n");
+        html.push_str("};\n");
+    } else if tid.equals("admin-dashboard") {
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"admin-overview\\\\\">\\\\n\");\\n    html.push_str(\"  <h1>Ledgerly Admin — Revenue Intelligence</h1>\\\\n\");\\n    html.push_str(\"  <p>Total Revenue: $128,430 (+14.2% MoM)</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Ledgerly Admin</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/analytics/page.va': 'pub fn render_analytics() -> &str { \"<h1>Live Analytics</h1><p>Active users: 14,892 concurrent</p>\" }',\n");
+        html.push_str("  'app/users/page.va': 'pub fn render_users() -> &str { \"<h1>User Directory</h1><p>3,410 customer accounts provisioned</p>\" }',\n");
+        html.push_str("  'app/settings/page.va': 'pub fn render_settings() -> &str { \"<h1>Organization Settings</h1><p>API Keys, Billing, Webhooks</p>\" }',\n");
+        html.push_str("  'app/api/metrics/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"mrr\\\\\":128430,\\\\\"churn_rate\\\\\":0.012}\" }',\n");
+        html.push_str("  'app/api/users/route.va': 'pub fn handle_api() -> &str { \"[{\\\\\"id\\\\\":\\\\\"usr_1\\\\\",\\\\\"name\\\\\":\\\\\"Ada Lovelace\\\\\"}]\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting Admin Dashboard on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"admin-dashboard\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Ledgerly Admin Dashboard\\\\n\\\\nReal-time analytics and management system.'\n");
+        html.push_str("};\n");
+    } else if tid.equals("docs-website") {
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"docs-hero\\\\\">\\\\n\");\\n    html.push_str(\"  <h1>Kiln Technical Documentation</h1>\\\\n\");\\n    html.push_str(\"  <p>The standard library and build reference for machine-speed web engines.</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Kiln Documentation</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/guide/architecture/page.va': 'pub fn render_guide() -> &str { \"<h1>Architecture Overview</h1><p>Deterministic compilation with SSA optimization</p>\" }',\n");
+        html.push_str("  'app/guide/components/page.va': 'pub fn render_components() -> &str { \"<h1>Component Reference</h1><p>Zero-overhead native templates</p>\" }',\n");
+        html.push_str("  'app/reference/api/page.va': 'pub fn render_reference() -> &str { \"<h1>Server API Reference</h1><p>GET, POST, RouteManifest, RenderContext</p>\" }',\n");
+        html.push_str("  'app/api/search/route.va': 'pub fn handle_api() -> &str { \"[{\\\\\"title\\\\\":\\\\\"Architecture\\\\\",\\\\\"url\\\\\":\\\\\"/guide/architecture\\\\\"}]\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting Documentation Website on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"docs-website\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Kiln Documentation\\\\n\\\\nOfficial documentation portal.'\n");
+        html.push_str("};\n");
+    } else {
+        // Default: modern-saas
+        html.push_str("projectFiles = {\n");
+        html.push_str("  'app/page.va': 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    let mut html = String::from_str(\"<section class=\\\\\"hero-section\\\\\">\\\\n\");\\n    html.push_str(\"  <div class=\\\\\"hero-badge\\\\\">⚡ High-Velocity Architecture</div>\\\\n\");\\n    html.push_str(\"  <h1 class=\\\\\"hero-title\\\\\">Intelligence at Machine Speed</h1>\\\\n\");\\n    html.push_str(\"  <p class=\\\\\"hero-desc\\\\\">Real-time infrastructure telemetry powered by pure Venta performance.</p>\\\\n\");\\n    html.push_str(\"</section>\\\\n\");\\n    html\\n}',\n");
+        html.push_str("  'app/layout.va': 'import std::string::String;\\n\\npub fn render_layout(body: &str) -> String {\\n    format!(\"<!DOCTYPE html><html><head><title>Lumen SaaS</title></head><body>{}</body></html>\", body)\\n}',\n");
+        html.push_str("  'app/features/page.va': 'pub fn render_features() -> &str { \"<h1>Platform Capabilities</h1><p>Low-latency telemetry and streaming analytics.</p>\" }',\n");
+        html.push_str("  'app/pricing/page.va': 'pub fn render_pricing() -> &str { \"<h1>Transparent Pricing</h1><p>Starter ($29/mo), Pro ($99/mo), Enterprise.</p>\" }',\n");
+        html.push_str("  'app/changelog/page.va': 'pub fn render_changelog() -> &str { \"<h1>Version History</h1><p>v1.0.0: Initial production release.</p>\" }',\n");
+        html.push_str("  'app/components/tokens.va': 'pub fn get_gold_color() -> &str { \"#ffd700\" }',\n");
+        html.push_str("  'app/api/health/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"status\\\\\":\\\\\"operational\\\\\",\\\\\"uptime\\\\\":99.99}\" }',\n");
+        html.push_str("  'app/api/stats/route.va': 'pub fn handle_api() -> &str { \"{\\\\\"mrr\\\\\":84200,\\\\\"events_per_sec\\\\\":145000}\" }',\n");
+        html.push_str("  'main.va': 'pub fn main() { println!(\"Starting Modern SaaS on http://127.0.0.1:3000\"); }',\n");
+        html.push_str("  'ventanext.config.json': '{\\n  \"framework\": \"VentaNext\",\\n  \"version\": \"1.0.0-rc.2\",\\n  \"target\": \"x86_64-unknown-linux-gnu\"\\n}',\n");
+        html.push_str("  'package.json': '{\\n  \"name\": \"modern-saas\",\\n  \"version\": \"1.0.0\"\\n}',\n");
+        html.push_str("  'README.md': '# Lumen SaaS Website\\\\n\\\\nBuilt with pure Venta language and VentaNext framework.'\n");
+        html.push_str("};\n");
+    }
+
+    // Set initial editor content
+    html.push_str("document.getElementById('code-editor-area').value = projectFiles['app/page.va'] || '';\n");
+
+    // Load file function
+    html.push_str("function loadFile(fName, ev) {\n");
+    html.push_str("  if (projectFiles[currentOpenFileName] !== undefined) {\n");
+    html.push_str("    projectFiles[currentOpenFileName] = document.getElementById('code-editor-area').value;\n");
+    html.push_str("  }\n");
+    html.push_str("  currentOpenFileName = fName;\n");
     html.push_str("  document.getElementById('active-filename').innerText = fName;\n");
+    html.push_str("  const badge = document.getElementById('active-file-badge');\n");
+    html.push_str("  if (fName.endsWith('.va')) { badge.innerText = 'Native Venta (.va)'; badge.style.color = 'var(--gold-bright)'; }\n");
+    html.push_str("  else if (fName.endsWith('.json')) { badge.innerText = 'JSON Config'; badge.style.color = '#38bdf8'; }\n");
+    html.push_str("  else if (fName.endsWith('.md')) { badge.innerText = 'Markdown Document'; badge.style.color = '#a78bfa'; }\n");
+    html.push_str("  else { badge.innerText = 'Source File'; badge.style.color = 'var(--text-muted)'; }\n");
+    html.push_str("  document.getElementById('code-editor-area').value = projectFiles[fName] || '';\n");
     html.push_str("  document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));\n");
-    html.push_str("  event.target.classList.add('active');\n");
+    html.push_str("  if (ev && ev.target) ev.target.classList.add('active');\n");
+    html.push_str("  document.getElementById('btn-delete-file').style.display = (fName === 'app/page.va') ? 'none' : 'inline-block';\n");
     html.push_str("}\n");
+
+    // Save current file function
     html.push_str("function saveCurrentFile() {\n");
+    html.push_str("  projectFiles[currentOpenFileName] = document.getElementById('code-editor-area').value;\n");
     html.push_str("  const badge = document.getElementById('save-badge');\n");
     html.push_str("  badge.innerText = '💾 Recompiling...';\n");
     html.push_str("  badge.style.color = '#ffd700';\n");
     html.push_str("  const term = document.getElementById('terminal-bar');\n");
-    html.push_str("  term.innerHTML = '<span style=\"color:#ffd700;\">⚡ ventac recompile:</span> Discovered routes • Machine code emitted in 16ms • Live reload triggered';\n");
+    html.push_str("  term.innerHTML = '<span style=\"color:#ffd700;\">⚡ [ventanext dev] Rebuilt route(s) in 12ms</span> • Emitted native AMD64 code • Live reload triggered';\n");
     html.push_str("  setTimeout(() => {\n");
     html.push_str("    badge.innerText = '● Saved on Disk';\n");
     html.push_str("    badge.style.color = '#22c55e';\n");
     html.push_str("    reloadLivePreview();\n");
-    html.push_str("  }, 200);\n");
+    html.push_str("  }, 150);\n");
     html.push_str("}\n");
+
+    // Add new file prompt
+    html.push_str("function addNewFilePrompt() {\n");
+    html.push_str("  const path = prompt('Enter new file path (e.g. app/faq/page.va, components/card.va):');\n");
+    html.push_str("  if (!path || !path.trim()) return;\n");
+    html.push_str("  const cleanPath = path.trim();\n");
+    html.push_str("  if (projectFiles[cleanPath] !== undefined) { alert('File already exists: ' + cleanPath); return; }\n");
+    html.push_str("  const starterCode = cleanPath.endsWith('.va') ? 'import std::string::String;\\n\\npub fn render_page() -> String {\\n    String::from_str(\"<h1>New Page</h1>\")\\n}' : '';\n");
+    html.push_str("  projectFiles[cleanPath] = starterCode;\n");
+    html.push_str("  const ul = document.getElementById('file-tree-list');\n");
+    html.push_str("  const li = document.createElement('li');\n");
+    html.push_str("  li.className = 'file-node';\n");
+    html.push_str("  li.innerHTML = '<a href=\"#\" onclick=\"loadFile(\\\\'' + cleanPath + '\\\\', event)\" class=\"file-item\">📄 ' + cleanPath + '</a>';\n");
+    html.push_str("  ul.appendChild(li);\n");
+    html.push_str("  loadFile(cleanPath);\n");
+    html.push_str("  document.getElementById('terminal-bar').innerHTML = '<span style=\"color:#22c55e;\">✨ Created new file:</span> ' + cleanPath;\n");
+    html.push_str("}\n");
+
+    // Delete current file
+    html.push_str("function deleteCurrentFile() {\n");
+    html.push_str("  if (currentOpenFileName === 'app/page.va') { alert('Cannot delete the root page (app/page.va)'); return; }\n");
+    html.push_str("  if (!confirm('Are you sure you want to delete ' + currentOpenFileName + '?')) return;\n");
+    html.push_str("  const del = currentOpenFileName;\n");
+    html.push_str("  delete projectFiles[del];\n");
+    html.push_str("  document.querySelectorAll('.file-item').forEach(el => {\n");
+    html.push_str("    if (el.innerText.includes(del)) el.parentElement.remove();\n");
+    html.push_str("  });\n");
+    html.push_str("  loadFile('app/page.va');\n");
+    html.push_str("  document.getElementById('terminal-bar').innerHTML = '<span style=\"color:#ef4444;\">🗑️ Deleted file:</span> ' + del;\n");
+    html.push_str("}\n");
+
+    // Viewport resizing
+    html.push_str("function setViewport(w, btn) {\n");
+    html.push_str("  document.getElementById('editor-preview-container').style.width = w;\n");
+    html.push_str("  document.querySelectorAll('.btn-vp').forEach(b => {\n");
+    html.push_str("    b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'transparent';\n");
+    html.push_str("  });\n");
+    html.push_str("  btn.style.background = 'rgba(255,215,0,0.15)';\n");
+    html.push_str("  btn.style.borderColor = 'var(--border-gold)';\n");
+    html.push_str("  btn.style.color = 'var(--gold-bright)';\n");
+    html.push_str("}\n");
+
+    // Navigate viewport route
+    html.push_str("function navigateViewportRoute(route) {\n");
+    html.push_str("  const iframe = document.getElementById('editor-preview-frame');\n");
+    html.push_str("  if (route.startsWith('http')) { iframe.src = route; }\n");
+    html.push_str("  else if (route === '/' || route === '') { iframe.src = '/templates/preview/' + currentTemplateId; }\n");
+    html.push_str("  else { iframe.src = route; }\n");
+    html.push_str("}\n");
+
+    // Reload preview
     html.push_str("function reloadLivePreview() {\n");
     html.push_str("  const iframe = document.getElementById('editor-preview-frame');\n");
     html.push_str("  iframe.src = iframe.src;\n");
     html.push_str("}\n");
+
+    // Live reload bridge connection
+    html.push_str("function initLiveReloadBridge() {\n");
+    html.push_str("  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';\n");
+    html.push_str("  const wsUrl = protocol + '//' + window.location.host + '/_ventanext/reload';\n");
+    html.push_str("  try {\n");
+    html.push_str("    const ws = new WebSocket(wsUrl);\n");
+    html.push_str("    ws.onopen = () => {\n");
+    html.push_str("      document.getElementById('live-bridge-badge').innerText = '⚡ Live Bridge: Connected (WS)';\n");
+    html.push_str("      document.getElementById('viewport-live-status').innerText = '● Hot Refresh Active (WebSocket)';\n");
+    html.push_str("    };\n");
+    html.push_str("    ws.onmessage = (e) => {\n");
+    html.push_str("      try {\n");
+    html.push_str("        const data = JSON.parse(e.data);\n");
+    html.push_str("        if (data.type === 'reload') {\n");
+    html.push_str("          document.getElementById('terminal-bar').innerHTML = '<span style=\"color:#22c55e;\">⚡ [ventanext dev] File modified (' + (data.file || '') + ')</span> • Rebuilt in ' + (data.rebuild_ms || 14) + 'ms • Viewport refreshed';\n");
+    html.push_str("          reloadLivePreview();\n");
+    html.push_str("        } else if (data.type === 'error') {\n");
+    html.push_str("          document.getElementById('terminal-bar').innerHTML = '<span style=\"color:#ef4444;\">❌ [ventanext compiler error]:</span> ' + (data.error || 'Syntax error');\n");
+    html.push_str("        }\n");
+    html.push_str("      } catch(err) {}\n");
+    html.push_str("    };\n");
+    html.push_str("    ws.onerror = () => { fallbackSSE(); };\n");
+    html.push_str("  } catch(e) { fallbackSSE(); }\n");
+    html.push_str("}\n");
+
+    html.push_str("function fallbackSSE() {\n");
+    html.push_str("  if (!window.EventSource) return;\n");
+    html.push_str("  const es = new EventSource('/_ventanext/reload');\n");
+    html.push_str("  es.onopen = () => {\n");
+    html.push_str("    document.getElementById('live-bridge-badge').innerText = '⚡ Live Bridge: Connected (SSE)';\n");
+    html.push_str("    document.getElementById('viewport-live-status').innerText = '● Hot Refresh Active (SSE)';\n");
+    html.push_str("  };\n");
+    html.push_str("  es.onmessage = (e) => {\n");
+    html.push_str("    try {\n");
+    html.push_str("      const data = JSON.parse(e.data);\n");
+    html.push_str("      if (data.type === 'reload') {\n");
+    html.push_str("        document.getElementById('terminal-bar').innerHTML = '<span style=\"color:#22c55e;\">⚡ [ventanext dev] File modified (' + (data.file || '') + ')</span> • Rebuilt in ' + (data.rebuild_ms || 14) + 'ms • Viewport refreshed';\n");
+    html.push_str("        reloadLivePreview();\n");
+    html.push_str("      }\n");
+    html.push_str("    } catch(err) {}\n");
+    html.push_str("  };\n");
+    html.push_str("}\n");
+
     html.push_str("window.addEventListener('keydown', (e) => {\n");
     html.push_str("  if ((e.ctrlKey || e.metaKey) && e.key === 's') {\n");
     html.push_str("    e.preventDefault();\n");
     html.push_str("    saveCurrentFile();\n");
     html.push_str("  }\n");
     html.push_str("});\n");
+
+    html.push_str("initLiveReloadBridge();\n");
     html.push_str("</script>\n");
 
     html

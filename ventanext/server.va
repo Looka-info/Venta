@@ -336,7 +336,13 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                             Option::Some(s) => { p_name = s; }
                             Option::None => {}
                         }
-                        page_markup = render_project_editor_html(&ctx, p_name.as_str(), "modern-saas");
+                        let mut t_id = String::from_str("modern-saas");
+                        let q_tmpl = req.query.get("template");
+                        match q_tmpl {
+                            Option::Some(s) => { t_id = s; }
+                            Option::None => {}
+                        }
+                        page_markup = render_project_editor_html(&ctx, p_name.as_str(), t_id.as_str());
                     } else {
                         let mut s = String::from_str("<h1>Page ");
                         s.push_str(i64_to_string(m_res.page_id).as_str());

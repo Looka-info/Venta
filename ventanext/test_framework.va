@@ -902,9 +902,10 @@ fn main() -> i64 {
     test_file_icon_asset_serving();
     test_template_gallery_and_preview_routes();
     test_phase5_live_preview_websocket_bridge_and_hot_reload();
+    test_phase5_source_code_editor_and_multitemplate_preview();
 
     print_str("============================================================\n");
-    print_str("   ALL 31 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 32 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1697,6 +1698,67 @@ fn test_phase5_live_preview_websocket_bridge_and_hot_reload() {
         Option::Some(al) => { assert(str_contains(al.as_str(), "POST"), "7. Allow header must list POST"); }
         Option::None => {}
     }
+
+    print_str("OK\n");
+}
+
+fn test_phase5_source_code_editor_and_multitemplate_preview() {
+    print_str("[32/32] Testing Project Source Editor Multi-Template Tree & Live Preview Viewport (1-6)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /editor?project=ledgerly&template=admin-dashboard generates correct admin file tree & preview
+    let mut req_dash = make_request("GET", "/editor", "project=ledgerly&template=admin-dashboard", make_header_map(), "");
+    let resp_dash = server::dispatch_request_with_manifest(&gen_manifest, &mut req_dash);
+    assert(resp_dash.status == 200, "1. Expected 200 for GET /editor admin-dashboard");
+    assert(str_contains(resp_dash.body.as_str(), "VentaNext Project Editor: ledgerly"), "1. Body must display project name ledgerly");
+    assert(str_contains(resp_dash.body.as_str(), "Template: admin-dashboard"), "1. Body must display Template: admin-dashboard");
+    assert(str_contains(resp_dash.body.as_str(), "app/analytics/page.va"), "1. Tree must contain app/analytics/page.va");
+    assert(str_contains(resp_dash.body.as_str(), "app/api/metrics/route.va"), "1. Tree must contain app/api/metrics/route.va");
+    assert(str_contains(resp_dash.body.as_str(), "/templates/preview/admin-dashboard"), "1. Viewport iframe must target admin-dashboard");
+
+    // 2. GET /editor?project=fieldnote&template=ecommerce-storefront generates ecommerce file tree & preview
+    let mut req_ecom = make_request("GET", "/editor", "project=fieldnote&template=ecommerce-storefront", make_header_map(), "");
+    let resp_ecom = server::dispatch_request_with_manifest(&gen_manifest, &mut req_ecom);
+    assert(resp_ecom.status == 200, "2. Expected 200 for GET /editor ecommerce-storefront");
+    assert(str_contains(resp_ecom.body.as_str(), "Template: ecommerce-storefront"), "2. Body must display Template: ecommerce-storefront");
+    assert(str_contains(resp_ecom.body.as_str(), "app/shop/page.va"), "2. Tree must contain app/shop/page.va");
+    assert(str_contains(resp_ecom.body.as_str(), "app/cart/page.va"), "2. Tree must contain app/cart/page.va");
+    assert(str_contains(resp_ecom.body.as_str(), "app/api/products/route.va"), "2. Tree must contain app/api/products/route.va");
+    assert(str_contains(resp_ecom.body.as_str(), "/templates/preview/ecommerce-storefront"), "2. Viewport iframe must target ecommerce-storefront");
+
+    // 3. GET /editor?project=portfolio&template=developer-portfolio generates developer portfolio file tree & preview
+    let mut req_port = make_request("GET", "/editor", "project=portfolio&template=developer-portfolio", make_header_map(), "");
+    let resp_port = server::dispatch_request_with_manifest(&gen_manifest, &mut req_port);
+    assert(resp_port.status == 200, "3. Expected 200 for GET /editor developer-portfolio");
+    assert(str_contains(resp_port.body.as_str(), "Template: developer-portfolio"), "3. Body must display Template: developer-portfolio");
+    assert(str_contains(resp_port.body.as_str(), "app/projects/page.va"), "3. Tree must contain app/projects/page.va");
+    assert(str_contains(resp_port.body.as_str(), "app/components/terminal.va"), "3. Tree must contain app/components/terminal.va");
+    assert(str_contains(resp_port.body.as_str(), "/templates/preview/developer-portfolio"), "3. Viewport iframe must target developer-portfolio");
+
+    // 4. GET /editor?project=docs-site&template=docs-website generates docs website file tree & preview
+    let mut req_docs = make_request("GET", "/editor", "project=docs-site&template=docs-website", make_header_map(), "");
+    let resp_docs = server::dispatch_request_with_manifest(&gen_manifest, &mut req_docs);
+    assert(resp_docs.status == 200, "4. Expected 200 for GET /editor docs-website");
+    assert(str_contains(resp_docs.body.as_str(), "Template: docs-website"), "4. Body must display Template: docs-website");
+    assert(str_contains(resp_docs.body.as_str(), "app/guide/architecture/page.va"), "4. Tree must contain app/guide/architecture/page.va");
+    assert(str_contains(resp_docs.body.as_str(), "app/reference/api/page.va"), "4. Tree must contain app/reference/api/page.va");
+    assert(str_contains(resp_docs.body.as_str(), "/templates/preview/docs-website"), "4. Viewport iframe must target docs-website");
+
+    // 5. GET /editor?project=studio&template=agency-business generates agency file tree & preview
+    let mut req_agency = make_request("GET", "/editor", "project=studio&template=agency-business", make_header_map(), "");
+    let resp_agency = server::dispatch_request_with_manifest(&gen_manifest, &mut req_agency);
+    assert(resp_agency.status == 200, "5. Expected 200 for GET /editor agency-business");
+    assert(str_contains(resp_agency.body.as_str(), "Template: agency-business"), "5. Body must display Template: agency-business");
+    assert(str_contains(resp_agency.body.as_str(), "app/services/page.va"), "5. Tree must contain app/services/page.va");
+    assert(str_contains(resp_agency.body.as_str(), "app/work/page.va"), "5. Tree must contain app/work/page.va");
+    assert(str_contains(resp_agency.body.as_str(), "/templates/preview/agency-business"), "5. Viewport iframe must target agency-business");
+
+    // 6. Viewport controls, New File action, and live reload bridge script are present across all editors
+    assert(str_contains(resp_dash.body.as_str(), "addNewFilePrompt()"), "6. Body must contain addNewFilePrompt");
+    assert(str_contains(resp_dash.body.as_str(), "setViewport"), "6. Body must contain setViewport");
+    assert(str_contains(resp_dash.body.as_str(), "initLiveReloadBridge()"), "6. Body must contain initLiveReloadBridge");
+    assert(str_contains(resp_dash.body.as_str(), "saveCurrentFile()"), "6. Body must contain saveCurrentFile");
 
     print_str("OK\n");
 }
