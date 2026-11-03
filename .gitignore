@@ -2,18 +2,21 @@ target/
 **/*.rs.bk
 Cargo.lock
 *.o
+*.obj
 *.out
 *.bin
 *.log
 /dist/
 packages/*/dist/
 *.a
+*.lib
 .DS_Store
 Thumbs.db
 __pycache__/
 *.pyc
 /bin/
 !packages/vanta-lang/bin/**
+.venta/
 tools/self_host/*_bin
 tools/self_host/tests/*.s
 tools/self_host/tests/*_bin
@@ -24,3 +27,5 @@ out/
 *.zip
 *.sha256
 .xwin-cache/
+ci_job.log
+test_export.o
