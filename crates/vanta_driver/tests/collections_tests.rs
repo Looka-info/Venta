@@ -24,7 +24,10 @@ fn run_collections_test(name: &str, source: &str, opt_level: OptLevel, expected_
 
     let mut opts = CompilerOptions::new(src_path, exe_path.clone());
     opts.target = TargetTriple::host();
-    opts.linker = LinkerKind::Internal;
+    opts.linker = match std::env::var("VANTA_LINKER").as_deref() {
+        Ok("system") => LinkerKind::System,
+        _ => LinkerKind::Internal,
+    };
     opts.opt_level = opt_level;
     opts.emit_target = EmitTarget::Exe;
 
@@ -71,7 +74,10 @@ fn check_compile_failure(source: &str, expected_code: &str) {
 
     let mut opts = CompilerOptions::new(src_path, exe_path);
     opts.target = TargetTriple::host();
-    opts.linker = LinkerKind::Internal;
+    opts.linker = match std::env::var("VANTA_LINKER").as_deref() {
+        Ok("system") => LinkerKind::System,
+        _ => LinkerKind::Internal,
+    };
     opts.emit_target = EmitTarget::Obj;
 
     let mut session = CompilerSession::new();

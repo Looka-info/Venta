@@ -365,6 +365,122 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         text_bytes.len() - str_init_offset,
     );
 
+    // =========================================================================
+    // 12. vanta_vec_init(vec: *mut VantaVec)
+    // =========================================================================
+    let vec_init_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x74, 0x18, // jz +24
+        0x48, 0xC7, 0x07, 0x00, 0x00, 0x00, 0x00, // movq $0, (%rdi)
+        0x48, 0xC7, 0x47, 0x08, 0x00, 0x00, 0x00, 0x00, // movq $0, 8(%rdi)
+        0x48, 0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00, // movq $0, 16(%rdi)
+        0xC3, // ret
+    ]);
+    add_symbol(
+        "vanta_vec_init",
+        vec_init_offset,
+        text_bytes.len() - vec_init_offset,
+    );
+
+    // =========================================================================
+    // 13. vanta_vec_len(vec: *const VantaVec) -> i64
+    // =========================================================================
+    let vec_len_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x74, 0x05, // jz +5
+        0x48, 0x8B, 0x47, 0x08, // mov 8(%rdi), %rax
+        0xC3, // ret
+        0x31, 0xC0, // xor %eax, %eax
+        0xC3, // ret
+    ]);
+    add_symbol(
+        "vanta_vec_len",
+        vec_len_offset,
+        text_bytes.len() - vec_len_offset,
+    );
+
+    // =========================================================================
+    // 14. vanta_vec_capacity(vec: *const VantaVec) -> i64
+    // =========================================================================
+    let vec_cap_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x74, 0x05, // jz +5
+        0x48, 0x8B, 0x47, 0x10, // mov 16(%rdi), %rax
+        0xC3, // ret
+        0x31, 0xC0, // xor %eax, %eax
+        0xC3, // ret
+    ]);
+    add_symbol(
+        "vanta_vec_capacity",
+        vec_cap_offset,
+        text_bytes.len() - vec_cap_offset,
+    );
+
+    // =========================================================================
+    // 15. vanta_vec_free(vec: *mut VantaVec)
+    // =========================================================================
+    let vec_free_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x74, 0x0C, // jz done
+        0x48, 0x8B, 0x3F, // mov (%rdi), %rdi
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x74, 0x05, // jz done
+        0xE8, 0x00, 0x00, 0x00, 0x00, // call vanta_free
+        0xC3, // done: ret
+    ]);
+    let call_vfree_pos = vec_free_offset + 10;
+    let rel_vfree = (free_offset as i32) - ((call_vfree_pos + 4) as i32);
+    text_bytes[call_vfree_pos..call_vfree_pos + 4].copy_from_slice(&rel_vfree.to_le_bytes());
+    add_symbol(
+        "vanta_vec_free",
+        vec_free_offset,
+        text_bytes.len() - vec_free_offset,
+    );
+    add_symbol(
+        "vanta_vec_free_strings",
+        vec_free_offset,
+        text_bytes.len() - vec_free_offset,
+    );
+
+    // =========================================================================
+    // 16. POSIX Syscall Primitives (Weak): write, read, close, open
+    // =========================================================================
+    let write_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0xB8, 0x01, 0x00, 0x00, 0x00, // mov $1, %eax (SYS_write = 1)
+        0x0F, 0x05, // syscall
+        0xC3, // ret
+    ]);
+    add_symbol("write", write_offset, text_bytes.len() - write_offset);
+
+    let read_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x31, 0xC0, // xor %eax, %eax (SYS_read = 0)
+        0x0F, 0x05, // syscall
+        0xC3, // ret
+    ]);
+    add_symbol("read", read_offset, text_bytes.len() - read_offset);
+
+    let close_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0xB8, 0x03, 0x00, 0x00, 0x00, // mov $3, %eax (SYS_close = 3)
+        0x0F, 0x05, // syscall
+        0xC3, // ret
+    ]);
+    add_symbol("close", close_offset, text_bytes.len() - close_offset);
+
+    let open_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0xB8, 0x02, 0x00, 0x00, 0x00, // mov $2, %eax (SYS_open = 2)
+        0x0F, 0x05, // syscall
+        0xC3, // ret
+    ]);
+    add_symbol("open", open_offset, text_bytes.len() - open_offset);
+
     // Create the .text section
     obj.sections.push(InputSection {
         object_id,
