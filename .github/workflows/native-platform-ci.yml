@@ -2,7 +2,7 @@ name: Venta Native Multi-Platform CI & Linker Validation
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, perf/runtime-optimization ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
@@ -11,6 +11,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   # =========================================================================
@@ -104,34 +107,47 @@ jobs:
         shell: bash
 
       - name: Run Driver & Linker End-to-End Tests
-        run: cargo test -p vanta_driver --test linker_e2e_tests --verbose
+        run: cargo test -p vanta_driver --test linker_e2e_tests --test linker_hardened_tests --verbose
         shell: bash
 
       - name: Verify Multi-Object Internal PE32+ Linking & Native Windows Execution
         run: |
-          echo "pub fn add_nums(a: i64, b: i64) -> i64 { return a + b; }" > math.va
+          cat << 'EOF' > math.va
+          pub fn add_nums(a: i64, b: i64) -> i64 {
+              return a + b;
+          }
+          EOF
           target/debug/vantac.exe compile --emit=obj math.va -o math.obj --target windows
-          target/debug/vantac.exe archive create libmath.lib math.obj
+          target/debug/vantac.exe archive create math.lib math.obj
 
-          echo "mod math; import math::add_nums; fn main() -> i64 { return add_nums(25, 17); }" > main.va
-          target/debug/vantac.exe compile main.va -o app_win.exe --target windows --linker internal --link libmath.lib
+          cat << 'EOF' > main.va
+          mod math;
+          import math::add_nums;
 
-          # Execute natively on Windows
+          fn main() -> i64 {
+              return add_nums(25, 17);
+          }
+          EOF
+          target/debug/vantac.exe compile main.va -o app_win.exe --target windows --linker internal --link math.lib
+
+          # Native Windows execution
           set +e
           ./app_win.exe
           EXIT_CODE=$?
           set -e
-          echo "Windows native exit code: ${EXIT_CODE}"
+          echo "Windows native exit status: ${EXIT_CODE}"
           test "${EXIT_CODE}" -eq 42
         shell: bash
 
   # =========================================================================
-  # 3. macOS Apple Silicon Native Validation (ARM64)
+  # 3. macOS Apple Silicon Native Validation (ARM64) & Packaging
   # =========================================================================
   macos-arm64:
-    name: macOS Apple Silicon ARM64 Native Linker Validation
+    name: macOS Apple Silicon ARM64 Native Linker Validation & Packaging
     runs-on: macos-15 # Native Apple Silicon ARM64 GitHub Actions runner
     timeout-minutes: 25
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Source
@@ -192,3 +208,33 @@ jobs:
           set -e
           echo "macOS native exit status: ${EXIT_CODE}"
           test "${EXIT_CODE}" -eq 42
+
+      - name: Package macOS Apple Silicon Distribution
+        run: |
+          bash scripts/package_release.sh v1.0-RC2 aarch64-apple-darwin
+
+      - name: Upload macOS Distribution Artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: vanta-v1.0-RC2-aarch64-apple-darwin
+          path: |
+            dist/vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz
+            dist/vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz.sha256
+            dist/vanta-macos-arm64
+            dist/vantac-macos-arm64
+          retention-days: 14
+
+      - name: Publish macOS Distribution to GitHub Releases
+        id: publish-release
+        if: success() && (github.ref == 'refs/heads/perf/runtime-optimization' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v1.0-RC2
+          files: |
+            dist/vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz
+            dist/vanta-v1.0-RC2-aarch64-apple-darwin.tar.gz.sha256
+            dist/vanta-macos-arm64
+            dist/vantac-macos-arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

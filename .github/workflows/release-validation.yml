@@ -2,27 +2,27 @@ name: Vanta Release Validation & Packaging
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches:
+      - main
+      - 'perf/**'
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-    inputs:
-      publish_candidate:
-        description: 'Prepare Release Candidate artifacts for manual review'
-        required: false
-        default: false
-        type: boolean
+    branches:
+      - main
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions:
+  contents: write
 
 jobs:
   validate-and-package:
     name: Build, Test & Package (Linux x86_64)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Source
@@ -62,7 +62,7 @@ jobs:
           python3 scripts/verify_version_consistency.py --github-env --github-output
 
       - name: Build Release Package Archive
-        run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}"
+        run: bash scripts/package_release.sh "${VANTA_RELEASE_TAG}" x86_64-unknown-linux-gnu
 
       - name: Run Full Workspace Tests
         env:
@@ -96,4 +96,20 @@ jobs:
           path: |
             dist/${{ env.VANTA_TARBALL }}
             dist/${{ env.VANTA_CHECKSUM_FILE }}
+            dist/vanta-linux-x86_64
+            dist/vantac-linux-x86_64
           retention-days: 14
+
+      - name: Publish Linux Distribution to GitHub Releases
+        id: publish-release
+        if: success() && (github.ref == 'refs/heads/perf/runtime-optimization' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v1.0-RC2
+          files: |
+            dist/${{ env.VANTA_TARBALL }}
+            dist/${{ env.VANTA_CHECKSUM_FILE }}
+            dist/vanta-linux-x86_64
+            dist/vantac-linux-x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
