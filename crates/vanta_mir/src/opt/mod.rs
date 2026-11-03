@@ -166,6 +166,9 @@ impl OptimizationPipeline {
         diags: &mut DiagnosticBag,
     ) {
         if level == OptLevel::None {
+            if enable_global_dce {
+                GlobalDce::run_on_program(program, is_executable);
+            }
             return;
         }
 

@@ -125,6 +125,104 @@ pub struct CacheManager {
     recovery_counter: AtomicUsize,
 }
 
+/// RAII lock guard for per-key atomic artifact storage.
+/// Ensures the lock is only removed if the current process acquired it.
+#[cfg(windows)]
+fn is_process_alive(pid: u32) -> bool {
+    extern "system" {
+        fn OpenProcess(
+            dwDesiredAccess: u32,
+            bInheritHandle: i32,
+            dwProcessId: u32,
+        ) -> *mut std::ffi::c_void;
+        fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+        fn GetExitCodeProcess(hProcess: *mut std::ffi::c_void, lpExitCode: *mut u32) -> i32;
+        fn GetLastError() -> u32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return GetLastError() == 5;
+        }
+        let mut exit_code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut exit_code);
+        CloseHandle(handle);
+        ok != 0 && exit_code == STILL_ACTIVE
+    }
+}
+
+#[cfg(unix)]
+fn is_process_alive(pid: u32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe {
+        if kill(pid as i32, 0) == 0 {
+            true
+        } else {
+            std::io::Error::last_os_error().raw_os_error() == Some(1)
+        }
+    }
+}
+
+#[cfg(not(any(windows, unix)))]
+fn is_process_alive(_pid: u32) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn atomic_replace_file(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let from_wide: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to_wide: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    extern "system" {
+        fn MoveFileExW(
+            lpExistingFileName: *const u16,
+            lpNewFileName: *const u16,
+            dwFlags: u32,
+        ) -> i32;
+    }
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let ret = unsafe {
+        MoveFileExW(
+            from_wide.as_ptr(),
+            to_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ret == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn atomic_replace_file(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)
+}
+
+struct CacheLockGuard<'a> {
+    lock_file: &'a Path,
+    owner_token: String,
+    acquired: bool,
+}
+
+impl<'a> Drop for CacheLockGuard<'a> {
+    fn drop(&mut self) {
+        if self.acquired {
+            if let Ok(content) = fs::read_to_string(self.lock_file) {
+                if content.trim() == self.owner_token.trim() {
+                    let _ = fs::remove_file(self.lock_file);
+                }
+            }
+        }
+    }
+}
+
 impl CacheManager {
     pub const DEFAULT_CACHE_REL_PATH: &'static str = ".venta/cache/v1";
 
@@ -282,36 +380,76 @@ impl CacheManager {
         let locks_dir = self.target_dir().join("locks");
         fs::create_dir_all(&locks_dir).map_err(|e| format!("Create locks dir: {}", e))?;
 
-        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
-        // Try to acquire atomic per-key lock with stale lock recovery
-        for _ in 0..50 {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&lock_file)
-            {
-                Ok(_) => break,
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    if let Ok(meta) = fs::metadata(&lock_file) {
-                        if let Ok(modified) = meta.modified() {
-                            if let Ok(elapsed) = modified.elapsed() {
-                                if elapsed.as_secs() > 15 {
-                                    let _ = fs::remove_file(&lock_file);
-                                }
-                            }
-                        }
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                Err(e) => return Err(format!("Failed to acquire lock: {}", e)),
-            }
-        }
-
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
         let pid = std::process::id();
+
+        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
+        let mut guard = CacheLockGuard {
+            lock_file: &lock_file,
+            owner_token: format!("{}:{}:{:?}", pid, timestamp, std::thread::current().id()),
+            acquired: false,
+        };
+
+        const MAX_RETRIES: usize = 50;
+        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(5);
+
+        // Try to acquire atomic per-key lock with stale lock recovery
+        for _ in 0..MAX_RETRIES {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_file)
+            {
+                Ok(mut file) => {
+                    let _ = file.write_all(guard.owner_token.as_bytes());
+                    let _ = file.flush();
+                    guard.acquired = true;
+                    break;
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    if let Ok(content) = fs::read_to_string(&lock_file) {
+                        let owner_pid = content
+                            .split(':')
+                            .next()
+                            .and_then(|s| s.parse::<u32>().ok());
+                        let is_stale = match owner_pid {
+                            Some(p) => !is_process_alive(p),
+                            None => {
+                                if let Ok(meta) = fs::metadata(&lock_file) {
+                                    if let Ok(modified) = meta.modified() {
+                                        if let Ok(elapsed) = modified.elapsed() {
+                                            elapsed.as_secs() > 15
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            }
+                        };
+                        if is_stale {
+                            let _ = fs::remove_file(&lock_file);
+                        }
+                    }
+                    std::thread::sleep(RETRY_DELAY);
+                }
+                Err(e) => return Err(format!("Failed to acquire lock: {}", e)),
+            }
+        }
+
+        if !guard.acquired {
+            return Err(format!(
+                "Timed out acquiring cache lock for key '{}' after {} attempts",
+                key.to_hex(),
+                MAX_RETRIES
+            ));
+        }
 
         let tmp_data_path =
             locks_dir.join(format!("tmp_{}_{}_{}.dat", key.to_hex(), pid, timestamp));
@@ -319,12 +457,18 @@ impl CacheManager {
             locks_dir.join(format!("tmp_{}_{}_{}.meta", key.to_hex(), pid, timestamp));
 
         // 1. Write data file safely to temp file
-        {
+        let write_res = (|| -> Result<(), String> {
             let mut file = File::create(&tmp_data_path)
                 .map_err(|e| format!("Create tmp data file {}: {}", tmp_data_path.display(), e))?;
             file.write_all(data)
                 .map_err(|e| format!("Write tmp data: {}", e))?;
             file.flush().map_err(|e| format!("Flush tmp data: {}", e))?;
+            Ok(())
+        })();
+
+        if let Err(e) = write_res {
+            let _ = fs::remove_file(&tmp_data_path);
+            return Err(e);
         }
 
         let checksum = ContentFingerprint::for_bytes(artifact_type.domain(), data);
@@ -341,7 +485,7 @@ impl CacheManager {
         };
 
         // 2. Write metadata file to temp file
-        {
+        let meta_write_res = (|| -> Result<(), String> {
             let meta_bytes = serde_json::to_vec_pretty(&metadata)
                 .map_err(|e| format!("Serialize metadata: {}", e))?;
             let mut file =
@@ -349,38 +493,39 @@ impl CacheManager {
             file.write_all(&meta_bytes)
                 .map_err(|e| format!("Write tmp meta: {}", e))?;
             file.flush().map_err(|e| format!("Flush tmp meta: {}", e))?;
-        }
+            Ok(())
+        })();
 
-        // 3. Atomically rename data file into destination
-        let final_art_path = self.artifact_path(key, artifact_type);
-        let _ = fs::remove_file(&final_art_path);
-        if let Err(e) = fs::rename(&tmp_data_path, &final_art_path) {
+        if let Err(e) = meta_write_res {
             let _ = fs::remove_file(&tmp_data_path);
             let _ = fs::remove_file(&tmp_meta_path);
-            let _ = fs::remove_file(&lock_file);
+            return Err(e);
+        }
+
+        // 3. Atomically replace data file into destination
+        let final_art_path = self.artifact_path(key, artifact_type);
+        if let Err(e) = atomic_replace_file(&tmp_data_path, &final_art_path) {
+            let _ = fs::remove_file(&tmp_data_path);
+            let _ = fs::remove_file(&tmp_meta_path);
             return Err(format!(
-                "Rename artifact to {}: {}",
+                "Atomic replace artifact to {}: {}",
                 final_art_path.display(),
                 e
             ));
         }
 
-        // 4. Atomically rename metadata file into destination
+        // 4. Atomically replace metadata file into destination
         let final_meta_path = self.metadata_path(key);
-        let _ = fs::remove_file(&final_meta_path);
-        if let Err(e) = fs::rename(&tmp_meta_path, &final_meta_path) {
+        if let Err(e) = atomic_replace_file(&tmp_meta_path, &final_meta_path) {
             let _ = fs::remove_file(&tmp_meta_path);
-            let _ = fs::remove_file(&lock_file);
             return Err(format!(
-                "Rename metadata to {}: {}",
+                "Atomic replace metadata to {}: {}",
                 final_meta_path.display(),
                 e
             ));
         }
 
-        // Release lock
-        let _ = fs::remove_file(&lock_file);
-
+        // Lock released automatically on drop if and only if acquired and owned
         Ok(final_art_path)
     }
 
@@ -722,5 +867,121 @@ mod tests {
         let clean_report = cache.clean_cache(None);
         assert!(clean_report.files_removed >= 1);
         assert!(clean_report.bytes_freed > 0);
+    }
+
+    #[test]
+    fn test_lock_timeout_and_preserves_foreign_lock() {
+        let dir = tempdir().unwrap();
+        let cache = CacheManager::new(dir.path().to_path_buf(), "x86_64-linux").unwrap();
+
+        let key = ContentFingerprint::for_bytes(Domain::Object, b"competing_key");
+        let locks_dir = cache.target_dir().join("locks");
+        fs::create_dir_all(&locks_dir).unwrap();
+        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
+
+        // Simulate an active lock held by an alive process
+        let foreign_owner = format!("{}:123456789:thread_foreign", std::process::id());
+        fs::write(&lock_file, &foreign_owner).unwrap();
+
+        // Attempt to store an artifact while lock is held
+        let res = cache.store_artifact(&key, ArtifactType::Object, b"should not write", &[]);
+        assert!(res.is_err(), "Must fail when lock is held");
+        let err_msg = res.err().unwrap();
+        assert!(
+            err_msg.contains("Timed out acquiring cache lock"),
+            "Error message should mention timeout: {}",
+            err_msg
+        );
+
+        // Crucial requirement: Foreign lock must NOT have been removed!
+        assert!(lock_file.exists(), "Foreign lock file must not be removed");
+        let lock_content = fs::read_to_string(&lock_file).unwrap();
+        assert_eq!(
+            lock_content, foreign_owner,
+            "Foreign lock content must remain intact"
+        );
+
+        // Artifact must not have been stored
+        let art_path = cache.artifact_path(&key, ArtifactType::Object);
+        assert!(
+            !art_path.exists(),
+            "Artifact must not be written if lock was not acquired"
+        );
+    }
+
+    #[test]
+    fn test_lock_live_process_beyond_stale_threshold_is_never_removed() {
+        let dir = tempdir().unwrap();
+        let cache = CacheManager::new(dir.path().to_path_buf(), "x86_64-linux").unwrap();
+
+        let key = ContentFingerprint::for_bytes(Domain::Object, b"live_paused_key");
+        let locks_dir = cache.target_dir().join("locks");
+        fs::create_dir_all(&locks_dir).unwrap();
+        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
+
+        // Active lock held by current alive process, but timestamped 60 seconds ago
+        let foreign_owner = format!("{}:123456789:thread_live_paused", std::process::id());
+        fs::write(&lock_file, &foreign_owner).unwrap();
+
+        let old_time = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(60))
+            .unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&lock_file).unwrap();
+        file.set_modified(old_time).unwrap();
+        drop(file);
+
+        // Attempting to store should time out and MUST NOT remove the live process's lock
+        let res = cache.store_artifact(&key, ArtifactType::Object, b"should not write", &[]);
+        assert!(res.is_err(), "Must fail and time out");
+        assert!(
+            lock_file.exists(),
+            "Live process lock must survive even if timestamp is >15s old"
+        );
+        let lock_content = fs::read_to_string(&lock_file).unwrap();
+        assert_eq!(lock_content, foreign_owner);
+    }
+
+    #[test]
+    fn test_stale_lock_recovery() {
+        let dir = tempdir().unwrap();
+        let cache = CacheManager::new(dir.path().to_path_buf(), "x86_64-linux").unwrap();
+
+        let key = ContentFingerprint::for_bytes(Domain::Object, b"stale_key");
+        let locks_dir = cache.target_dir().join("locks");
+        fs::create_dir_all(&locks_dir).unwrap();
+        let lock_file = locks_dir.join(format!("{}.lock", key.to_hex()));
+
+        // Create a stale lock file with a dead process PID (2147483647)
+        fs::write(&lock_file, "2147483647:old_token").unwrap();
+
+        // Set file modification time to 30 seconds ago
+        let old_time = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(30))
+            .unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&lock_file).unwrap();
+        file.set_modified(old_time).unwrap();
+        drop(file);
+
+        // store_artifact should detect stale lock, recover, acquire, and succeed
+        let data = b"data after stale lock recovery";
+        let res = cache.store_artifact(&key, ArtifactType::Object, data, &[]);
+        assert!(
+            res.is_ok(),
+            "Must succeed via stale lock recovery: {:?}",
+            res.err()
+        );
+
+        // Lock file should be cleaned up on completion
+        assert!(
+            !lock_file.exists(),
+            "Lock file should be removed on successful completion"
+        );
+
+        // Verify data was stored correctly
+        let read_back = cache
+            .read_artifact(&key, ArtifactType::Object)
+            .unwrap()
+            .unwrap();
+        assert_eq!(read_back, data);
     }
 }

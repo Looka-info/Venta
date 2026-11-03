@@ -9,27 +9,36 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const https = require('https');
 
 const VERSION = 'v1.0-RC2';
 
+function getTargetTriple(plat = process.platform, a = process.arch) {
+  if (plat === 'win32') {
+    return 'x86_64-pc-windows-msvc';
+  } else if (plat === 'darwin') {
+    return (a === 'arm64') ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+  } else {
+    return (a === 'arm64') ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
+  }
+}
+
+function getBinaryNames(plat = process.platform) {
+  const ext = plat === 'win32' ? '.exe' : '';
+  return {
+    vantac: `vantac${ext}`,
+    ventac: `ventac${ext}`,
+    vanta: `vanta${ext}`,
+    venta: `venta${ext}`,
+  };
+}
+
 const platform = process.platform;
 const arch = process.arch;
 
-let target = 'x86_64-unknown-linux-gnu';
-let isZip = false;
-
-if (platform === 'win32') {
-  target = 'x86_64-pc-windows-msvc';
-  isZip = true;
-} else if (platform === 'darwin') {
-  target = (arch === 'arm64') ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
-  isZip = false;
-} else {
-  target = (arch === 'arm64') ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
-  isZip = false;
-}
+let target = getTargetTriple(platform, arch);
+let isZip = platform === 'win32';
 
 const ARCHIVE_EXT = isZip ? '.zip' : '.tar.gz';
 const ARCHIVE_NAME = `vanta-${VERSION}-${target}${ARCHIVE_EXT}`;
@@ -93,6 +102,51 @@ function copyRecursive(src, dest) {
   } else {
     ensureDir(path.dirname(dest));
     fs.copyFileSync(src, dest);
+  }
+}
+
+function extractArchive(archivePath, destDir, isZip) {
+  const resolvedDest = path.resolve(destDir);
+  ensureDir(resolvedDest);
+
+  if (isZip) {
+    const safeExtractScript = `
+      $ErrorActionPreference = 'Stop'
+      $zip = $env:VANTA_EXTRACT_ZIP
+      $dest = $env:VANTA_EXTRACT_DEST
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+      $destResolved = [System.IO.Path]::GetFullPath($dest)
+      if (-not $destResolved.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+        $destResolved = $destResolved + [System.IO.Path]::DirectorySeparatorChar
+      }
+      foreach ($entry in $archive.Entries) {
+        $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destResolved, $entry.FullName))
+        if (-not $target.StartsWith($destResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+          $archive.Dispose()
+          Write-Error "Zip Slip path traversal rejected: $($entry.FullName)"
+          exit 2
+        }
+      }
+      $archive.Dispose()
+      Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
+    `;
+
+    execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      safeExtractScript
+    ], {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        VANTA_EXTRACT_ZIP: archivePath,
+        VANTA_EXTRACT_DEST: resolvedDest,
+      }
+    });
+  } else {
+    execFileSync('tar', ['-xzf', archivePath, '-C', resolvedDest, '--strip-components=1'], { stdio: 'inherit' });
   }
 }
 
@@ -162,15 +216,13 @@ async function main() {
   try {
     await downloadFile(RELEASE_URL, tempArchive);
     log(`Extracting ${ARCHIVE_NAME}...`);
+    extractArchive(tempArchive, DIST_DIR, isZip);
     if (isZip) {
-      execSync(`powershell -Command "Expand-Archive -Path '${tempArchive}' -DestinationPath '${DIST_DIR}' -Force"`, { stdio: 'inherit' });
       const extractedFolder = path.join(DIST_DIR, `vanta-${VERSION}-${target}`);
       if (fs.existsSync(extractedFolder)) {
         copyRecursive(extractedFolder, DIST_DIR);
         fs.rmSync(extractedFolder, { recursive: true, force: true });
       }
-    } else {
-      execSync(`tar -xzf "${tempArchive}" -C "${DIST_DIR}" --strip-components=1`, { stdio: 'inherit' });
     }
     fs.unlinkSync(tempArchive);
 
@@ -189,7 +241,16 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`[vanta-lang] Installation warning:`, err.message);
-  process.exit(0); // Do not fail npm install
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(`[vanta-lang] Installation warning:`, err.message);
+    process.exit(0); // Do not fail npm install
+  });
+}
+
+module.exports = {
+  extractArchive,
+  getTargetTriple,
+  getBinaryNames,
+  main,
+};

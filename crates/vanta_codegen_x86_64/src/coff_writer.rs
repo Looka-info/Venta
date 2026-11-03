@@ -85,6 +85,21 @@ impl CoffWriter {
     pub fn write(&self) -> Vec<u8> {
         let mut out = Vec::new();
 
+        // In COFF, AMD64 REL32 displacement formula already accounts for the 4-byte instruction offset:
+        // S + Addend - (P + 4). The x86_64 code generator emits ELF-style -4 placeholder addend in text bytes.
+        // For COFF direct calls/branches, normalise the in-place addend from -4 to 0.
+        let mut text = self.text.clone();
+        for r in &self.text_relocations {
+            let off = r.offset;
+            if off + 4 <= text.len() {
+                let val =
+                    i32::from_le_bytes([text[off], text[off + 1], text[off + 2], text[off + 3]]);
+                if val == -4 {
+                    text[off..off + 4].copy_from_slice(&0i32.to_le_bytes());
+                }
+            }
+        }
+
         // 1. Build .pdata and .xdata unwind sections
         let (pdata_bytes, pdata_relocs, xdata_bytes) = self.build_unwind_tables();
 
@@ -317,7 +332,7 @@ impl CoffWriter {
 
         // 9. Write Section Raw Data
         // .text
-        out.extend_from_slice(&self.text);
+        out.extend_from_slice(&text);
         while out.len() < (text_data_ptr as usize + text_raw_size) {
             out.push(0x90); // nop padding
         }

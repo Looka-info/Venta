@@ -167,6 +167,9 @@ impl SemanticContext {
             {
                 return true;
             }
+            if f_name.starts_with("Vec__") && t_name.starts_with("Vec__") {
+                return true;
+            }
         }
         if from.is_integer() && to.is_integer() {
             return true;
@@ -1650,6 +1653,18 @@ impl SemanticContext {
             || self.declared_struct_names.contains(name_or_path)
         {
             Some(name_or_path.to_string())
+        } else if let Some((canon, _)) = self
+            .structs
+            .iter()
+            .find(|(k, _)| k.ends_with(&format!("__{}", name_or_path)))
+        {
+            Some(canon.clone())
+        } else if let Some((canon, _)) = self
+            .generic_structs
+            .iter()
+            .find(|(k, _)| k.ends_with(&format!("__{}", name_or_path)))
+        {
+            Some(canon.clone())
         } else {
             None
         }
@@ -1722,6 +1737,18 @@ impl SemanticContext {
             || self.declared_enum_names.contains(name_or_path)
         {
             Some(name_or_path.to_string())
+        } else if let Some((canon, _)) = self
+            .enums
+            .iter()
+            .find(|(k, _)| k.ends_with(&format!("__{}", name_or_path)))
+        {
+            Some(canon.clone())
+        } else if let Some((canon, _)) = self
+            .generic_enums
+            .iter()
+            .find(|(k, _)| k.ends_with(&format!("__{}", name_or_path)))
+        {
+            Some(canon.clone())
         } else {
             None
         }
@@ -2173,6 +2200,24 @@ impl SemanticContext {
                 let resolved_name = self
                     .resolve_enum_name(name, ty_expr.span, diags)
                     .or_else(|| self.resolve_struct_name(name, ty_expr.span, diags))
+                    .or_else(|| {
+                        self.generic_structs
+                            .keys()
+                            .find(|k| {
+                                k.ends_with(&format!("__{}", name))
+                                    || k.ends_with(&format!("::{}", name))
+                            })
+                            .cloned()
+                    })
+                    .or_else(|| {
+                        self.generic_enums
+                            .keys()
+                            .find(|k| {
+                                k.ends_with(&format!("__{}", name))
+                                    || k.ends_with(&format!("::{}", name))
+                            })
+                            .cloned()
+                    })
                     .unwrap_or_else(|| name.clone());
 
                 if let Some(generic_s) = self.generic_structs.get(&resolved_name).cloned() {
@@ -2259,6 +2304,9 @@ impl SemanticContext {
                 }
             }
             TypeExprKind::Named(name) => {
+                if name.len() == 1 && name.chars().next().unwrap().is_ascii_uppercase() {
+                    return Type::TypeParam(name.clone());
+                }
                 if name == "str" {
                     Type::Str
                 } else if name == "Self" {
@@ -2693,6 +2741,18 @@ fn unify_type_arg(
             } = arg_ty
             {
                 unify_type_arg(inner, arg_inner, inferred, type_params);
+            }
+        }
+        TypeExprKind::Generic { name: _, type_args } => {
+            if let Type::Struct(s_name) | Type::Enum(s_name) = arg_ty {
+                if let Some(pos) = s_name.rfind("__") {
+                    let suffix = &s_name[pos + 2..];
+                    let parts: Vec<&str> = suffix.split('_').collect();
+                    for (tp_expr, part) in type_args.iter().zip(parts.iter()) {
+                        let parsed_ty = Type::from_mangled_string(part);
+                        unify_type_arg(tp_expr, &parsed_ty, inferred, type_params);
+                    }
+                }
             }
         }
         _ => {}
@@ -5526,6 +5586,11 @@ impl SemanticAnalyzer {
                         unify_type_arg(&p.ty, a_ty, &mut inferred, &generic_f.type_params);
                     }
                 }
+                if let Some(ref exp_ty) = self.ctx.expected_type {
+                    if let Some(ref ret_ty) = generic_f.ret_type {
+                        unify_type_arg(ret_ty, exp_ty, &mut inferred, &generic_f.type_params);
+                    }
+                }
                 let mut cts = Vec::new();
                 let mut all_inferred = true;
                 for tp in &generic_f.type_params {
@@ -6704,6 +6769,8 @@ impl SemanticAnalyzer {
                         for tp in &generic_s.type_params {
                             if let Some(t) = inferred.get(&tp.name.name) {
                                 cts.push(t.clone());
+                            } else if self.ctx.current_fn_ret_type.is_some() {
+                                cts.push(Type::TypeParam(tp.name.name.clone()));
                             } else {
                                 diags.emit(
                                     Diagnostic::error(format!(

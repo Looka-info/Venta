@@ -20,6 +20,11 @@ const EMBEDDED_STD_ENV: &str = include_str!("../../../library/std/env.va");
 const EMBEDDED_STD_NET: &str = include_str!("../../../library/std/net.va");
 const EMBEDDED_STD_GPU: &str = include_str!("../../../library/std/gpu.va");
 const EMBEDDED_STD_SIMD: &str = include_str!("../../../library/std/simd.va");
+const EMBEDDED_STD_COLLECTIONS_MOD: &str = include_str!("../../../library/std/collections/mod.va");
+const EMBEDDED_STD_COLLECTIONS_HASH_MAP: &str =
+    include_str!("../../../library/std/collections/hash_map.va");
+const EMBEDDED_STD_COLLECTIONS_RING_BUFFER: &str =
+    include_str!("../../../library/std/collections/ring_buffer.va");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ModuleId(pub usize);
@@ -296,7 +301,10 @@ impl<'a> ModuleLoader<'a> {
             env_src,
             net_src,
             gpu_src,
-                simd_src,
+            simd_src,
+            collections_src,
+            hash_map_src,
+            ring_buffer_src,
         ) = if let Some(std_dir) = std_dir_opt {
             let mod_file = std_dir.join("mod.va");
             let canon_mod = mod_file.canonicalize().unwrap_or(mod_file);
@@ -323,11 +331,20 @@ impl<'a> ModuleLoader<'a> {
             let gpu_file = std_dir.join("gpu.va");
             let gpu_src = fs::read_to_string(&gpu_file).unwrap_or_else(|_| EMBEDDED_STD_GPU.into());
             let simd_file = std_dir.join("simd.va");
-            let simd_src = fs::read_to_string(&simd_file).unwrap_or_else(|_| EMBEDDED_STD_SIMD.into());
+            let simd_src =
+                fs::read_to_string(&simd_file).unwrap_or_else(|_| EMBEDDED_STD_SIMD.into());
+            let coll_file = std_dir.join("collections").join("mod.va");
+            let coll_src = fs::read_to_string(&coll_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_COLLECTIONS_MOD.into());
+            let hm_file = std_dir.join("collections").join("hash_map.va");
+            let hm_src = fs::read_to_string(&hm_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_COLLECTIONS_HASH_MAP.into());
+            let rb_file = std_dir.join("collections").join("ring_buffer.va");
+            let rb_src = fs::read_to_string(&rb_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_COLLECTIONS_RING_BUFFER.into());
             (
                 canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
-                gpu_src,
-                simd_src,
+                gpu_src, simd_src, coll_src, hm_src, rb_src,
             )
         } else {
             (
@@ -343,6 +360,9 @@ impl<'a> ModuleLoader<'a> {
                 EMBEDDED_STD_NET.into(),
                 EMBEDDED_STD_GPU.into(),
                 EMBEDDED_STD_SIMD.into(),
+                EMBEDDED_STD_COLLECTIONS_MOD.into(),
+                EMBEDDED_STD_COLLECTIONS_HASH_MAP.into(),
+                EMBEDDED_STD_COLLECTIONS_RING_BUFFER.into(),
             )
         };
 
@@ -684,8 +704,114 @@ impl<'a> ModuleLoader<'a> {
         });
         self.path_to_module
             .insert(vec!["std".into(), "simd".into()], simd_id);
-        self.modules[std_id.0].children.insert("simd".into(), simd_id);
+        self.modules[std_id.0]
+            .children
+            .insert("simd".into(), simd_id);
         self.seen_canonical_paths.insert(simd_path, simd_id);
+
+        // 12. Add and parse std/collections/mod.va
+        let coll_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("collections")
+            .join("mod.va");
+        let coll_file_id = self
+            .source_map
+            .add_file(coll_path.to_string_lossy().to_string(), collections_src);
+        let coll_file = self.source_map.get_file(coll_file_id).unwrap();
+        let mut coll_lexer = Lexer::new(&coll_file);
+        let coll_tokens = coll_lexer.tokenize(self.diagnostics);
+        let mut coll_parser = Parser::new(coll_tokens);
+        let coll_program = coll_parser.parse_program(self.diagnostics);
+
+        let coll_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: coll_id,
+            name: "collections".into(),
+            path: vec!["std".into(), "collections".into()],
+            file_path: coll_path.clone(),
+            file_id: coll_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: coll_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "collections".into()], coll_id);
+        self.modules[std_id.0]
+            .children
+            .insert("collections".into(), coll_id);
+        self.seen_canonical_paths.insert(coll_path.clone(), coll_id);
+
+        // 13. Add and parse std/collections/hash_map.va
+        let hm_path = coll_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("hash_map.va");
+        let hm_file_id = self
+            .source_map
+            .add_file(hm_path.to_string_lossy().to_string(), hash_map_src);
+        let hm_file = self.source_map.get_file(hm_file_id).unwrap();
+        let mut hm_lexer = Lexer::new(&hm_file);
+        let hm_tokens = hm_lexer.tokenize(self.diagnostics);
+        let mut hm_parser = Parser::new(hm_tokens);
+        let hm_program = hm_parser.parse_program(self.diagnostics);
+
+        let hm_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: hm_id,
+            name: "hash_map".into(),
+            path: vec!["std".into(), "collections".into(), "hash_map".into()],
+            file_path: hm_path.clone(),
+            file_id: hm_file_id,
+            parent: Some(coll_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: hm_program.items,
+        });
+        self.path_to_module.insert(
+            vec!["std".into(), "collections".into(), "hash_map".into()],
+            hm_id,
+        );
+        self.modules[coll_id.0]
+            .children
+            .insert("hash_map".into(), hm_id);
+        self.seen_canonical_paths.insert(hm_path, hm_id);
+
+        // 14. Add and parse std/collections/ring_buffer.va
+        let rb_path = coll_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("ring_buffer.va");
+        let rb_file_id = self
+            .source_map
+            .add_file(rb_path.to_string_lossy().to_string(), ring_buffer_src);
+        let rb_file = self.source_map.get_file(rb_file_id).unwrap();
+        let mut rb_lexer = Lexer::new(&rb_file);
+        let rb_tokens = rb_lexer.tokenize(self.diagnostics);
+        let mut rb_parser = Parser::new(rb_tokens);
+        let rb_program = rb_parser.parse_program(self.diagnostics);
+
+        let rb_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: rb_id,
+            name: "ring_buffer".into(),
+            path: vec!["std".into(), "collections".into(), "ring_buffer".into()],
+            file_path: rb_path.clone(),
+            file_id: rb_file_id,
+            parent: Some(coll_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: rb_program.items,
+        });
+        self.path_to_module.insert(
+            vec!["std".into(), "collections".into(), "ring_buffer".into()],
+            rb_id,
+        );
+        self.modules[coll_id.0]
+            .children
+            .insert("ring_buffer".into(), rb_id);
+        self.seen_canonical_paths.insert(rb_path, rb_id);
 
         Ok(())
     }

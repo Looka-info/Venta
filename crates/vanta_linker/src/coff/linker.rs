@@ -14,7 +14,7 @@ use crate::map_file::generate_link_map;
 use crate::object::ObjectFile;
 use crate::resolve::SymbolResolver;
 use crate::section::{MergedSection, SectionFlags, SectionKind};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -123,6 +123,56 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
     let mut resolver = SymbolResolver::new();
     resolver.register_definitions(&objects)?;
 
+    // 5b. Collect unresolved external symbols and determine providing DLLs
+    let mut unresolved_external_symbols: HashSet<String> = HashSet::new();
+    for obj in &objects {
+        for rel in &obj.relocations {
+            let is_local = obj
+                .symbols
+                .iter()
+                .any(|s| s.is_local() && s.name == rel.symbol_name);
+            let is_sec = obj.sections.iter().any(|s| s.name == rel.symbol_name);
+            let is_global = resolver.strong_symbols.contains_key(&rel.symbol_name)
+                || resolver.weak_symbols.contains_key(&rel.symbol_name);
+            if !is_local && !is_sec && !is_global {
+                unresolved_external_symbols.insert(rel.symbol_name.clone());
+            }
+        }
+    }
+
+    let mut dll_map: BTreeMap<&'static str, BTreeSet<String>> = BTreeMap::new();
+    for sym in &unresolved_external_symbols {
+        if let Some(dll) = lookup_dll_for_symbol(sym) {
+            let fn_name = sym.strip_prefix("__imp_").unwrap_or(sym).to_string();
+            dll_map.entry(dll).or_default().insert(fn_name);
+        } else {
+            for obj in &objects {
+                for rel in &obj.relocations {
+                    if rel.symbol_name == *sym {
+                        return Err(LinkerError::UndefinedSymbol {
+                            symbol: sym.clone(),
+                            referencing_file: obj.path.clone(),
+                            referencing_section: rel.section_index.to_string(),
+                        });
+                    }
+                }
+            }
+            return Err(LinkerError::UndefinedSymbol {
+                symbol: sym.clone(),
+                referencing_file: PathBuf::from("linker"),
+                referencing_section: "import".into(),
+            });
+        }
+    }
+
+    if dll_map.is_empty() {
+        let mut default_kernel32 = BTreeSet::new();
+        default_kernel32.insert("ExitProcess".into());
+        default_kernel32.insert("GetStdHandle".into());
+        default_kernel32.insert("WriteFile".into());
+        dll_map.insert("KERNEL32.dll", default_kernel32);
+    }
+
     // 6. Section merging
     let mut text_merged =
         MergedSection::new(".text".into(), SectionKind::Code, SectionFlags::code());
@@ -172,8 +222,24 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
         }
     }
 
+    // Append import thunks to .text
+    let mut thunks: Vec<ThunkInfo> = Vec::new();
+    for (dll, funcs) in &dll_map {
+        for func in funcs {
+            let thunk_offset = text_merged.data.len();
+            text_merged
+                .data
+                .extend_from_slice(&[0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x90, 0x90]);
+            thunks.push(ThunkInfo {
+                dll: *dll,
+                name: func.clone(),
+                thunk_offset,
+            });
+        }
+    }
+
     let mut merged_sections: Vec<MergedSection> = Vec::new();
-    if !text_merged.contributions.is_empty() {
+    if !text_merged.contributions.is_empty() || !text_merged.data.is_empty() {
         merged_sections.push(text_merged);
     }
     if !rdata_merged.contributions.is_empty() {
@@ -208,6 +274,14 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
         current_rva = (current_rva + sec_len as u32 + 0xFFF) & !0xFFF;
     }
 
+    let text_rva = if !merged_sections.is_empty() && merged_sections[0].name == ".text" {
+        (merged_sections[0]
+            .virtual_address
+            .saturating_sub(image_base)) as u32
+    } else {
+        0x1000
+    };
+
     // 8. Symbol virtual address assignment
     resolver.compute_symbol_addresses(&objects, &merged_sections);
 
@@ -230,7 +304,19 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
 
     let entry_rva = (entry_va.saturating_sub(image_base)) as u32;
 
-    // 10. Apply COFF Relocations
+    // 10. Synthesize dynamic .idata section
+    let (idata_bytes, idata_rva, idata_size, iat_rva, iat_size) = build_dynamic_idata_section(
+        current_rva,
+        &dll_map,
+        image_base,
+        text_rva,
+        &thunks,
+        &mut merged_sections[0].data,
+        &mut resolver,
+    );
+    current_rva = (current_rva + idata_bytes.len() as u32 + 0xFFF) & !0xFFF;
+
+    // 11. Apply COFF Relocations
     let mut base_reloc_rvas: Vec<u32> = Vec::new();
 
     for obj in &objects {
@@ -272,10 +358,6 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
             }
         }
     }
-
-    // 11. Synthesize .idata section (Import Table for KERNEL32.dll)
-    let (idata_bytes, idata_rva, idata_size, iat_rva, iat_size) = build_idata_section(current_rva);
-    current_rva = (current_rva + idata_bytes.len() as u32 + 0xFFF) & !0xFFF;
 
     // 12. Synthesize .reloc section (Base Relocations)
     let (reloc_bytes, reloc_rva, reloc_size) = build_reloc_section(current_rva, &base_reloc_rvas);
@@ -400,74 +482,314 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
     })
 }
 
-/// Builds `.idata` section containing imports for `KERNEL32.dll`:
-/// - `ExitProcess`
-/// - `GetStdHandle`
-/// - `WriteFile`
-fn build_idata_section(start_rva: u32) -> (Vec<u8>, u32, u32, u32, u32) {
+#[derive(Debug, Clone)]
+pub struct ThunkInfo {
+    pub dll: &'static str,
+    pub name: String,
+    pub thunk_offset: usize,
+}
+
+pub fn lookup_dll_for_symbol(sym: &str) -> Option<&'static str> {
+    let name = sym.strip_prefix("__imp_").unwrap_or(sym);
+    match name {
+        // KERNEL32.dll
+        "ExitProcess"
+        | "GetStdHandle"
+        | "WriteFile"
+        | "ReadFile"
+        | "CloseHandle"
+        | "CreateFileA"
+        | "CreateFileW"
+        | "GetLastError"
+        | "SetLastError"
+        | "GetProcAddress"
+        | "LoadLibraryA"
+        | "LoadLibraryW"
+        | "FreeLibrary"
+        | "GetModuleHandleA"
+        | "GetModuleHandleW"
+        | "GetCurrentProcess"
+        | "GetCurrentThread"
+        | "GetCurrentProcessId"
+        | "GetCurrentThreadId"
+        | "Sleep"
+        | "VirtualAlloc"
+        | "VirtualFree"
+        | "VirtualProtect"
+        | "QueryPerformanceCounter"
+        | "QueryPerformanceFrequency"
+        | "GetSystemTimeAsFileTime"
+        | "InitializeCriticalSection"
+        | "DeleteCriticalSection"
+        | "EnterCriticalSection"
+        | "LeaveCriticalSection"
+        | "CreateEventA"
+        | "SetEvent"
+        | "ResetEvent"
+        | "WaitForSingleObject"
+        | "MultiByteToWideChar"
+        | "WideCharToMultiByte"
+        | "FormatMessageA"
+        | "LocalFree"
+        | "TlsAlloc"
+        | "TlsGetValue"
+        | "TlsSetValue"
+        | "TlsFree"
+        | "CreateThread"
+        | "TerminateProcess"
+        | "GetCommandLineA"
+        | "GetCommandLineW" => Some("KERNEL32.dll"),
+
+        // ws2_32.dll
+        "WSAStartup" | "WSACleanup" | "WSAGetLastError" | "socket" | "closesocket" | "bind"
+        | "listen" | "accept" | "connect" | "send" | "recv" | "sendto" | "recvfrom" | "select"
+        | "ioctlsocket" | "gethostbyname" | "getaddrinfo" | "freeaddrinfo" | "setsockopt"
+        | "getsockopt" | "htons" | "ntohs" | "htonl" | "ntohl" | "inet_addr" | "inet_ntoa"
+        | "__WSAFDIsSet" => Some("ws2_32.dll"),
+
+        // msvcrt.dll (C runtime)
+        "malloc"
+        | "free"
+        | "calloc"
+        | "realloc"
+        | "memcpy"
+        | "memmove"
+        | "memset"
+        | "memcmp"
+        | "memchr"
+        | "printf"
+        | "sprintf"
+        | "snprintf"
+        | "vsnprintf"
+        | "puts"
+        | "putchar"
+        | "getchar"
+        | "strlen"
+        | "strcpy"
+        | "strncpy"
+        | "strcmp"
+        | "strncmp"
+        | "strcat"
+        | "strncat"
+        | "strchr"
+        | "strrchr"
+        | "strstr"
+        | "strdup"
+        | "strtol"
+        | "strtoll"
+        | "strtoul"
+        | "strtoull"
+        | "strtod"
+        | "atof"
+        | "atoi"
+        | "atol"
+        | "sin"
+        | "cos"
+        | "tan"
+        | "asin"
+        | "acos"
+        | "atan"
+        | "atan2"
+        | "sinh"
+        | "cosh"
+        | "tanh"
+        | "exp"
+        | "log"
+        | "log10"
+        | "log2"
+        | "pow"
+        | "sqrt"
+        | "ceil"
+        | "floor"
+        | "round"
+        | "fabs"
+        | "fmod"
+        | "modf"
+        | "fopen"
+        | "fclose"
+        | "fread"
+        | "fwrite"
+        | "fseek"
+        | "ftell"
+        | "rewind"
+        | "fflush"
+        | "feof"
+        | "ferror"
+        | "fgets"
+        | "fputs"
+        | "fprintf"
+        | "fscanf"
+        | "sscanf"
+        | "remove"
+        | "rename"
+        | "exit"
+        | "_exit"
+        | "abort"
+        | "getenv"
+        | "system"
+        | "time"
+        | "clock"
+        | "difftime"
+        | "gmtime"
+        | "localtime"
+        | "strftime"
+        | "_write"
+        | "_read"
+        | "_close"
+        | "_open"
+        | "_lseek"
+        | "_isatty"
+        | "_fileno"
+        | "_errno"
+        | "__acrt_iob_func"
+        | "__stdio_common_vfprintf"
+        | "__stdio_common_vsprintf"
+        | "__chkstk"
+        | "_fstat"
+        | "_fstat64"
+        | "_fstati64"
+        | "_setmode"
+        | "qsort"
+        | "bsearch" => Some("msvcrt.dll"),
+
+        _ => None,
+    }
+}
+
+/// Builds `.idata` section dynamically for the required imported DLLs and functions.
+pub fn build_dynamic_idata_section(
+    start_rva: u32,
+    dll_map: &BTreeMap<&'static str, BTreeSet<String>>,
+    image_base: u64,
+    text_rva: u32,
+    thunks: &[ThunkInfo],
+    text_data: &mut [u8],
+    resolver: &mut SymbolResolver,
+) -> (Vec<u8>, u32, u32, u32, u32) {
     let mut idata = Vec::new();
-
-    // 1. Import Directory Table (20 bytes per DLL, terminated by 20 zero bytes)
-    // Entry 0: KERNEL32.dll
-    // Entry 1: Null terminator
-    let dir_table_size = 40;
-    idata.resize(dir_table_size, 0);
-
-    // 2. Import Lookup Table (ILT) - 4 entries (3 functions + 1 null entry), 8 bytes each = 32 bytes
-    let ilt_offset = idata.len();
-    let ilt_rva = start_rva + ilt_offset as u32;
-    idata.resize(ilt_offset + 32, 0);
-
-    // 3. Import Address Table (IAT) - duplicate of ILT, 32 bytes
-    let iat_offset = idata.len();
-    let iat_rva = start_rva + iat_offset as u32;
-    idata.resize(iat_offset + 32, 0);
-
-    // 4. DLL Name string
-    let dll_name_offset = idata.len();
-    let dll_name_rva = start_rva + dll_name_offset as u32;
-    idata.extend_from_slice(b"KERNEL32.dll\0");
-    if idata.len() % 2 != 0 {
-        idata.push(0);
+    let num_dlls = dll_map.len();
+    if num_dlls == 0 {
+        return (Vec::new(), start_rva, 0, 0, 0);
     }
 
-    // 5. Hint/Name table for functions
-    let funcs = ["ExitProcess", "GetStdHandle", "WriteFile"];
-    let mut hint_name_rvas = Vec::new();
+    // 1. Import Directory Table (20 bytes per DLL, terminated by 20 zero bytes)
+    let dir_table_size = (num_dlls + 1) * 20;
+    idata.resize(dir_table_size, 0);
 
-    for func in &funcs {
-        let hn_offset = idata.len();
-        hint_name_rvas.push(start_rva + hn_offset as u32);
-        idata.extend_from_slice(&0u16.to_le_bytes()); // Hint = 0
-        idata.extend_from_slice(func.as_bytes());
-        idata.push(0); // NUL terminator
+    // 2. Compute ILT and IAT sizes & RVAs
+    let mut ilt_rvas = Vec::new();
+    let mut iat_rvas = Vec::new();
+    let mut dll_order = Vec::new();
+
+    // ILTs
+    for (dll, funcs) in dll_map {
+        dll_order.push((*dll, funcs.iter().cloned().collect::<Vec<_>>()));
+        let ilt_offset = idata.len();
+        ilt_rvas.push(start_rva + ilt_offset as u32);
+        let ilt_size = (funcs.len() + 1) * 8;
+        idata.resize(ilt_offset + ilt_size, 0);
+    }
+
+    // IATs
+    let iat_start_offset = idata.len();
+    let iat_start_rva = start_rva + iat_start_offset as u32;
+    for (_dll, funcs) in &dll_order {
+        let iat_offset = idata.len();
+        iat_rvas.push(start_rva + iat_offset as u32);
+        let iat_size = (funcs.len() + 1) * 8;
+        idata.resize(iat_offset + iat_size, 0);
+    }
+    let total_iat_size = (idata.len() - iat_start_offset) as u32;
+
+    // 3. DLL Name Strings
+    let mut dll_name_rvas = Vec::new();
+    for (dll, _) in &dll_order {
+        let name_offset = idata.len();
+        dll_name_rvas.push(start_rva + name_offset as u32);
+        idata.extend_from_slice(dll.as_bytes());
+        idata.push(0);
         if idata.len() % 2 != 0 {
-            idata.push(0); // 2-byte align
+            idata.push(0);
         }
     }
 
-    // Fill ILT and IAT entries
-    for (i, &hn_rva) in hint_name_rvas.iter().enumerate() {
-        let entry_val = hn_rva as u64; // bit 63 = 0 -> import by name
-        let ilt_dest = ilt_offset + i * 8;
-        idata[ilt_dest..ilt_dest + 8].copy_from_slice(&entry_val.to_le_bytes());
+    // 4. Hint/Name Table Entries & Wiring ILT/IAT
+    let mut ilt_cursor = dir_table_size;
+    let mut iat_cursor = iat_start_offset;
+    let mut func_iat_rva: HashMap<String, u32> = HashMap::new();
 
-        let iat_dest = iat_offset + i * 8;
-        idata[iat_dest..iat_dest + 8].copy_from_slice(&entry_val.to_le_bytes());
+    for (dll_idx, (_dll, funcs)) in dll_order.iter().enumerate() {
+        for (f_idx, func) in funcs.iter().enumerate() {
+            let hn_offset = idata.len();
+            let hn_rva = start_rva + hn_offset as u32;
+
+            idata.extend_from_slice(&0u16.to_le_bytes()); // hint = 0
+            idata.extend_from_slice(func.as_bytes());
+            idata.push(0);
+            if idata.len() % 2 != 0 {
+                idata.push(0);
+            }
+
+            let entry_val = hn_rva as u64; // bit 63 = 0 -> import by name
+            let ilt_pos = ilt_cursor + f_idx * 8;
+            let iat_pos = iat_cursor + f_idx * 8;
+
+            idata[ilt_pos..ilt_pos + 8].copy_from_slice(&entry_val.to_le_bytes());
+            idata[iat_pos..iat_pos + 8].copy_from_slice(&entry_val.to_le_bytes());
+
+            let iat_entry_rva = iat_rvas[dll_idx] + (f_idx * 8) as u32;
+            func_iat_rva.insert(func.clone(), iat_entry_rva);
+        }
+
+        ilt_cursor += (funcs.len() + 1) * 8;
+        iat_cursor += (funcs.len() + 1) * 8;
     }
 
-    // Fill Directory Table entry 0
-    let dir = &mut idata[0..20];
-    dir[0..4].copy_from_slice(&ilt_rva.to_le_bytes()); // OriginalFirstThunk (ILT)
-    dir[4..8].copy_from_slice(&0u32.to_le_bytes()); // TimeDateStamp
-    dir[8..12].copy_from_slice(&0u32.to_le_bytes()); // ForwarderChain
-    dir[12..16].copy_from_slice(&dll_name_rva.to_le_bytes()); // Name RVA
-    dir[16..20].copy_from_slice(&iat_rva.to_le_bytes()); // FirstThunk (IAT)
+    // 5. Populate Directory Table entries
+    for (i, (_dll, _)) in dll_order.iter().enumerate() {
+        let dir = &mut idata[i * 20..(i + 1) * 20];
+        dir[0..4].copy_from_slice(&ilt_rvas[i].to_le_bytes()); // OriginalFirstThunk (ILT)
+        dir[4..8].copy_from_slice(&0u32.to_le_bytes()); // TimeDateStamp
+        dir[8..12].copy_from_slice(&0u32.to_le_bytes()); // ForwarderChain
+        dir[12..16].copy_from_slice(&dll_name_rvas[i].to_le_bytes()); // Name RVA
+        dir[16..20].copy_from_slice(&iat_rvas[i].to_le_bytes()); // FirstThunk (IAT)
+    }
+
+    // 6. Register symbol addresses and patch trampolines
+    for thunk in thunks {
+        if let Some(&iat_entry_rva) = func_iat_rva.get(&thunk.name) {
+            let iat_entry_va = image_base + iat_entry_rva as u64;
+            resolver
+                .resolved_addresses
+                .insert(format!("__imp_{}", thunk.name), iat_entry_va);
+
+            let thunk_rva = text_rva + thunk.thunk_offset as u32;
+            let thunk_va = image_base + thunk_rva as u64;
+            resolver
+                .resolved_addresses
+                .insert(thunk.name.clone(), thunk_va);
+
+            // Patch disp32 in text_data: rip at end of instruction is thunk_rva + 6
+            let disp32 = (iat_entry_rva as i64) - ((thunk_rva + 6) as i64);
+            let disp32_bytes = (disp32 as i32).to_le_bytes();
+            if thunk.thunk_offset + 6 <= text_data.len() {
+                text_data[thunk.thunk_offset + 2..thunk.thunk_offset + 6]
+                    .copy_from_slice(&disp32_bytes);
+            }
+        }
+    }
+
+    // Also register __imp_ for functions without trampolines
+    for (fname, &iat_entry_rva) in &func_iat_rva {
+        let iat_entry_va = image_base + iat_entry_rva as u64;
+        resolver
+            .resolved_addresses
+            .entry(format!("__imp_{}", fname))
+            .or_insert(iat_entry_va);
+    }
 
     let total_size = idata.len() as u32;
-    let iat_size = 32u32;
-
-    (idata, start_rva, total_size, iat_rva, iat_size)
+    (idata, start_rva, total_size, iat_start_rva, total_iat_size)
 }
 
 /// Builds `.reloc` section with base relocation blocks.

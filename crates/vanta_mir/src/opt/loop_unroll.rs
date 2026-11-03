@@ -55,8 +55,9 @@ impl LoopUnrolling {
             let latch_id = loop_info.latches[0];
 
             // 2. Reject loops with function calls (to avoid code bloat and spill explosion)
-            let mut has_call = false;
             let mut body_inst_count = 0;
+            let mut has_call = false;
+            let mut has_unsupported_exit = false;
             for &b_id in &loop_info.blocks {
                 if let Some(b) = func.blocks.iter().find(|block| block.id == b_id) {
                     body_inst_count += b.instructions.len();
@@ -66,9 +67,47 @@ impl LoopUnrolling {
                             break;
                         }
                     }
+                    if matches!(b.terminator, Some(Terminator::Return(_))) {
+                        has_unsupported_exit = true;
+                        break;
+                    }
+                    if b_id != loop_info.header {
+                        let check_succ = |succ: BlockId| -> bool {
+                            if !loop_info.blocks.contains(&succ) {
+                                if let Some(target_b) =
+                                    func.blocks.iter().find(|blk| blk.id == succ)
+                                {
+                                    target_b.terminator != Some(Terminator::Unreachable)
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
+                            }
+                        };
+                        match &b.terminator {
+                            Some(Terminator::Branch(t)) => {
+                                if check_succ(*t) {
+                                    has_unsupported_exit = true;
+                                    break;
+                                }
+                            }
+                            Some(Terminator::CondBranch {
+                                then_block,
+                                else_block,
+                                ..
+                            }) => {
+                                if check_succ(*then_block) || check_succ(*else_block) {
+                                    has_unsupported_exit = true;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
-            if has_call {
+            if has_call || has_unsupported_exit {
                 stats.loops_rejected += 1;
                 continue;
             }
@@ -510,6 +549,12 @@ impl LoopUnrolling {
 
         // Identify side-exit blocks (e.g. bounds check fail blocks) reached from within the loop body
         let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        let is_unreachable_block = |blk_id: BlockId| -> bool {
+            func.blocks
+                .iter()
+                .find(|blk| blk.id == blk_id)
+                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+        };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
                 if let Some(term) = &b.terminator {
@@ -518,6 +563,7 @@ impl LoopUnrolling {
                             if !loop_info.blocks.contains(t)
                                 && *t != exit_block_id
                                 && !side_exit_blocks.contains(t)
+                                && is_unreachable_block(*t)
                             {
                                 side_exit_blocks.push(*t);
                             }
@@ -530,12 +576,14 @@ impl LoopUnrolling {
                             if !loop_info.blocks.contains(then_block)
                                 && *then_block != exit_block_id
                                 && !side_exit_blocks.contains(then_block)
+                                && is_unreachable_block(*then_block)
                             {
                                 side_exit_blocks.push(*then_block);
                             }
                             if !loop_info.blocks.contains(else_block)
                                 && *else_block != exit_block_id
                                 && !side_exit_blocks.contains(else_block)
+                                && is_unreachable_block(*else_block)
                             {
                                 side_exit_blocks.push(*else_block);
                             }
@@ -691,6 +739,12 @@ impl LoopUnrolling {
                                     else_block: new_else,
                                 })
                             }
+                            Some(Terminator::Return(opt_val)) => {
+                                let new_v = opt_val
+                                    .as_ref()
+                                    .map(|v| val_map.get(v).copied().unwrap_or(*v));
+                                Some(Terminator::Return(new_v))
+                            }
                             other => other.clone(),
                         }
                     };
@@ -794,12 +848,21 @@ impl LoopUnrolling {
 
         // Identify side-exit blocks (e.g. bounds check fail blocks) reached from within the loop body
         let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        let is_unreachable_block = |blk_id: BlockId| -> bool {
+            func.blocks
+                .iter()
+                .find(|blk| blk.id == blk_id)
+                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+        };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
                 if let Some(term) = &b.terminator {
                     match term {
                         Terminator::Branch(t) => {
-                            if !loop_info.blocks.contains(t) && !side_exit_blocks.contains(t) {
+                            if !loop_info.blocks.contains(t)
+                                && !side_exit_blocks.contains(t)
+                                && is_unreachable_block(*t)
+                            {
                                 side_exit_blocks.push(*t);
                             }
                         }
@@ -810,11 +873,13 @@ impl LoopUnrolling {
                         } => {
                             if !loop_info.blocks.contains(then_block)
                                 && !side_exit_blocks.contains(then_block)
+                                && is_unreachable_block(*then_block)
                             {
                                 side_exit_blocks.push(*then_block);
                             }
                             if !loop_info.blocks.contains(else_block)
                                 && !side_exit_blocks.contains(else_block)
+                                && is_unreachable_block(*else_block)
                             {
                                 side_exit_blocks.push(*else_block);
                             }
@@ -928,6 +993,12 @@ impl LoopUnrolling {
                             else_block: new_else,
                         })
                     }
+                    Some(Terminator::Return(opt_val)) => {
+                        let new_v = opt_val
+                            .as_ref()
+                            .map(|v| val_map.get(v).copied().unwrap_or(*v));
+                        Some(Terminator::Return(new_v))
+                    }
                     other => other.clone(),
                 }
             };
@@ -998,12 +1069,21 @@ impl LoopUnrolling {
 
         // Identify side-exit blocks reached from within the loop body
         let mut side_exit_blocks: Vec<BlockId> = Vec::new();
+        let is_unreachable_block = |blk_id: BlockId| -> bool {
+            func.blocks
+                .iter()
+                .find(|blk| blk.id == blk_id)
+                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+        };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
                 if let Some(term) = &b.terminator {
                     match term {
                         Terminator::Branch(t) => {
-                            if !loop_info.blocks.contains(t) && !side_exit_blocks.contains(t) {
+                            if !loop_info.blocks.contains(t)
+                                && !side_exit_blocks.contains(t)
+                                && is_unreachable_block(*t)
+                            {
                                 side_exit_blocks.push(*t);
                             }
                         }
@@ -1014,11 +1094,13 @@ impl LoopUnrolling {
                         } => {
                             if !loop_info.blocks.contains(then_block)
                                 && !side_exit_blocks.contains(then_block)
+                                && is_unreachable_block(*then_block)
                             {
                                 side_exit_blocks.push(*then_block);
                             }
                             if !loop_info.blocks.contains(else_block)
                                 && !side_exit_blocks.contains(else_block)
+                                && is_unreachable_block(*else_block)
                             {
                                 side_exit_blocks.push(*else_block);
                             }
@@ -1404,6 +1486,12 @@ impl LoopUnrolling {
                     then_block: new_then,
                     else_block: new_else,
                 })
+            }
+            Some(Terminator::Return(opt_val)) => {
+                let new_v = opt_val
+                    .as_ref()
+                    .map(|v| val_map.get(v).copied().unwrap_or(*v));
+                Some(Terminator::Return(new_v))
             }
             other => other.clone(),
         }

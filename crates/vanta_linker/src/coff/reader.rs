@@ -143,7 +143,7 @@ pub fn read_coff_object(
         let raw_data_ptr =
             u32::from_le_bytes([sec_hdr[20], sec_hdr[21], sec_hdr[22], sec_hdr[23]]) as usize;
         let reloc_ptr = u32::from_le_bytes([sec_hdr[24], sec_hdr[25], sec_hdr[26], sec_hdr[27]]);
-        let num_relocs = u16::from_le_bytes([sec_hdr[28], sec_hdr[29]]);
+        let num_relocs = u16::from_le_bytes([sec_hdr[32], sec_hdr[33]]);
         let characteristics =
             u32::from_le_bytes([sec_hdr[36], sec_hdr[37], sec_hdr[38], sec_hdr[39]]);
 
@@ -266,6 +266,20 @@ pub fn read_coff_object(
             object_id,
             final_virtual_address: None,
         });
+
+        // Maintain 1:1 index alignment with COFF symbol table by adding dummy entries for aux records
+        for _ in 0..num_aux {
+            symbols.push(Symbol {
+                name: String::new(),
+                visibility: SymbolVisibility::Local,
+                kind: SymbolKind::Other,
+                section_index: None,
+                value: 0,
+                size: 0,
+                object_id,
+                final_virtual_address: None,
+            });
+        }
 
         // Skip auxiliary symbol records (each is 18 bytes)
         i += 1 + num_aux;

@@ -10,6 +10,10 @@ Cargo.lock
 packages/*/dist/
 *.a
 *.lib
+!runtime/**/*.a
+!runtime/**/*.lib
+!runtime/*.a
+!runtime/*.lib
 .DS_Store
 Thumbs.db
 __pycache__/

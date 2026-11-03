@@ -892,7 +892,8 @@ impl CompilerSession {
         match options.linker {
             LinkerKind::System => {
                 if target_spec.os == Os::Linux {
-                    let rt_archive_path = Self::find_runtime_archive(options)?;
+                    let rt_archive_path =
+                        Self::find_runtime_archive_for_target(options, target_spec)?;
                     let rt_input = ResolvedLinkInput::from_path(
                         LinkInputKind::RuntimeArchive,
                         &rt_archive_path,
@@ -903,7 +904,7 @@ impl CompilerSession {
             LinkerKind::Internal => {
                 let rt_path_opt = match options.runtime_path {
                     Some(ref p) => Some(p.clone()),
-                    None => Self::find_runtime_archive(options).ok(),
+                    None => Self::find_runtime_archive_for_target(options, target_spec).ok(),
                 };
                 if let Some(ref rt_path) = rt_path_opt {
                     let rt_input =
@@ -1128,7 +1129,7 @@ impl CompilerSession {
             Os::Linux => {
                 let rt_archive = match plan.runtime_archive {
                     Some(ref rt) => rt.path.clone(),
-                    None => Self::find_runtime_archive(options)?,
+                    None => Self::find_runtime_archive_for_target(options, target_spec)?,
                 };
                 let temp_obj_path = options
                     .output_file
@@ -1265,85 +1266,171 @@ impl CompilerSession {
         Self::link_target_executable_with_plan(options, target_spec, obj_bytes, &plan)
     }
 
-    /// Locate the precompiled `libvanta_rt.a` archive using the standard toolchain search hierarchy.
+    /// Validates that an archive file exists, is well-formed, and contains objects
+    /// matching the expected architecture and object format for the target.
+    pub fn validate_runtime_archive(path: &Path, target_spec: &TargetSpec) -> Result<(), String> {
+        let bytes = fs::read(path)
+            .map_err(|e| format!("Failed to read archive '{}': {}", path.display(), e))?;
+        if bytes.len() < 8 || !bytes.starts_with(b"!<arch>\n") {
+            return Err(format!(
+                "File '{}' is not a valid archive (missing '!<arch>\\n')",
+                path.display()
+            ));
+        }
+
+        let ar = vanta_linker::Archive::parse(path, &bytes)
+            .map_err(|e| format!("Corrupt archive '{}': {}", path.display(), e))?;
+
+        for member in &ar.members {
+            let fmt = vanta_linker::input::detect_format(&member.data);
+            match target_spec.os {
+                vanta_target::Os::Windows => {
+                    if fmt == vanta_linker::input::InputFormat::Elf64 {
+                        return Err(format!(
+                            "Incompatible runtime archive '{}' for target '{}': expected IMAGE_FILE_MACHINE_AMD64 (0x8664), found ELF64 (0x457f)",
+                            path.display(),
+                            target_spec.triple
+                        ));
+                    }
+                    if fmt != vanta_linker::input::InputFormat::CoffAmd64
+                        && fmt != vanta_linker::input::InputFormat::Unknown
+                    {
+                        return Err(format!(
+                            "Incompatible runtime archive '{}' for target '{}': expected IMAGE_FILE_MACHINE_AMD64 (0x8664), found {:?}",
+                            path.display(),
+                            target_spec.triple,
+                            fmt
+                        ));
+                    }
+                }
+                vanta_target::Os::Linux => {
+                    if fmt == vanta_linker::input::InputFormat::CoffAmd64 {
+                        return Err(format!(
+                            "Incompatible runtime archive '{}' for target '{}': expected ELF64 (0x457f), found IMAGE_FILE_MACHINE_AMD64 (0x8664)",
+                            path.display(),
+                            target_spec.triple
+                        ));
+                    }
+                    if fmt != vanta_linker::input::InputFormat::Elf64
+                        && fmt != vanta_linker::input::InputFormat::Unknown
+                    {
+                        return Err(format!(
+                            "Incompatible runtime archive '{}' for target '{}': expected ELF64 (0x457f), found {:?}",
+                            path.display(),
+                            target_spec.triple,
+                            fmt
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Locate the precompiled runtime archive for the default host target.
     pub fn find_runtime_archive(options: &CompilerOptions) -> Result<PathBuf, String> {
+        let host = TargetTriple::host().spec();
+        Self::find_runtime_archive_for_target(options, &host)
+    }
+
+    /// Locate the target-specific precompiled runtime archive using the standard toolchain search hierarchy.
+    pub fn find_runtime_archive_for_target(
+        options: &CompilerOptions,
+        target_spec: &TargetSpec,
+    ) -> Result<PathBuf, String> {
         // 1. Explicit CLI option
         if let Some(ref p) = options.runtime_path {
-            if p.is_file() {
-                return Ok(p.clone());
+            if !p.is_file() {
+                return Err(format!(
+                    "Specified runtime path does not exist: {}",
+                    p.display()
+                ));
             }
-            return Err(format!(
-                "Specified runtime path does not exist: {}",
-                p.display()
-            ));
+            Self::validate_runtime_archive(p, target_spec)?;
+            return Ok(p.clone());
         }
 
         // 2. VANTA_RUNTIME_PATH env var
         if let Ok(env_path) = std::env::var("VANTA_RUNTIME_PATH") {
             let p = PathBuf::from(env_path);
-            if p.is_file() {
+            if p.is_file() && Self::validate_runtime_archive(&p, target_spec).is_ok() {
                 return Ok(p);
             }
         }
 
+        let triple = target_spec.triple.as_str();
+        let filenames: &[&str] = match target_spec.os {
+            Os::Windows => &["vanta_rt.lib", "libvanta_rt.a", "vanta_rt.a"],
+            _ => &["libvanta_rt.a", "vanta_rt.a"],
+        };
+
+        let mut candidate_dirs: Vec<PathBuf> = Vec::new();
+
         // 3. VANTA_HOME env var
         if let Ok(vanta_home) = std::env::var("VANTA_HOME") {
             let base = PathBuf::from(vanta_home);
-            let cand1 = base.join("lib").join("vanta").join("libvanta_rt.a");
-            if cand1.is_file() {
-                return Ok(cand1);
-            }
-            let cand2 = base.join("runtime").join("libvanta_rt.a");
-            if cand2.is_file() {
-                return Ok(cand2);
-            }
+            candidate_dirs.push(base.join("runtime").join(triple));
+            candidate_dirs.push(base.join("lib").join("vanta").join(triple));
+            candidate_dirs.push(base.join("runtime"));
+            candidate_dirs.push(base.join("lib").join("vanta"));
         }
 
         // 4. Executable-relative path
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                let cand_installed = parent.join("../lib/vanta/libvanta_rt.a");
-                if cand_installed.is_file() {
-                    return Ok(cand_installed);
-                }
-                let cand_dev = parent.join("../../runtime/libvanta_rt.a");
-                if cand_dev.is_file() {
-                    return Ok(cand_dev);
-                }
+                candidate_dirs.push(parent.join("../../runtime").join(triple));
+                candidate_dirs.push(parent.join("../lib/vanta").join(triple));
+                candidate_dirs.push(parent.join("../../runtime"));
+                candidate_dirs.push(parent.join("../lib/vanta"));
             }
         }
 
         // 5. CWD dev path
-        let cwd_candidate = Path::new("runtime").join("libvanta_rt.a");
-        if cwd_candidate.is_file() {
-            return Ok(cwd_candidate);
-        }
+        candidate_dirs.push(Path::new("runtime").join(triple));
+        candidate_dirs.push(Path::new("runtime").to_path_buf());
 
         // 6. Cargo manifest candidate
-        let manifest_candidate =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/libvanta_rt.a");
-        if manifest_candidate.is_file() {
-            return Ok(manifest_candidate);
+        let manifest_rt = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        candidate_dirs.push(manifest_rt.join(triple));
+        candidate_dirs.push(manifest_rt);
+
+        for dir in candidate_dirs {
+            for fname in filenames {
+                let cand = dir.join(fname);
+                if cand.is_file() && Self::validate_runtime_archive(&cand, target_spec).is_ok() {
+                    return Ok(cand);
+                }
+            }
         }
 
-        // 7. Dynamic fallback: compile and cache libvanta_rt.a
-        Self::build_cached_runtime_archive()
+        // 7. Dynamic fallback: compile and cache for target
+        Self::build_cached_runtime_archive_for_target(target_spec)
     }
 
-    fn build_cached_runtime_archive() -> Result<PathBuf, String> {
+    fn build_cached_runtime_archive_for_target(
+        target_spec: &TargetSpec,
+    ) -> Result<PathBuf, String> {
         static BUILD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = BUILD_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
 
+        let triple = target_spec.triple.as_str();
         let repo_rt_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
-        let target_archive = if repo_rt_dir.is_dir() {
-            repo_rt_dir.join("libvanta_rt.a")
+        let target_dir = if repo_rt_dir.is_dir() {
+            repo_rt_dir.join(triple)
         } else {
-            let temp_dir = std::env::temp_dir().join("vanta_rt_cache");
-            let _ = fs::create_dir_all(&temp_dir);
-            temp_dir.join("libvanta_rt.a")
+            std::env::temp_dir().join("vanta_rt_cache").join(triple)
+        };
+        let _ = fs::create_dir_all(&target_dir);
+
+        let target_archive = match target_spec.os {
+            Os::Windows => target_dir.join("vanta_rt.lib"),
+            _ => target_dir.join("libvanta_rt.a"),
         };
 
-        if target_archive.is_file() {
+        if target_archive.is_file()
+            && Self::validate_runtime_archive(&target_archive, target_spec).is_ok()
+        {
             return Ok(target_archive);
         }
 
@@ -1351,92 +1438,93 @@ impl CompilerSession {
         let temp_c = std::env::temp_dir().join(format!("vanta_rt_{}.c", pid));
         fs::write(&temp_c, RUNTIME_C)
             .map_err(|e| format!("Failed to write runtime source: {}", e))?;
-        let temp_o = std::env::temp_dir().join(format!("vanta_rt_{}.o", pid));
+        let temp_o = std::env::temp_dir().join(format!("vanta_rt_{}.obj", pid));
+        let temp_a = std::env::temp_dir().join(format!("vanta_rt_{}.lib", pid));
 
-        let gcc_status = Command::new("gcc")
-            .arg("-c")
-            .arg("-O2")
-            .arg("-fPIC")
-            .arg(&temp_c)
-            .arg("-o")
-            .arg(&temp_o)
-            .status()
-            .map_err(|e| format!("Could not invoke gcc to compile runtime: {}", e))?;
+        match target_spec.os {
+            Os::Windows => {
+                let clang_cmd = Command::new("clang")
+                    .arg("-c")
+                    .arg("-O2")
+                    .arg(&temp_c)
+                    .arg("-o")
+                    .arg(&temp_o)
+                    .status();
 
-        let _ = fs::remove_file(&temp_c);
+                let compiled = match clang_cmd {
+                    Ok(s) if s.success() => true,
+                    _ => false,
+                };
 
-        if !gcc_status.success() {
-            let _ = fs::remove_file(&temp_o);
-            return Err(format!(
-                "Failed to compile native runtime (gcc exited with {})",
-                gcc_status
-            ));
+                if compiled {
+                    let ar_status = Command::new("llvm-ar")
+                        .arg("rcs")
+                        .arg(&temp_a)
+                        .arg(&temp_o)
+                        .status();
+                    let _ = fs::remove_file(&temp_o);
+                    let _ = fs::remove_file(&temp_c);
+
+                    if let Ok(s) = ar_status {
+                        if s.success() {
+                            let _ = fs::remove_file(&target_archive);
+                            let _ = fs::rename(&temp_a, &target_archive);
+                            let alt_a = target_dir.join("libvanta_rt.a");
+                            let _ = fs::copy(&target_archive, &alt_a);
+                            return Ok(target_archive);
+                        }
+                    }
+                    let _ = fs::remove_file(&temp_a);
+                } else {
+                    let _ = fs::remove_file(&temp_c);
+                    let _ = fs::remove_file(&temp_o);
+                }
+
+                Err(format!(
+                    "Missing compatible runtime archive for target '{}'. Expected at 'runtime/{}/vanta_rt.lib' or 'runtime/{}/libvanta_rt.a'. Build it with 'powershell scripts/build_runtime.ps1'.",
+                    triple, triple, triple
+                ))
+            }
+            _ => {
+                let gcc_status = Command::new("gcc")
+                    .arg("-c")
+                    .arg("-O2")
+                    .arg("-fPIC")
+                    .arg(&temp_c)
+                    .arg("-o")
+                    .arg(&temp_o)
+                    .status();
+
+                let _ = fs::remove_file(&temp_c);
+
+                if let Ok(s) = gcc_status {
+                    if s.success() {
+                        let ar_status = Command::new("ar")
+                            .arg("rcs")
+                            .arg(&temp_a)
+                            .arg(&temp_o)
+                            .status();
+                        let _ = fs::remove_file(&temp_o);
+
+                        if let Ok(ars) = ar_status {
+                            if ars.success() {
+                                let _ = fs::remove_file(&target_archive);
+                                let _ = fs::rename(&temp_a, &target_archive);
+                                return Ok(target_archive);
+                            }
+                        }
+                    }
+                }
+                let _ = fs::remove_file(&temp_o);
+                let _ = fs::remove_file(&temp_a);
+
+                Err(format!(
+                    "Missing compatible runtime archive for target '{}'. Expected at 'runtime/{}/libvanta_rt.a'. Build it with 'bash scripts/build_runtime.sh'.",
+                    triple, triple
+                ))
+            }
         }
-
-        let temp_a = std::env::temp_dir().join(format!("vanta_rt_{}.a", pid));
-        let ar_status = Command::new("ar")
-            .arg("rcs")
-            .arg(&temp_a)
-            .arg(&temp_o)
-            .status()
-            .map_err(|e| format!("Could not invoke ar to create runtime archive: {}", e))?;
-
-        let _ = fs::remove_file(&temp_o);
-
-        if !ar_status.success() {
-            let _ = fs::remove_file(&temp_a);
-            return Err(format!(
-                "Failed to package runtime archive (ar exited with {})",
-                ar_status
-            ));
-        }
-
-        let _ = fs::remove_file(&target_archive);
-        if let Err(e) = fs::rename(&temp_a, &target_archive) {
-            fs::copy(&temp_a, &target_archive).map_err(|ce| {
-                format!(
-                    "Failed to install runtime archive into {}: {} (copy fallback: {})",
-                    target_archive.display(),
-                    e,
-                    ce
-                )
-            })?;
-            let _ = fs::remove_file(&temp_a);
-        }
-
-        Ok(target_archive)
     }
-
-    fn invoke_system_linker_with_plan(
-        plan: &LinkConfiguration,
-        obj_path: &Path,
-        out_path: &Path,
-        rt_archive: &Path,
-    ) -> Result<(), String> {
-        let driver_path = if let Some(ref d) = plan.linker_driver {
-            d.path.clone()
-        } else if let Some(ref p) = plan.linker_path {
-            PathBuf::from(p)
-        } else {
-            PathBuf::from("gcc")
-        };
-
-        let mut args = plan.linker_flags.clone();
-        args.push(obj_path.to_string_lossy().to_string());
-        args.push(rt_archive.to_string_lossy().to_string());
-        args.push("-o".to_string());
-        args.push(out_path.to_string_lossy().to_string());
-
-        let env_vars = if let Some(ref inv) = plan.resolved_invocation {
-            inv.process_environment.clone()
-        } else {
-            collect_linker_environment_variables()
-        };
-
-        let expected_backend = plan.downstream_linker.as_ref().map(|d| d.path.as_path());
-        DefaultLinkerResolver.execute_link(&driver_path, &args, &env_vars, expected_backend)
-    }
-
 }
 
 #[derive(Debug, Clone)]

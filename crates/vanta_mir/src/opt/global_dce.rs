@@ -30,22 +30,38 @@ impl GlobalDce {
         let mut stats = GlobalDceStats::default();
         let mut changed = false;
 
-        // 1. Inter-procedural Function Reachability (for executables with a main entry point)
+        // 1. Inter-procedural Function Reachability (for executables with a main entry point or library objects)
         let has_main = program.functions.iter().any(|f| f.name == "main");
-        if is_executable && has_main {
+        let should_prune_functions = (is_executable && has_main) || !is_executable;
+        if should_prune_functions {
             let initial_funcs = program.functions.len();
             let call_graph = CallGraph::build(program);
             let mut reachable = HashSet::new();
             let mut queue = VecDeque::new();
 
-            // Seed root functions: `main`, `vanta_rt_*`, foreign ABI hooks
-            for func in &program.functions {
-                if func.name == "main"
-                    || func.name.starts_with("vanta_rt_")
-                    || func.name.starts_with("__")
-                {
-                    if reachable.insert(func.name.clone()) {
-                        queue.push_back(func.name.clone());
+            if is_executable && has_main {
+                // Seed root functions: `main`, `vanta_rt_*`, foreign ABI hooks
+                for func in &program.functions {
+                    if func.name == "main"
+                        || func.name.starts_with("vanta_rt_")
+                        || func.name.starts_with("__")
+                    {
+                        if reachable.insert(func.name.clone()) {
+                            queue.push_back(func.name.clone());
+                        }
+                    }
+                }
+            } else {
+                // In library/object mode:
+                // Seed root functions: any non-standard-library function or public ABI symbols
+                for func in &program.functions {
+                    if !func.name.starts_with("std__")
+                        || func.name.starts_with("vanta_rt_")
+                        || func.name.starts_with("__")
+                    {
+                        if reachable.insert(func.name.clone()) {
+                            queue.push_back(func.name.clone());
+                        }
                     }
                 }
             }

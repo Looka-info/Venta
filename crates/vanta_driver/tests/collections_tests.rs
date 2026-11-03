@@ -1,0 +1,177 @@
+//! Milestone: Verification of `std::collections` in the Module Loader.
+//! Covers Priority 3 requirements:
+//! 1. `import std::collections;`
+//! 2. Importing and using `HashMap`.
+//! 3. Importing and using `RingBuffer`.
+//! 4. Nested module resolution.
+//! 5. Diagnostics on invalid module access (E0603).
+//! 6. Execution under unoptimized (-O0) and optimized (-O1) pipelines.
+
+use std::fs;
+use std::process::Command;
+use tempfile::tempdir;
+use vanta_driver::{
+    CompilerOptions, CompilerSession, DiagnosticFormat, EmitTarget, LinkerKind, OptLevel,
+    TargetTriple,
+};
+
+fn run_collections_test(name: &str, source: &str, opt_level: OptLevel, expected_exit_code: i32) {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join(format!("{}.va", name));
+    let exe_path = dir.path().join(format!("{}.exe", name));
+    fs::write(&src_path, source).unwrap();
+
+    let mut opts = CompilerOptions::new(src_path, exe_path.clone());
+    opts.target = TargetTriple::host();
+    opts.linker = LinkerKind::Internal;
+    opts.opt_level = opt_level;
+    opts.emit_target = EmitTarget::Exe;
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&opts);
+    if res.is_err() {
+        eprintln!("{}", session.render_diagnostics(DiagnosticFormat::Human));
+    }
+    assert!(
+        res.is_ok(),
+        "Compilation failed for {} under {:?}: {:?}",
+        name,
+        opt_level,
+        res.err()
+    );
+    assert!(exe_path.is_file(), "Executable was not produced");
+
+    let status = Command::new(&exe_path)
+        .status()
+        .expect("Failed to execute test binary");
+    assert_eq!(
+        status.code(),
+        Some(expected_exit_code),
+        "Exit code mismatch for {} under {:?}",
+        name,
+        opt_level
+    );
+}
+
+fn check_compile_failure(source: &str, expected_code: &str) {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("fail.va");
+    let exe_path = dir.path().join("fail.exe");
+    fs::write(&src_path, source).unwrap();
+
+    let mut opts = CompilerOptions::new(src_path, exe_path);
+    opts.target = TargetTriple::host();
+    opts.linker = LinkerKind::Internal;
+    opts.emit_target = EmitTarget::Obj;
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&opts);
+    assert!(res.is_err(), "Expected compilation to fail");
+    let json_diag = session.render_diagnostics(DiagnosticFormat::Json);
+    assert!(
+        json_diag.contains(expected_code),
+        "Expected error code {} in diagnostics, got:\n{}",
+        expected_code,
+        json_diag
+    );
+}
+
+#[test]
+fn test_minimal_main() {
+    let source = "fn main() -> i64 { return 77; }";
+    run_collections_test("min_main", source, OptLevel::None, 77);
+}
+
+#[test]
+fn test_import_std_collections_reexports() {
+    let source = r#"
+import std::collections;
+import std::collections::hash_map;
+import std::collections::ring_buffer;
+
+fn main() -> i64 {
+    let map: collections::HashMap<i64, i64> = collections::new_hash_map(16);
+    let rb: collections::RingBuffer<i64> = collections::new_ring_buffer(8);
+    let sum = hash_map::len(&map) + ring_buffer::len(&rb);
+    return sum;
+}
+"#;
+    run_collections_test("std_coll_o0", source, OptLevel::None, 0);
+    run_collections_test("std_coll_o1", source, OptLevel::O1, 0);
+}
+
+#[test]
+fn test_import_hash_map_direct_and_operations() {
+    let source = r#"
+import std::collections::HashMap;
+import std::collections::new_hash_map;
+import std::collections::hash_map::len;
+import std::collections::hash_map::is_empty;
+
+fn main() -> i64 {
+    let map: HashMap<i64, i64> = new_hash_map(32);
+    if !is_empty(&map) {
+        return 1;
+    }
+    if len(&map) != 0 {
+        return 2;
+    }
+    return 42;
+}
+"#;
+    run_collections_test("hash_map_o0", source, OptLevel::None, 42);
+    run_collections_test("hash_map_o1", source, OptLevel::O1, 42);
+}
+
+#[test]
+fn test_import_ring_buffer_direct_and_operations() {
+    let source = r#"
+import std::collections::RingBuffer;
+import std::collections::new_ring_buffer;
+import std::collections::ring_buffer::push;
+import std::collections::ring_buffer::pop;
+import std::collections::ring_buffer::len;
+import std::collections::ring_buffer::is_empty;
+
+fn main() -> i64 {
+    let mut rb: RingBuffer<i64> = new_ring_buffer(4);
+    if !is_empty(&rb) {
+        return 1;
+    }
+    if len(&rb) != 0 {
+        return 2;
+    }
+    return 77;
+}
+"#;
+    run_collections_test("ring_buffer_o0", source, OptLevel::None, 77);
+    run_collections_test("ring_buffer_o1", source, OptLevel::O1, 77);
+}
+
+#[test]
+fn test_nested_module_resolution() {
+    let source = r#"
+import std::collections::hash_map;
+import std::collections::ring_buffer;
+
+fn main() -> i64 {
+    let m: hash_map::HashMap<i64, i64> = hash_map::new_hash_map(8);
+    let r: ring_buffer::RingBuffer<i64> = ring_buffer::new_ring_buffer(8);
+    return hash_map::len(&m) + ring_buffer::len(&r);
+}
+"#;
+    run_collections_test("nested_res_o0", source, OptLevel::None, 0);
+    run_collections_test("nested_res_o1", source, OptLevel::O1, 0);
+}
+
+#[test]
+fn test_invalid_module_item_access_fails() {
+    let source = r#"
+import std::collections::non_existent_symbol;
+
+fn main() -> i64 {
+    return 0;
+}
+"#;
+    check_compile_failure(source, "E0603");
+}

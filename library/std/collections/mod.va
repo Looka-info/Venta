@@ -1,2 +1,7 @@
 pub mod hash_map;
 pub mod ring_buffer;
+
+pub import hash_map::HashMap;
+pub import hash_map::new_hash_map;
+pub import ring_buffer::RingBuffer;
+pub import ring_buffer::new_ring_buffer;

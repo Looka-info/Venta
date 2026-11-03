@@ -1178,7 +1178,10 @@ impl<'a> InstructionSelector<'a> {
                 }
             }
             Instruction::Unary {
-                dest, op, operand, ..
+                dest,
+                op,
+                operand,
+                ty,
             } => {
                 let op_val = self.get_val_op(*operand);
                 let dest_op = self.get_val_op(*dest);
@@ -1192,7 +1195,16 @@ impl<'a> InstructionSelector<'a> {
                         }
                         match op {
                             MirUnaryOp::Neg => out.push(MachineInst::Neg(dst)),
-                            MirUnaryOp::Not => out.push(MachineInst::Not(dst)),
+                            MirUnaryOp::Not => {
+                                if matches!(ty, Type::Bool) {
+                                    out.push(MachineInst::Xor {
+                                        dest: Operand::Reg(dst),
+                                        src: Operand::Imm(1),
+                                    });
+                                } else {
+                                    out.push(MachineInst::Not(dst));
+                                }
+                            }
                         }
                     }
                     _ => {
@@ -1202,7 +1214,16 @@ impl<'a> InstructionSelector<'a> {
                         });
                         match op {
                             MirUnaryOp::Neg => out.push(MachineInst::Neg(Reg::R10)),
-                            MirUnaryOp::Not => out.push(MachineInst::Not(Reg::R10)),
+                            MirUnaryOp::Not => {
+                                if matches!(ty, Type::Bool) {
+                                    out.push(MachineInst::Xor {
+                                        dest: Operand::Reg(Reg::R10),
+                                        src: Operand::Imm(1),
+                                    });
+                                } else {
+                                    out.push(MachineInst::Not(Reg::R10));
+                                }
+                            }
                         }
                         out.push(MachineInst::Mov {
                             dest: dest_op,

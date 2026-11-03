@@ -7,6 +7,8 @@
 #include <sys/types.h>
 
 #ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <io.h>
 #include <windows.h>
 #include <process.h>
@@ -551,11 +553,19 @@ int64_t vanta_fs_read_to_string(const char *path, uint64_t path_len, VantaString
         return open_err > 0 ? -open_err : -1;
     }
 
-    struct stat st;
     size_t init_cap = 512;
+#ifdef _WIN32
+    long file_size = _lseek(fd, 0, SEEK_END);
+    if (file_size > 0) {
+        init_cap = (size_t)file_size;
+    }
+    _lseek(fd, 0, SEEK_SET);
+#else
+    struct stat st;
     if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
         init_cap = (size_t)st.st_size;
     }
+#endif
 
     size_t cap = init_cap;
     char *buf = (char *)malloc(cap);

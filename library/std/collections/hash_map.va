@@ -8,18 +8,6 @@ pub trait Eq {
     fn eq(self: &Self, other: &Self) -> bool;
 }
 
-impl Hash for i64 {
-    fn hash(self: &i64) -> i64 {
-        return *self;
-    }
-}
-
-impl Eq for i64 {
-    fn eq(self: &i64, other: &i64) -> bool {
-        return *self == *other;
-    }
-}
-
 pub enum BucketState {
     Empty,
     Occupied,

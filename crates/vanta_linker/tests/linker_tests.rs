@@ -4,6 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use vanta_linker::archive::{extract_required_members, Archive, ArchiveWriter};
+use vanta_linker::coff::linker::link_coff_executable;
+use vanta_linker::config::LinkerConfig;
 use vanta_linker::error::LinkerError;
 use vanta_linker::input::detect_format;
 use vanta_linker::map_file::generate_link_map;
@@ -12,6 +14,7 @@ use vanta_linker::resolve::SymbolResolver;
 use vanta_linker::section::{InputSection, MergedSection, SectionFlags, SectionKind};
 use vanta_linker::symbol::{Symbol, SymbolKind, SymbolVisibility};
 use vanta_linker::{inspect_archive, list_archive};
+use vanta_target::TargetTriple;
 
 #[test]
 fn test_archive_create_parse_and_inspect() {
@@ -525,4 +528,283 @@ fn test_link_map_generation() {
     assert!(map.contains("VENTA NATIVE LINKER MAP FILE"));
     assert!(map.contains("main"));
     assert!(map.contains("0x0000000000401000"));
+}
+
+/// Helper to build a minimal AMD64 COFF relocatable object (.obj) in memory.
+fn create_test_coff_obj(
+    entry_symbol: &str,
+    code_bytes: &[u8],
+    relocs: &[(&str, u32)], // (symbol_name, offset_in_code)
+) -> Vec<u8> {
+    let mut data = Vec::new();
+    // 1. File header (20 bytes)
+    data.extend_from_slice(&0x8664u16.to_le_bytes()); // AMD64
+    data.extend_from_slice(&1u16.to_le_bytes()); // 1 section (.text)
+    data.extend_from_slice(&0u32.to_le_bytes()); // timestamp
+
+    let symtab_offset_pos = data.len();
+    data.extend_from_slice(&0u32.to_le_bytes()); // placeholder symtab_offset
+    let num_symbols = (1 + relocs.len()) as u32;
+    data.extend_from_slice(&num_symbols.to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes()); // opt header size
+    data.extend_from_slice(&0u16.to_le_bytes()); // characteristics
+
+    // 2. Section header (40 bytes)
+    let mut name = [0u8; 8];
+    name[..5].copy_from_slice(b".text");
+    data.extend_from_slice(&name);
+    data.extend_from_slice(&0u32.to_le_bytes()); // virtual_size
+    data.extend_from_slice(&0u32.to_le_bytes()); // virtual_address
+    data.extend_from_slice(&(code_bytes.len() as u32).to_le_bytes());
+    let raw_data_ptr = 60u32;
+    data.extend_from_slice(&raw_data_ptr.to_le_bytes());
+    let reloc_ptr = if relocs.is_empty() {
+        0u32
+    } else {
+        raw_data_ptr + code_bytes.len() as u32
+    };
+    data.extend_from_slice(&reloc_ptr.to_le_bytes());
+    data.extend_from_slice(&0u32.to_le_bytes()); // 28..32: PointerToLinenumbers
+    data.extend_from_slice(&(relocs.len() as u16).to_le_bytes()); // 32..34: NumberOfRelocations
+    data.extend_from_slice(&0u16.to_le_bytes()); // 34..36: NumberOfLinenumbers
+    data.extend_from_slice(&0x60000020u32.to_le_bytes()); // 36..40: Characteristics
+
+    // 3. Raw section data
+    data.extend_from_slice(code_bytes);
+
+    // 4. Relocations (10 bytes each)
+    for (i, &(_sym_name, offset)) in relocs.iter().enumerate() {
+        data.extend_from_slice(&offset.to_le_bytes());
+        let sym_idx = (1 + i) as u32; // index 0 is entry symbol
+        data.extend_from_slice(&sym_idx.to_le_bytes());
+        data.extend_from_slice(&4u16.to_le_bytes()); // IMAGE_REL_AMD64_REL32
+    }
+
+    // 5. Symbol table
+    let symtab_offset = data.len() as u32;
+    data[symtab_offset_pos..symtab_offset_pos + 4].copy_from_slice(&symtab_offset.to_le_bytes());
+
+    let mut all_names = vec![entry_symbol.to_string()];
+    for (sym_name, _) in relocs {
+        all_names.push(sym_name.to_string());
+    }
+
+    let mut string_table = Vec::new();
+    string_table.extend_from_slice(&0u32.to_le_bytes()); // placeholder string table length
+
+    for (idx, sym_name) in all_names.iter().enumerate() {
+        let is_entry = idx == 0;
+        let mut sym_record = [0u8; 18];
+        if sym_name.len() <= 8 {
+            sym_record[..sym_name.len()].copy_from_slice(sym_name.as_bytes());
+        } else {
+            let str_off = string_table.len() as u32;
+            sym_record[4..8].copy_from_slice(&str_off.to_le_bytes());
+            string_table.extend_from_slice(sym_name.as_bytes());
+            string_table.push(0);
+        }
+        let sec_num: i16 = if is_entry { 1 } else { 0 };
+        sym_record[12..14].copy_from_slice(&sec_num.to_le_bytes());
+        sym_record[14..16].copy_from_slice(&0x20u16.to_le_bytes()); // function
+        sym_record[16] = 2; // EXTERNAL
+        data.extend_from_slice(&sym_record);
+    }
+
+    // 6. String table
+    let strtab_len = string_table.len() as u32;
+    string_table[0..4].copy_from_slice(&strtab_len.to_le_bytes());
+    data.extend_from_slice(&string_table);
+
+    data
+}
+
+#[test]
+fn test_windows_dynamic_import_generation_multi_dll() {
+    let dir = tempdir().unwrap();
+    let exe_path = dir.path().join("prog.exe");
+
+    // Code calling ExitProcess (offset 7) and printf (offset 16):
+    // 0: sub rsp, 40               48 83 ec 28
+    // 4: xor ecx, ecx              31 c9
+    // 6: call ExitProcess          e8 [rel32 at offset 7]
+    // 11: lea rcx, [rip]           48 8d 0d 00 00 00 00
+    // 18: call printf              e8 [rel32 at offset 19]
+    // 23: add rsp, 40              48 83 c4 28
+    // 27: ret                      c3
+    let code: Vec<u8> = vec![
+        0x48, 0x83, 0xEC, 0x28, // 0..3: sub rsp, 40
+        0x31, 0xC9, // 4..5: xor ecx, ecx
+        0xE8, 0x00, 0x00, 0x00, 0x00, // 6..10: call ExitProcess
+        0x31, 0xC9, // 11..12: xor ecx, ecx
+        0x48, 0x83, 0xC4, 0x28, // 13..16: add rsp, 40
+        0xC3, // 17: ret
+    ];
+
+    let relocs = [("ExitProcess", 7u32), ("printf", 12u32)];
+
+    let obj_bytes = create_test_coff_obj("main", &code, &relocs);
+
+    let mut config = LinkerConfig::new(TargetTriple::X86_64PcWindowsMsvc, exe_path.clone());
+    config.input_buffers.push(("main.obj".into(), obj_bytes));
+
+    let out = link_coff_executable(&config)
+        .expect("link_coff_executable must succeed with dynamic imports");
+    assert!(exe_path.is_file(), "Executable must be written to disk");
+    assert!(out.total_file_size > 0);
+
+    let binary = fs::read(&exe_path).unwrap();
+
+    // Check DOS magic MZ
+    assert_eq!(&binary[0..2], b"MZ");
+
+    // PE signature
+    let e_lfanew = u32::from_le_bytes([binary[60], binary[61], binary[62], binary[63]]) as usize;
+    assert_eq!(&binary[e_lfanew..e_lfanew + 4], b"PE\0\0");
+
+    // Machine AMD64 (0x8664) and opt magic PE32+ (0x020B)
+    let machine = u16::from_le_bytes([binary[e_lfanew + 4], binary[e_lfanew + 5]]);
+    assert_eq!(machine, 0x8664);
+    let opt_magic = u16::from_le_bytes([binary[e_lfanew + 24], binary[e_lfanew + 25]]);
+    assert_eq!(opt_magic, 0x020B);
+
+    // Optional header data directories:
+    // Import Table is directory entry 1 (offset e_lfanew + 24 + 112 + 8)
+    let import_dir_offset = e_lfanew + 24 + 112 + 8;
+    let import_rva = u32::from_le_bytes([
+        binary[import_dir_offset],
+        binary[import_dir_offset + 1],
+        binary[import_dir_offset + 2],
+        binary[import_dir_offset + 3],
+    ]);
+    let import_size = u32::from_le_bytes([
+        binary[import_dir_offset + 4],
+        binary[import_dir_offset + 5],
+        binary[import_dir_offset + 6],
+        binary[import_dir_offset + 7],
+    ]);
+    assert!(import_rva > 0, "Import Directory RVA must be non-zero");
+    assert!(import_size > 0, "Import Directory size must be non-zero");
+
+    // IAT is directory entry 12 (offset e_lfanew + 24 + 112 + 12 * 8)
+    let iat_dir_offset = e_lfanew + 24 + 112 + 12 * 8;
+    let iat_rva = u32::from_le_bytes([
+        binary[iat_dir_offset],
+        binary[iat_dir_offset + 1],
+        binary[iat_dir_offset + 2],
+        binary[iat_dir_offset + 3],
+    ]);
+    let iat_size = u32::from_le_bytes([
+        binary[iat_dir_offset + 4],
+        binary[iat_dir_offset + 5],
+        binary[iat_dir_offset + 6],
+        binary[iat_dir_offset + 7],
+    ]);
+    assert!(iat_rva > 0, "IAT Directory RVA must be non-zero");
+    assert!(iat_size > 0, "IAT Directory size must be non-zero");
+
+    // Verify DLL names and imported symbols are present in the binary
+    let binary_str = String::from_utf8_lossy(&binary);
+    assert!(
+        binary_str.contains("KERNEL32.dll"),
+        "Must reference KERNEL32.dll"
+    );
+    assert!(
+        binary_str.contains("msvcrt.dll"),
+        "Must reference msvcrt.dll"
+    );
+    assert!(
+        binary_str.contains("ExitProcess"),
+        "Must import ExitProcess"
+    );
+    assert!(binary_str.contains("printf"), "Must import printf");
+
+    // On Windows, execute the linked binary!
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new(&exe_path)
+            .status()
+            .expect("Failed to execute generated Windows PE executable");
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "Executable must exit cleanly with code 0"
+        );
+    }
+}
+
+#[test]
+fn test_windows_unknown_external_symbol_rejected() {
+    let dir = tempdir().unwrap();
+    let exe_path = dir.path().join("prog_fail.exe");
+
+    let code: Vec<u8> = vec![
+        0x48, 0x83, 0xEC, 0x28, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x48, 0x83, 0xC4, 0x28, 0xC3,
+    ];
+
+    let relocs = [("completely_unresolvable_function_12345", 5u32)];
+    let obj_bytes = create_test_coff_obj("main", &code, &relocs);
+    let debug_obj = vanta_linker::coff::reader::read_coff_object(
+        0,
+        "debug.obj".into(),
+        PathBuf::from("debug.obj"),
+        &obj_bytes,
+    )
+    .unwrap();
+    eprintln!(
+        "DEBUG symbols: {:?}",
+        debug_obj
+            .symbols
+            .iter()
+            .map(|s| &s.name)
+            .collect::<Vec<_>>()
+    );
+    eprintln!("DEBUG relocs: {:?}", debug_obj.relocations);
+
+    let mut config = LinkerConfig::new(TargetTriple::X86_64PcWindowsMsvc, exe_path);
+    config.input_buffers.push(("main.obj".into(), obj_bytes));
+
+    let err = link_coff_executable(&config).unwrap_err();
+    match err {
+        LinkerError::UndefinedSymbol { symbol, .. } => {
+            assert_eq!(symbol, "completely_unresolvable_function_12345");
+        }
+        other => panic!("Expected UndefinedSymbol error, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_windows_archive_symbol_overrides_dynamic_import() {
+    let dir = tempdir().unwrap();
+    let exe_path = dir.path().join("prog_ar.exe");
+
+    // Main object calling a function
+    let code: Vec<u8> = vec![
+        0x48, 0x83, 0xEC, 0x28, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x48, 0x83, 0xC4, 0x28, 0xC3,
+    ];
+    let main_relocs = [("helper_func", 5u32)];
+    let main_obj = create_test_coff_obj("main", &code, &main_relocs);
+
+    // Archive member defining helper_func statically
+    let helper_code: Vec<u8> = vec![
+        0x48, 0xC7, 0xC0, 0x2A, 0x00, 0x00, 0x00, // mov rax, 42
+        0xC3, // ret
+    ];
+    let helper_obj = create_test_coff_obj("helper_func", &helper_code, &[]);
+
+    let mut writer = ArchiveWriter::new();
+    writer.add_member("helper.obj".into(), helper_obj);
+    let ar_bytes = writer.write();
+
+    let mut config = LinkerConfig::new(TargetTriple::X86_64PcWindowsMsvc, exe_path.clone());
+    config.input_buffers.push(("main.obj".into(), main_obj));
+    config
+        .archive_buffers
+        .push(("libhelper.lib".into(), ar_bytes));
+
+    let out =
+        link_coff_executable(&config).expect("Link must succeed with static archive resolution");
+    assert_eq!(
+        out.extracted_archive_members_count, 1,
+        "Must extract helper.obj from archive"
+    );
 }

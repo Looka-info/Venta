@@ -102,6 +102,8 @@ impl Mem2Reg {
         let mut val_subst: HashMap<ValueId, ValueId> = HashMap::new();
         let mut loads_to_remove: HashSet<ValueId> = HashSet::new();
         let mut stores_to_remove: HashSet<(BlockId, usize)> = HashSet::new();
+        let mut slot_loads: HashMap<SlotId, HashSet<ValueId>> = HashMap::new();
+        let mut slot_stores: HashMap<SlotId, HashSet<(BlockId, usize)>> = HashMap::new();
         let mut param_init_loads: HashSet<ValueId> = HashSet::new();
 
         // For each eligible slot, initialize reaching definition
@@ -154,8 +156,23 @@ impl Mem2Reg {
             &mut val_subst,
             &mut loads_to_remove,
             &mut stores_to_remove,
+            &mut slot_loads,
+            &mut slot_stores,
             &param_init_loads,
             &mut stats,
+        );
+
+        // 7.5 Validate all slot substitutions against dominance tree
+        let safe_eligible_slots = Self::validate_slot_substitutions(
+            func,
+            &dom_tree,
+            &eligible_slots,
+            &slot_loads,
+            &slot_stores,
+            &slot_phi_defs,
+            &mut val_subst,
+            &mut loads_to_remove,
+            &mut stores_to_remove,
         );
 
         // 8. Apply value substitutions across all instructions and terminators
@@ -177,10 +194,10 @@ impl Mem2Reg {
         }
 
         // 10. Remove promoted non-parameter slots from func.slots
-        let eligible_set: HashSet<SlotId> = eligible_slots.into_iter().collect();
-        stats.promoted_slots = eligible_set.len();
+        let safe_eligible_set: HashSet<SlotId> = safe_eligible_slots.into_iter().collect();
+        stats.promoted_slots = safe_eligible_set.len();
         func.slots
-            .retain(|s| !eligible_set.contains(&s.id) || param_slots.contains(&s.id));
+            .retain(|s| !safe_eligible_set.contains(&s.id) || param_slots.contains(&s.id));
 
         (true, stats)
     }
@@ -470,6 +487,8 @@ impl Mem2Reg {
         val_subst: &mut HashMap<ValueId, ValueId>,
         loads_to_remove: &mut HashSet<ValueId>,
         stores_to_remove: &mut HashSet<(BlockId, usize)>,
+        slot_loads: &mut HashMap<SlotId, HashSet<ValueId>>,
+        slot_stores: &mut HashMap<SlotId, HashSet<(BlockId, usize)>>,
         param_init_loads: &HashSet<ValueId>,
         stats: &mut Mem2RegStats,
     ) {
@@ -495,6 +514,10 @@ impl Mem2Reg {
                     reaching_defs.get_mut(slot).unwrap().push(reaching_val);
                     *pushed_counts.entry(*slot).or_default() += 1;
                     stores_to_remove.insert((curr_block, inst_idx));
+                    slot_stores
+                        .entry(*slot)
+                        .or_default()
+                        .insert((curr_block, inst_idx));
                     stats.eliminated_stores += 1;
                 }
                 Instruction::Load { dest, slot, .. } if eligible_slots.contains(slot) => {
@@ -504,6 +527,7 @@ impl Mem2Reg {
                     let curr_def = *reaching_defs.get(slot).unwrap().last().unwrap();
                     val_subst.insert(*dest, curr_def);
                     loads_to_remove.insert(*dest);
+                    slot_loads.entry(*slot).or_default().insert(*dest);
                     stats.eliminated_loads += 1;
                 }
                 _ => {}
@@ -546,6 +570,8 @@ impl Mem2Reg {
                     val_subst,
                     loads_to_remove,
                     stores_to_remove,
+                    slot_loads,
+                    slot_stores,
                     param_init_loads,
                     stats,
                 );
@@ -559,6 +585,159 @@ impl Mem2Reg {
                 stack.pop();
             }
         }
+    }
+
+    /// Validates all candidate value substitutions using dominance checks.
+    /// If a candidate substitution does not dominate its use (e.g. across loops or early returns),
+    /// the slot is safely retained as an unpromoted memory variable rather than creating invalid SSA.
+    fn validate_slot_substitutions(
+        func: &mut MirFunction,
+        dom_tree: &crate::opt::dom::DominatorTree,
+        eligible_slots: &[SlotId],
+        slot_loads: &HashMap<SlotId, HashSet<ValueId>>,
+        slot_stores: &HashMap<SlotId, HashSet<(BlockId, usize)>>,
+        slot_phi_defs: &HashMap<SlotId, HashMap<BlockId, ValueId>>,
+        val_subst: &mut HashMap<ValueId, ValueId>,
+        loads_to_remove: &mut HashSet<ValueId>,
+        stores_to_remove: &mut HashSet<(BlockId, usize)>,
+    ) -> Vec<SlotId> {
+        // Map every ValueId to its defining BlockId and instruction index within that block.
+        let mut val_def_pos: HashMap<ValueId, (BlockId, usize)> = HashMap::new();
+        for block in &func.blocks {
+            for (idx, inst) in block.instructions.iter().enumerate() {
+                for d in inst.defs() {
+                    val_def_pos.insert(d, (block.id, idx));
+                }
+            }
+        }
+
+        let resolve = |mut v: ValueId| -> ValueId {
+            let mut depth = 0;
+            while let Some(&next) = val_subst.get(&v) {
+                if next == v || depth > 100 {
+                    break;
+                }
+                v = next;
+                depth += 1;
+            }
+            v
+        };
+
+        let mut safe_slots = Vec::new();
+        let mut rejected_slots = Vec::new();
+        let mut phis_to_remove: HashSet<ValueId> = HashSet::new();
+
+        for &slot_id in eligible_slots {
+            let loads = match slot_loads.get(&slot_id) {
+                Some(l) => l,
+                None => {
+                    safe_slots.push(slot_id);
+                    continue;
+                }
+            };
+
+            let mut slot_is_safe = true;
+
+            for &load_dest in loads {
+                let resolved_def = resolve(load_dest);
+                if resolved_def == load_dest {
+                    continue;
+                }
+
+                let (def_block, def_idx) = match val_def_pos.get(&resolved_def) {
+                    Some(&pos) => pos,
+                    None => {
+                        slot_is_safe = false;
+                        break;
+                    }
+                };
+
+                // Check all uses of load_dest in the function
+                for block in &func.blocks {
+                    if !slot_is_safe {
+                        break;
+                    }
+                    for (use_idx, inst) in block.instructions.iter().enumerate() {
+                        if inst.uses().contains(&load_dest) {
+                            if def_block == block.id {
+                                if def_idx >= use_idx {
+                                    slot_is_safe = false;
+                                    break;
+                                }
+                            } else if !dom_tree.dominates(def_block, block.id) {
+                                slot_is_safe = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(ref term) = block.terminator {
+                        match term {
+                            Terminator::CondBranch { cond, .. } if *cond == load_dest => {
+                                if def_block != block.id && !dom_tree.dominates(def_block, block.id)
+                                {
+                                    slot_is_safe = false;
+                                    break;
+                                }
+                            }
+                            Terminator::Return(Some(val)) if *val == load_dest => {
+                                if def_block != block.id && !dom_tree.dominates(def_block, block.id)
+                                {
+                                    slot_is_safe = false;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                if !slot_is_safe {
+                    break;
+                }
+            }
+
+            if slot_is_safe {
+                safe_slots.push(slot_id);
+            } else {
+                rejected_slots.push(slot_id);
+            }
+        }
+
+        // Retain rejected stack slots as unpromoted memory variables
+        for slot_id in rejected_slots {
+            if let Some(loads) = slot_loads.get(&slot_id) {
+                for d in loads {
+                    val_subst.remove(d);
+                    loads_to_remove.remove(d);
+                }
+            }
+            if let Some(stores) = slot_stores.get(&slot_id) {
+                for s in stores {
+                    stores_to_remove.remove(s);
+                }
+            }
+            if let Some(phi_map) = slot_phi_defs.get(&slot_id) {
+                for (_, phi_val) in phi_map {
+                    phis_to_remove.insert(*phi_val);
+                }
+            }
+        }
+
+        // Remove Phis belonging to rejected slots
+        if !phis_to_remove.is_empty() {
+            for block in &mut func.blocks {
+                block.instructions.retain(|inst| {
+                    if let Instruction::Phi { dest, .. } = inst {
+                        !phis_to_remove.contains(dest)
+                    } else {
+                        true
+                    }
+                });
+            }
+        }
+
+        safe_slots
     }
 
     /// Substitutes ValueIds across all instructions and terminators in the function.

@@ -618,6 +618,12 @@ impl CodeEmitter {
                     self.emit_u8(0x33);
                     self.emit_mem_operand(dst.hw_encoding(), *base, *offset);
                 }
+                (Operand::Reg(dst), Operand::Imm(val)) => {
+                    self.emit_u8(Self::rex(true, false, false, dst.is_extended()));
+                    self.emit_u8(0x81);
+                    self.emit_u8(Self::mod_rm(0b11, 6, dst.hw_encoding()));
+                    self.emit_i32(*val as i32);
+                }
                 _ => panic!("Unsupported Xor operands: {:?}", inst),
             },
             MachineInst::Shl { dest, count } => match count {

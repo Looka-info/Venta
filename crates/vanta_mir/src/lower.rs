@@ -2098,6 +2098,12 @@ impl<'a> MirLowerer<'a> {
                 dest
             }
             ExprKind::Unary { op, expr: inner } => {
+                let inner_ty = self
+                    .sema
+                    .expr_types
+                    .get(&(inner.as_ref() as *const Expr))
+                    .cloned()
+                    .unwrap_or(Type::I64);
                 let inner_v = self.lower_expr(inner);
                 let mir_op = match op {
                     UnaryOp::Neg => MirUnaryOp::Neg,
@@ -2108,7 +2114,7 @@ impl<'a> MirLowerer<'a> {
                     dest,
                     op: mir_op,
                     operand: inner_v,
-                    ty: Type::I64,
+                    ty: inner_ty,
                 });
                 dest
             }
@@ -2141,14 +2147,18 @@ impl<'a> MirLowerer<'a> {
                 args,
                 type_args: _,
             } => {
-                let callee = self.sema.call_callees.get(&expr.span).unwrap_or(callee);
-                if callee == "Vec_new" || callee == "Vec::new" {
-                    let mangled_name = self
-                        .sema
-                        .call_callees
-                        .get(&expr.span)
-                        .cloned()
-                        .unwrap_or_else(|| "Vec__i64".to_string());
+                let callee_lookup = self.sema.call_callees.get(&expr.span).unwrap_or(callee);
+                if callee == "Vec_new"
+                    || callee == "Vec::new"
+                    || callee_lookup == "Vec_new"
+                    || callee_lookup == "Vec::new"
+                    || callee_lookup.starts_with("Vec__")
+                {
+                    let mangled_name = if callee_lookup.starts_with("Vec__") {
+                        callee_lookup.clone()
+                    } else {
+                        "Vec__i64".to_string()
+                    };
                     let slot = self.new_slot(
                         format!("_vec_{}", self.next_slot),
                         Type::Struct(mangled_name),
@@ -4014,7 +4024,13 @@ impl<'a> MirLowerer<'a> {
         }
     }
 
-    fn lower_call_internal(&mut self, callee: &str, args: &[Expr], _span: Span) -> ValueId {
+    fn lower_call_internal(&mut self, callee: &str, args: &[Expr], span: Span) -> ValueId {
+        let callee = self
+            .sema
+            .call_callees
+            .get(&span)
+            .map(|s| s.as_str())
+            .unwrap_or(callee);
         if callee == "panic" {
             let (ptr_v, len_v) = if let Some(arg) = args.first() {
                 self.lower_slice_expr(arg)

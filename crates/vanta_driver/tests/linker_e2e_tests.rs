@@ -1,7 +1,6 @@
 //! Milestone 31 — Venta v2.0 Pure-Rust Self-Contained Native Linker & Static Archive E2E Tests.
 
 use std::fs;
-use std::process::Command;
 use tempfile::tempdir;
 use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, LinkerKind, TargetTriple};
 
@@ -223,4 +222,103 @@ fn main() -> i64 {
             .expect("Failed to execute multi-object binary");
         assert_eq!(status.code(), Some(42), "25 + 17 must equal 42");
     }
+}
+
+#[test]
+fn test_runtime_archive_target_selection_and_format_validation() {
+    use std::path::Path;
+
+    let linux_target = TargetTriple::X86_64UnknownLinuxGnu.spec();
+    let windows_target = TargetTriple::X86_64PcWindowsMsvc.spec();
+
+    let linux_archive = Path::new("runtime/x86_64-unknown-linux-gnu/libvanta_rt.a");
+    let windows_archive = Path::new("runtime/x86_64-pc-windows-msvc/vanta_rt.lib");
+
+    // 1. Linux archive must validate successfully for Linux target
+    if linux_archive.is_file() {
+        let res = CompilerSession::validate_runtime_archive(linux_archive, &linux_target);
+        assert!(
+            res.is_ok(),
+            "Linux archive must validate for Linux: {:?}",
+            res
+        );
+
+        // 2. Linux archive must be rejected for Windows target
+        let res_win = CompilerSession::validate_runtime_archive(linux_archive, &windows_target);
+        assert!(
+            res_win.is_err(),
+            "Linux ELF archive must be rejected for Windows target"
+        );
+        let err_msg = res_win.unwrap_err();
+        assert!(
+            err_msg.contains("IMAGE_FILE_MACHINE_AMD64") || err_msg.contains("ELF64"),
+            "Error diagnostic must mention incompatible format: {}",
+            err_msg
+        );
+    }
+
+    // 3. Windows archive must validate successfully for Windows target
+    if windows_archive.is_file() {
+        let res = CompilerSession::validate_runtime_archive(windows_archive, &windows_target);
+        assert!(
+            res.is_ok(),
+            "Windows archive must validate for Windows: {:?}",
+            res
+        );
+
+        // 4. Windows archive must be rejected for Linux target
+        let res_linux = CompilerSession::validate_runtime_archive(windows_archive, &linux_target);
+        assert!(
+            res_linux.is_err(),
+            "Windows COFF archive must be rejected for Linux target"
+        );
+        let err_msg = res_linux.unwrap_err();
+        assert!(
+            err_msg.contains("ELF64") || err_msg.contains("IMAGE_FILE_MACHINE_AMD64"),
+            "Error diagnostic must mention incompatible format: {}",
+            err_msg
+        );
+    }
+
+    // 5. Target-based resolution via find_runtime_archive_for_target
+    let dummy_opts = CompilerOptions::new("dummy.va".into(), "dummy.exe".into());
+    if linux_archive.is_file() {
+        let resolved_linux =
+            CompilerSession::find_runtime_archive_for_target(&dummy_opts, &linux_target);
+        assert!(
+            resolved_linux.is_ok(),
+            "Should resolve Linux runtime: {:?}",
+            resolved_linux
+        );
+        let path = resolved_linux.unwrap();
+        assert!(
+            path.to_string_lossy().contains("linux"),
+            "Resolved path must be Linux target archive"
+        );
+    }
+
+    if windows_archive.is_file() {
+        let resolved_win =
+            CompilerSession::find_runtime_archive_for_target(&dummy_opts, &windows_target);
+        assert!(
+            resolved_win.is_ok(),
+            "Should resolve Windows runtime: {:?}",
+            resolved_win
+        );
+        let path = resolved_win.unwrap();
+        assert!(
+            path.to_string_lossy().contains("windows")
+                || path.extension().map_or(false, |ext| ext == "lib"),
+            "Resolved path must be Windows target archive"
+        );
+    }
+
+    // 6. Non-existent path returns clear diagnostic
+    let bad_path = Path::new("runtime/nonexistent/libvanta_rt.a");
+    let res_bad = CompilerSession::validate_runtime_archive(bad_path, &linux_target);
+    assert!(res_bad.is_err(), "Non-existent runtime path must fail");
+    assert!(
+        res_bad.unwrap_err().contains("Failed to read archive"),
+        "Must have informative message"
+    );
 }
