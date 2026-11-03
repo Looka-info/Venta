@@ -25,6 +25,9 @@ function getCandidates() {
       const binName = `${name}${ext}`;
       candidates.push(
         path.join(PKG_ROOT, 'dist', 'bin', binName),
+        path.join(PKG_ROOT, 'dist', 'vanta-v1.0-RC2-x86_64-pc-windows-msvc', 'bin', binName),
+        path.join(PKG_ROOT, 'dist', 'vanta-v1.0-RC2-x86_64-unknown-linux-gnu', 'bin', binName),
+        path.join(PKG_ROOT, 'dist', 'vanta-v1.0-RC2-aarch64-apple-darwin', 'bin', binName),
         path.join(PKG_ROOT, 'dist', binName),
         path.join(home, '.venta', 'bin', binName),
         path.join(home, '.vanta', 'bin', binName),

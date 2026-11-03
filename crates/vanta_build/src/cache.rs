@@ -353,6 +353,7 @@ impl CacheManager {
 
         // 3. Atomically rename data file into destination
         let final_art_path = self.artifact_path(key, artifact_type);
+        let _ = fs::remove_file(&final_art_path);
         if let Err(e) = fs::rename(&tmp_data_path, &final_art_path) {
             let _ = fs::remove_file(&tmp_data_path);
             let _ = fs::remove_file(&tmp_meta_path);
@@ -366,6 +367,7 @@ impl CacheManager {
 
         // 4. Atomically rename metadata file into destination
         let final_meta_path = self.metadata_path(key);
+        let _ = fs::remove_file(&final_meta_path);
         if let Err(e) = fs::rename(&tmp_meta_path, &final_meta_path) {
             let _ = fs::remove_file(&tmp_meta_path);
             let _ = fs::remove_file(&lock_file);

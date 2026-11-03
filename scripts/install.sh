@@ -65,10 +65,10 @@ elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_
     SRC_LIB="${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/lib/vanta"
 elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/../target/release"
-    SRC_LIB="${SCRIPT_DIR}/../lib/vanta"
+    SRC_LIB="${SCRIPT_DIR}/../library"
 elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/../target/debug"
-    SRC_LIB="${SCRIPT_DIR}/../lib/vanta"
+    SRC_LIB="${SCRIPT_DIR}/../library"
 fi
 
 # 2. Remote fallback: download official release tarball if piped from curl or standalone

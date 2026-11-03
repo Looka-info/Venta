@@ -1373,9 +1373,10 @@ impl CompilerSession {
             ));
         }
 
+        let temp_a = std::env::temp_dir().join(format!("vanta_rt_{}.a", pid));
         let ar_status = Command::new("ar")
             .arg("rcs")
-            .arg(&target_archive)
+            .arg(&temp_a)
             .arg(&temp_o)
             .status()
             .map_err(|e| format!("Could not invoke ar to create runtime archive: {}", e))?;
@@ -1383,10 +1384,24 @@ impl CompilerSession {
         let _ = fs::remove_file(&temp_o);
 
         if !ar_status.success() {
+            let _ = fs::remove_file(&temp_a);
             return Err(format!(
                 "Failed to package runtime archive (ar exited with {})",
                 ar_status
             ));
+        }
+
+        let _ = fs::remove_file(&target_archive);
+        if let Err(e) = fs::rename(&temp_a, &target_archive) {
+            fs::copy(&temp_a, &target_archive).map_err(|ce| {
+                format!(
+                    "Failed to install runtime archive into {}: {} (copy fallback: {})",
+                    target_archive.display(),
+                    e,
+                    ce
+                )
+            })?;
+            let _ = fs::remove_file(&temp_a);
         }
 
         Ok(target_archive)
@@ -1422,20 +1437,6 @@ impl CompilerSession {
         DefaultLinkerResolver.execute_link(&driver_path, &args, &env_vars, expected_backend)
     }
 
-    #[allow(dead_code)]
-    fn invoke_system_linker(
-        obj_path: &Path,
-        out_path: &Path,
-        rt_archive: &Path,
-    ) -> Result<(), String> {
-        let default_plan = LinkConfiguration::new(
-            "x86_64-unknown-linux-gnu",
-            "elf64",
-            "system",
-            out_path.to_string_lossy(),
-        );
-        Self::invoke_system_linker_with_plan(&default_plan, obj_path, out_path, rt_archive)
-    }
 }
 
 #[derive(Debug, Clone)]

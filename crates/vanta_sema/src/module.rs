@@ -19,6 +19,7 @@ const EMBEDDED_STD_FS: &str = include_str!("../../../library/std/fs.va");
 const EMBEDDED_STD_ENV: &str = include_str!("../../../library/std/env.va");
 const EMBEDDED_STD_NET: &str = include_str!("../../../library/std/net.va");
 const EMBEDDED_STD_GPU: &str = include_str!("../../../library/std/gpu.va");
+const EMBEDDED_STD_SIMD: &str = include_str!("../../../library/std/simd.va");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ModuleId(pub usize);
@@ -295,6 +296,7 @@ impl<'a> ModuleLoader<'a> {
             env_src,
             net_src,
             gpu_src,
+                simd_src,
         ) = if let Some(std_dir) = std_dir_opt {
             let mod_file = std_dir.join("mod.va");
             let canon_mod = mod_file.canonicalize().unwrap_or(mod_file);
@@ -320,9 +322,12 @@ impl<'a> ModuleLoader<'a> {
             let net_src = fs::read_to_string(&net_file).unwrap_or_else(|_| EMBEDDED_STD_NET.into());
             let gpu_file = std_dir.join("gpu.va");
             let gpu_src = fs::read_to_string(&gpu_file).unwrap_or_else(|_| EMBEDDED_STD_GPU.into());
+            let simd_file = std_dir.join("simd.va");
+            let simd_src = fs::read_to_string(&simd_file).unwrap_or_else(|_| EMBEDDED_STD_SIMD.into());
             (
                 canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
                 gpu_src,
+                simd_src,
             )
         } else {
             (
@@ -337,6 +342,7 @@ impl<'a> ModuleLoader<'a> {
                 EMBEDDED_STD_ENV.into(),
                 EMBEDDED_STD_NET.into(),
                 EMBEDDED_STD_GPU.into(),
+                EMBEDDED_STD_SIMD.into(),
             )
         };
 
@@ -649,6 +655,37 @@ impl<'a> ModuleLoader<'a> {
             .insert(vec!["std".into(), "gpu".into()], gpu_id);
         self.modules[std_id.0].children.insert("gpu".into(), gpu_id);
         self.seen_canonical_paths.insert(gpu_path, gpu_id);
+
+        // 11. Add and parse std/simd.va
+        let simd_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("simd.va");
+        let simd_file_id = self
+            .source_map
+            .add_file(simd_path.to_string_lossy().to_string(), simd_src);
+        let simd_file = self.source_map.get_file(simd_file_id).unwrap();
+        let mut simd_lexer = Lexer::new(&simd_file);
+        let simd_tokens = simd_lexer.tokenize(self.diagnostics);
+        let mut simd_parser = Parser::new(simd_tokens);
+        let simd_program = simd_parser.parse_program(self.diagnostics);
+
+        let simd_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: simd_id,
+            name: "simd".into(),
+            path: vec!["std".into(), "simd".into()],
+            file_path: simd_path.clone(),
+            file_id: simd_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: simd_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "simd".into()], simd_id);
+        self.modules[std_id.0].children.insert("simd".into(), simd_id);
+        self.seen_canonical_paths.insert(simd_path, simd_id);
 
         Ok(())
     }

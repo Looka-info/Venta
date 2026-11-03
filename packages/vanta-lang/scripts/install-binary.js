@@ -164,6 +164,11 @@ async function main() {
     log(`Extracting ${ARCHIVE_NAME}...`);
     if (isZip) {
       execSync(`powershell -Command "Expand-Archive -Path '${tempArchive}' -DestinationPath '${DIST_DIR}' -Force"`, { stdio: 'inherit' });
+      const extractedFolder = path.join(DIST_DIR, `vanta-${VERSION}-${target}`);
+      if (fs.existsSync(extractedFolder)) {
+        copyRecursive(extractedFolder, DIST_DIR);
+        fs.rmSync(extractedFolder, { recursive: true, force: true });
+      }
     } else {
       execSync(`tar -xzf "${tempArchive}" -C "${DIST_DIR}" --strip-components=1`, { stdio: 'inherit' });
     }
