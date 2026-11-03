@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="images/vanta-gold-lightning-mark.png" width="220" alt="Vanta Gold Lightning Mark" /><br>
-
 # ⚡ Vanta Programming Language
 
 **A Performance-First, Memory-Safe Systems Programming Language with a Custom SSA Optimizer, Multi-Platform Native Backends (x86-64 & AArch64), and a Self-Contained Pure-Rust Linker**
