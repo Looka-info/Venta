@@ -23,6 +23,7 @@ USAGE:
     ventanext-gen <APP_DIR> [OPTIONS]
 
 COMMANDS:
+    dev [APP_DIR] [OPTIONS]             Start development server with live preview & hot reload
     templates [OPTIONS]                 List all templates in the official registry
     new <TEMPLATE_ID> [NAME] [OPTIONS]  Scaffold a new complete project from a template
     verify-template <TEMPLATE_DIR>      Verify manifest and cryptographic checksums
@@ -247,6 +248,38 @@ fn handle_verify_template(args: &[String]) {
     }
 }
 
+fn handle_dev(args: &[String]) {
+    let mut config = ventanext_codegen::DevServerConfig::default();
+    let mut project_dir = PathBuf::from(".");
+    let mut i = 0;
+    while i < args.len() {
+        if (args[i] == "-p" || args[i] == "--port") && i + 1 < args.len() {
+            if let Ok(p) = args[i + 1].parse::<u16>() {
+                config.port = p;
+            }
+            i += 2;
+        } else if args[i] == "--host" && i + 1 < args.len() {
+            config.host = args[i + 1].clone();
+            i += 2;
+        } else if args[i] == "--debounce" && i + 1 < args.len() {
+            if let Ok(d) = args[i + 1].parse::<u64>() {
+                config.debounce_ms = d;
+            }
+            i += 2;
+        } else if !args[i].starts_with('-') {
+            project_dir = PathBuf::from(&args[i]);
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    config.project_dir = project_dir;
+    if let Err(e) = ventanext_codegen::run_development_server(config, false) {
+        eprintln!("[ventanext ERROR] Dev server error: {}", e);
+        process::exit(1);
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -265,6 +298,10 @@ fn main() {
     }
 
     match args[1].as_str() {
+        "dev" => {
+            handle_dev(&args[2..]);
+            return;
+        }
         "templates" => {
             handle_templates(&args[2..]);
             return;

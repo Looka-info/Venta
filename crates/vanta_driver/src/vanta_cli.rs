@@ -38,6 +38,7 @@ COMMANDS:
     compile <file.va> [-o <out>] [--json]   Compile a {lang_name} program to a native binary
     check <file.va> [--json]                Verify syntax, types, borrows, and MIR without compiling
     fmt [files...] [--check]       Format {lang_name} source files canonically
+    dev [dir] [--port <port>]      Start development server with live preview & hot reload
     templates [OPTIONS]            Browse VentaNext website template gallery
     new <template> [name]          Create a full project from a VentaNext template
     create <template> [name]       Alias for 'new'
@@ -88,7 +89,7 @@ fn main() {
         "compile" => handle_compile(&args[2..]),
         "check" => handle_check(&args[2..]),
         "fmt" => handle_fmt(&args[2..]),
-        "templates" | "new" | "create" => handle_templates_forward(&args[1..]),
+        "dev" | "watch" | "templates" | "new" | "create" => handle_templates_forward(&args[1..]),
         unknown => {
             eprintln!("Error: Unknown command '{}'", unknown);
             print_usage_stderr();

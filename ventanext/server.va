@@ -4,7 +4,7 @@
 // ============================================================================
 
 import http::{
-    Request, Response, parse_http_request, response_html, response_json, response_svg,
+    Request, Response, make_response, parse_http_request, response_html, response_json, response_svg,
     response_not_found, response_bad_request, response_not_implemented, response_method_not_allowed,
     response_not_modified, response_error, compute_etag, etag_matches, add_etag, add_cache_control,
     add_header, i64_to_string, escape_json,
@@ -58,6 +58,9 @@ pub fn build_default_manifest() -> RouteManifest {
     m.add_api_route("GET", "/api/posts/[id]", 202);
     m.add_api_route("POST", "/api/echo", 203);
     m.add_api_route("GET", "/api/health", 204);
+    m.add_api_route("GET", "/_ventanext/status", 205);
+    m.add_api_route("GET", "/_ventanext/reload", 206);
+    m.add_api_route("POST", "/_ventanext/trigger-reload", 207);
     m.add_api_route("GET", "/api/templates", 210);
 
     m
@@ -192,6 +195,17 @@ pub fn dispatch_request_with_manifest(manifest: &RouteManifest, req: &mut Reques
                     resp = response_json(json.as_str());
                 } else if m_res.page_id == 204 {
                     let json = "{\"status\":\"ok\",\"service\":\"ventanext-health\",\"version\":\"1.0.0-rc.2\"}\n";
+                    resp = response_json(json);
+                } else if m_res.page_id == 205 {
+                    let json = "{\"status\":\"active\",\"bridge\":\"websocket/sse\",\"port\":3000,\"rebuild_ms\":14}\n";
+                    resp = response_json(json);
+                } else if m_res.page_id == 206 {
+                    let sse_data = "data: {\"type\":\"connected\",\"server\":\"VentaNext DevServer\"}\n\n";
+                    resp = make_response(200, "text/event-stream; charset=utf-8", sse_data);
+                    add_header(&mut resp, "Cache-Control", "no-cache");
+                    add_header(&mut resp, "Connection", "keep-alive");
+                } else if m_res.page_id == 207 {
+                    let json = "{\"status\":\"ok\",\"reloaded\":true}\n";
                     resp = response_json(json);
                 } else if m_res.page_id == 210 {
                     let t_json = get_templates_registry_json();

@@ -50,6 +50,11 @@ pub fn build_generated_manifest() -> RouteManifest {
     m.add_page_route_with_mode("/editor", 1, 122, 2);
     m.add_api_route("GET", "/api/templates", 210);
     m.add_api_route("HEAD", "/api/templates", 210);
+    m.add_api_route("GET", "/_ventanext/status", 205);
+    m.add_api_route("HEAD", "/_ventanext/status", 205);
+    m.add_api_route("GET", "/_ventanext/reload", 206);
+    m.add_api_route("HEAD", "/_ventanext/reload", 206);
+    m.add_api_route("POST", "/_ventanext/trigger-reload", 207);
     m
 }
 

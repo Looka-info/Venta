@@ -901,9 +901,10 @@ fn main() -> i64 {
     test_security_hardening_and_vulnerability_remediation();
     test_file_icon_asset_serving();
     test_template_gallery_and_preview_routes();
+    test_phase5_live_preview_websocket_bridge_and_hot_reload();
 
     print_str("============================================================\n");
-    print_str("   ALL 30 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 31 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1625,6 +1626,77 @@ fn test_template_gallery_and_preview_routes() {
     assert(resp_head_gal.body.len_bytes() == 0, "7. HEAD body must be 0 bytes");
     let cl_gal = resp_head_gal.headers.get("content-length");
     assert(cl_gal.is_some(), "7. Expected Content-Length header for HEAD /templates");
+
+    print_str("OK\n");
+}
+
+fn test_phase5_live_preview_websocket_bridge_and_hot_reload() {
+    print_str("[31/31] Testing Phase 5 Dev Server, Live Reload Bridge & Hot Reload Endpoints (1-7)... ");
+
+    let gen_manifest = generated_routes::build_generated_manifest();
+
+    // 1. GET /_ventanext/status returns 200 OK with server telemetry JSON
+    let mut req_status = make_request("GET", "/_ventanext/status", "", make_header_map(), "");
+    let resp_status = server::dispatch_request_with_manifest(&gen_manifest, &mut req_status);
+    assert(resp_status.status == 200, "1. Expected 200 for GET /_ventanext/status");
+    assert(resp_status.content_type.as_str().equals("application/json; charset=utf-8"), "1. Content-Type must be application/json");
+    assert(str_contains(resp_status.body.as_str(), "\"status\":\"active\""), "1. Status must be active");
+    assert(str_contains(resp_status.body.as_str(), "\"bridge\":\"websocket/sse\""), "1. Bridge must support websocket/sse");
+    assert(str_contains(resp_status.body.as_str(), "\"port\":3000"), "1. Default dev server port 3000");
+
+    // 2. GET /_ventanext/reload returns 200 OK with text/event-stream and initial connection frame
+    let mut req_reload = make_request("GET", "/_ventanext/reload", "", make_header_map(), "");
+    let resp_reload = server::dispatch_request_with_manifest(&gen_manifest, &mut req_reload);
+    assert(resp_reload.status == 200, "2. Expected 200 for GET /_ventanext/reload");
+    assert(resp_reload.content_type.as_str().equals("text/event-stream; charset=utf-8"), "2. Content-Type must be text/event-stream");
+    let cc_reload = resp_reload.headers.get("cache-control");
+    assert(cc_reload.is_some(), "2. Expected Cache-Control header");
+    match cc_reload {
+        Option::Some(cc) => { assert(str_contains(cc.as_str(), "no-cache"), "2. Cache-Control must include no-cache"); }
+        Option::None => {}
+    }
+    assert(str_contains(resp_reload.body.as_str(), "data: {\"type\":\"connected\""), "2. Initial frame must indicate connected");
+
+    // 3. POST /_ventanext/trigger-reload returns 200 OK with confirmation JSON
+    let mut req_trigger = make_request("POST", "/_ventanext/trigger-reload", "", make_header_map(), "{}");
+    let resp_trigger = server::dispatch_request_with_manifest(&gen_manifest, &mut req_trigger);
+    assert(resp_trigger.status == 200, "3. Expected 200 for POST /_ventanext/trigger-reload");
+    assert(str_contains(resp_trigger.body.as_str(), "\"reloaded\":true"), "3. Expected reloaded: true");
+
+    // 4. HEAD /_ventanext/status returns 200 with empty body and Content-Length
+    let mut req_head_st = make_request("HEAD", "/_ventanext/status", "", make_header_map(), "");
+    let resp_head_st = server::dispatch_request_with_manifest(&gen_manifest, &mut req_head_st);
+    assert(resp_head_st.status == 200, "4. Expected 200 for HEAD /_ventanext/status");
+    assert(resp_head_st.body.len_bytes() == 0, "4. HEAD status body must be 0 bytes");
+    assert(resp_head_st.headers.get("content-length").is_some(), "4. Expected Content-Length for HEAD status");
+
+    // 5. HEAD /_ventanext/reload returns 200 with empty body and Content-Length
+    let mut req_head_rel = make_request("HEAD", "/_ventanext/reload", "", make_header_map(), "");
+    let resp_head_rel = server::dispatch_request_with_manifest(&gen_manifest, &mut req_head_rel);
+    assert(resp_head_rel.status == 200, "5. Expected 200 for HEAD /_ventanext/reload");
+    assert(resp_head_rel.body.len_bytes() == 0, "5. HEAD reload body must be 0 bytes");
+
+    // 6. DELETE /_ventanext/status returns 405 Method Not Allowed
+    let mut req_del_st = make_request("DELETE", "/_ventanext/status", "", make_header_map(), "");
+    let resp_del_st = server::dispatch_request_with_manifest(&gen_manifest, &mut req_del_st);
+    assert(resp_del_st.status == 405, "6. Expected 405 for DELETE /_ventanext/status");
+    let allow_st = resp_del_st.headers.get("allow");
+    assert(allow_st.is_some(), "6. Expected Allow header");
+    match allow_st {
+        Option::Some(al) => { assert(str_contains(al.as_str(), "GET"), "6. Allow header must list GET"); }
+        Option::None => {}
+    }
+
+    // 7. PUT /_ventanext/trigger-reload returns 405 Method Not Allowed
+    let mut req_put_trig = make_request("PUT", "/_ventanext/trigger-reload", "", make_header_map(), "");
+    let resp_put_trig = server::dispatch_request_with_manifest(&gen_manifest, &mut req_put_trig);
+    assert(resp_put_trig.status == 405, "7. Expected 405 for PUT /_ventanext/trigger-reload");
+    let allow_trig = resp_put_trig.headers.get("allow");
+    assert(allow_trig.is_some(), "7. Expected Allow header on 405");
+    match allow_trig {
+        Option::Some(al) => { assert(str_contains(al.as_str(), "POST"), "7. Allow header must list POST"); }
+        Option::None => {}
+    }
 
     print_str("OK\n");
 }

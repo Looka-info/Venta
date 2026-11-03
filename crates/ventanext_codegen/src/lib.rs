@@ -18,6 +18,9 @@ use vanta_source::{FileId, SourceFile};
 pub mod template_registry;
 pub use template_registry::*;
 
+pub mod dev_server;
+pub use dev_server::*;
+
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Official 3D Gold Lightning vector icon for Venta (.va) files and favicons.
