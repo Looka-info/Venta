@@ -905,11 +905,13 @@ pub fn handle_client_connection(
             bridge.last_rebuild_ms()
         );
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-            json.len(),
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}\n",
+            json.len() + 1,
             json
         );
         let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Both);
         return;
     }
 
@@ -919,11 +921,13 @@ pub fn handle_client_connection(
         bridge.broadcast(&evt);
         let json = "{\"status\":\"ok\",\"reloaded\":true}";
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-            json.len(),
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}\n",
+            json.len() + 1,
             json
         );
         let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Both);
         return;
     }
 
@@ -948,11 +952,13 @@ pub fn handle_client_connection(
         );
         let injected = inject_live_reload_script(&html_content);
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
             injected.len(),
             injected
         );
         let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Both);
         return;
     }
 
@@ -963,11 +969,13 @@ pub fn handle_client_connection(
     );
     let injected = inject_live_reload_script(&not_found);
     let resp = format!(
-        "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
         injected.len(),
         injected
     );
     let _ = stream.write_all(resp.as_bytes());
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
 // ----------------------------------------------------------------------------
@@ -1307,6 +1315,12 @@ mod tests {
         // Test GET /_ventanext/status
         let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
         stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
             .write_all(b"GET /_ventanext/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
             .unwrap();
         let mut reader = BufReader::new(stream);
@@ -1330,6 +1344,12 @@ mod tests {
         // Test POST /_ventanext/trigger-reload
         let mut stream_trigger = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
         stream_trigger
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream_trigger
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream_trigger
             .write_all(b"POST /_ventanext/trigger-reload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n")
             .unwrap();
         let mut reader_trigger = BufReader::new(stream_trigger);
@@ -1339,6 +1359,12 @@ mod tests {
 
         // Test GET non-existent route 404
         let mut stream_404 = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        stream_404
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream_404
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         stream_404
             .write_all(b"GET /non-existent-xyz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
             .unwrap();
@@ -1367,7 +1393,21 @@ mod tests {
 
         let (bridge, handle) = start_dev_server_background(listener, config, stop_signal.clone());
 
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        let stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut write_stream = stream.try_clone().unwrap();
+        write_stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        write_stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+
         let key = "dGhlIHNhbXBsZSBub25jZQ==";
         let req = format!(
             "GET /_ventanext/reload HTTP/1.1\r\n\
@@ -1378,9 +1418,9 @@ mod tests {
             Sec-WebSocket-Version: 13\r\n\r\n",
             port, key
         );
-        stream.write_all(req.as_bytes()).unwrap();
+        write_stream.write_all(req.as_bytes()).unwrap();
 
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut reader = BufReader::new(stream);
         let mut status_line = String::new();
         reader.read_line(&mut status_line).unwrap();
         assert!(status_line.contains("101 Switching Protocols"));
@@ -1405,7 +1445,7 @@ mod tests {
 
         // Read the initial 'connected' frame sent on upgrade
         let mut initial_buf = [0u8; 512];
-        let n = reader.get_mut().read(&mut initial_buf).unwrap();
+        let n = reader.read(&mut initial_buf).unwrap();
         let (conn_frame, _) = decode_websocket_frame(&initial_buf[..n])
             .unwrap()
             .expect("initial connected frame");
@@ -1417,7 +1457,7 @@ mod tests {
         bridge.broadcast(&evt);
 
         let mut reload_buf = [0u8; 512];
-        let n_reload = reader.get_mut().read(&mut reload_buf).unwrap();
+        let n_reload = reader.read(&mut reload_buf).unwrap();
         let (reload_frame, _) = decode_websocket_frame(&reload_buf[..n_reload])
             .unwrap()
             .expect("broadcast reload frame");
@@ -1430,10 +1470,10 @@ mod tests {
         let ping_payload = b"ping_test_data";
         let mask = Some([0xAA, 0xBB, 0xCC, 0xDD]);
         let ping_frame = encode_websocket_frame(true, WebSocketOpcode::Ping, mask, ping_payload);
-        stream.write_all(&ping_frame).unwrap();
+        write_stream.write_all(&ping_frame).unwrap();
 
         let mut pong_buf = [0u8; 256];
-        let n_pong = reader.get_mut().read(&mut pong_buf).unwrap();
+        let n_pong = reader.read(&mut pong_buf).unwrap();
         let (pong_frame, _) = decode_websocket_frame(&pong_buf[..n_pong])
             .unwrap()
             .expect("pong frame response");
@@ -1441,6 +1481,7 @@ mod tests {
         assert_eq!(pong_frame.payload, ping_payload);
 
         stop_signal.store(true, Ordering::Relaxed);
+        let _ = write_stream.shutdown(std::net::Shutdown::Both);
         let _ = handle.join();
     }
 }
