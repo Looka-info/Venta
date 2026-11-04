@@ -768,3 +768,115 @@ pub fn main() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("999"), "Expected output to contain '999', got: {}", stdout);
 }
+
+#[test]
+fn test_sqlite_parameter_binding_and_query_results() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("test_sqlite_params.va");
+    let out_bin = temp_dir.path().join("test_sqlite_params_bin");
+
+    let source = r#"
+import std::sqlite;
+
+pub fn main() {
+    let db_res = sqlite::open(":memory:");
+    match db_res {
+        Result::Ok(db) => {
+            // 1. Create table
+            db.execute("CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, salary INT, manager_id INT);");
+
+            // 2. Prepare parameterized insert
+            let stmt_ins_res = db.prepare("INSERT INTO employees (id, name, salary, manager_id) VALUES (?, ?, ?, ?);");
+            match stmt_ins_res {
+                Result::Ok(stmt_ins) => {
+                    // Row 1
+                    stmt_ins.bind_int64(1, 101);
+                    stmt_ins.bind_text(2, "Alice Engineer");
+                    stmt_ins.bind_int64(3, 85000);
+                    stmt_ins.bind_null(4);
+                    let rc1 = stmt_ins.step();
+                    if rc1 != 101 {
+                        panic("insert 1 failed");
+                    }
+                    stmt_ins.reset();
+
+                    // Row 2
+                    stmt_ins.bind_int64(1, 102);
+                    stmt_ins.bind_text(2, "Bob Architect");
+                    stmt_ins.bind_int64(3, 95000);
+                    stmt_ins.bind_int(4, 101);
+                    let rc2 = stmt_ins.step();
+                    if rc2 != 101 {
+                        panic("insert 2 failed");
+                    }
+                    stmt_ins.finalize();
+                },
+                Result::Err(e) => {
+                    panic("prepare insert failed");
+                }
+            }
+
+            // 3. Prepare parameterized select query
+            let stmt_sel_res = db.prepare("SELECT id, name, salary, manager_id FROM employees WHERE id = ?;");
+            match stmt_sel_res {
+                Result::Ok(stmt_sel) => {
+                    stmt_sel.bind_int64(1, 102);
+                    let has_row = stmt_sel.next_row();
+                    if !has_row {
+                        panic("expected row for id 102");
+                    }
+
+                    let cols = stmt_sel.column_count();
+                    let id_val = stmt_sel.column_int64(0);
+                    let name_str = stmt_sel.column_text(1);
+                    let salary_val = stmt_sel.column_int64(2);
+                    let mgr_val = stmt_sel.column_int(3);
+                    let is_mgr_null = stmt_sel.column_is_null(3);
+
+                    if cols == 4 && id_val == 102 && name_str.len == 13 && salary_val == 95000 && mgr_val == 101 && !is_mgr_null {
+                        stmt_sel.finalize();
+                        db.close();
+                        print_i64(54321);
+                    } else {
+                        panic("query result values mismatched");
+                    }
+                },
+                Result::Err(e) => {
+                    panic("prepare select failed");
+                }
+            }
+        },
+        Result::Err(e) => {
+            panic("database open failed");
+        }
+    }
+}
+"#;
+    fs::write(&src_path, source).unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_bin.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        linker: LinkerKind::System,
+        libs: vec!["sqlite3".to_string()],
+        ..Default::default()
+    };
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&options);
+    assert!(
+        res.is_ok(),
+        "Compilation failed: {:?}\nDiagnostics: {}",
+        res.err(),
+        session.render_diagnostics(DiagnosticFormat::Human)
+    );
+
+    let output = Command::new(&out_bin).output().expect("Execute test binary");
+    assert!(output.status.success(), "Process exited with non-zero status");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("54321"), "Expected output to contain '54321', got: {}", stdout);
+}

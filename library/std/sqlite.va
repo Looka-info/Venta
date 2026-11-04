@@ -9,9 +9,49 @@ extern "C" {
     pub fn sqlite3_total_changes(db: i64) -> i32;
     pub fn sqlite3_libversion_number() -> i32;
     pub fn sqlite3_errmsg(db: i64) -> i64;
+
+    // Statement preparation & lifecycle
+    pub fn sqlite3_prepare_v2(db: i64, zSql: i64, nByte: i32, ppStmt: &mut i64, pzTail: i64) -> i32;
+    pub fn sqlite3_step(stmt: i64) -> i32;
+    pub fn sqlite3_reset(stmt: i64) -> i32;
+    pub fn sqlite3_finalize(stmt: i64) -> i32;
+    pub fn sqlite3_clear_bindings(stmt: i64) -> i32;
+
+    // Parameter binding (1-based index)
+    pub fn sqlite3_bind_int(stmt: i64, index: i32, val: i32) -> i32;
+    pub fn sqlite3_bind_int64(stmt: i64, index: i32, val: i64) -> i32;
+    pub fn sqlite3_bind_double(stmt: i64, index: i32, val: f64) -> i32;
+    pub fn sqlite3_bind_text(stmt: i64, index: i32, val: i64, n: i32, destructor: i64) -> i32;
+    pub fn sqlite3_bind_null(stmt: i64, index: i32) -> i32;
+
+    // Column values & inspection (0-based column index)
+    pub fn sqlite3_column_count(stmt: i64) -> i32;
+    pub fn sqlite3_column_type(stmt: i64, iCol: i32) -> i32;
+    pub fn sqlite3_column_int(stmt: i64, iCol: i32) -> i32;
+    pub fn sqlite3_column_int64(stmt: i64, iCol: i32) -> i64;
+    pub fn sqlite3_column_double(stmt: i64, iCol: i32) -> f64;
+    pub fn sqlite3_column_text(stmt: i64, iCol: i32) -> i64;
+    pub fn sqlite3_column_bytes(stmt: i64, iCol: i32) -> i64;
+
+    // Runtime string allocation
+    pub fn vanta_str_from_str(dest: &mut String, ptr: i64, len: i64);
 }
 
+pub fn ok() -> i32 { 0 }
+pub fn row() -> i32 { 100 }
+pub fn done() -> i32 { 101 }
+
+pub fn type_integer() -> i32 { 1 }
+pub fn type_float() -> i32 { 2 }
+pub fn type_text() -> i32 { 3 }
+pub fn type_blob() -> i32 { 4 }
+pub fn type_null() -> i32 { 5 }
+
 pub struct Database {
+    pub handle: i64,
+}
+
+pub struct Statement {
     pub handle: i64,
 }
 
@@ -39,6 +79,16 @@ impl Database {
         Result::Ok(rc)
     }
 
+    pub fn prepare(self: &Self, sql: &str) -> Result<Statement, i32> {
+        let sql_str = String::from_str(sql);
+        let mut stmt_handle: i64 = 0;
+        let rc = sqlite3_prepare_v2(self.handle, sql_str.data_ptr, -1, &mut stmt_handle, 0);
+        if rc != 0 {
+            return Result::Err(rc);
+        }
+        Result::Ok(Statement { handle: stmt_handle })
+    }
+
     pub fn changes(self: &Self) -> i32 {
         sqlite3_changes(self.handle)
     }
@@ -49,5 +99,86 @@ impl Database {
 
     pub fn close(self: &Self) -> i32 {
         sqlite3_close(self.handle)
+    }
+}
+
+impl Statement {
+    pub fn bind_int(self: &Self, index: i32, val: i32) -> i32 {
+        sqlite3_bind_int(self.handle, index, val)
+    }
+
+    pub fn bind_int64(self: &Self, index: i32, val: i64) -> i32 {
+        sqlite3_bind_int64(self.handle, index, val)
+    }
+
+    pub fn bind_double(self: &Self, index: i32, val: f64) -> i32 {
+        sqlite3_bind_double(self.handle, index, val)
+    }
+
+    pub fn bind_text(self: &Self, index: i32, val: &str) -> i32 {
+        let s = String::from_str(val);
+        sqlite3_bind_text(self.handle, index, s.data_ptr, -1, -1)
+    }
+
+    pub fn bind_null(self: &Self, index: i32) -> i32 {
+        sqlite3_bind_null(self.handle, index)
+    }
+
+    pub fn clear_bindings(self: &Self) -> i32 {
+        sqlite3_clear_bindings(self.handle)
+    }
+
+    pub fn step(self: &Self) -> i32 {
+        sqlite3_step(self.handle)
+    }
+
+    pub fn next_row(self: &Self) -> bool {
+        let rc = sqlite3_step(self.handle);
+        rc == 100
+    }
+
+    pub fn reset(self: &Self) -> i32 {
+        sqlite3_reset(self.handle)
+    }
+
+    pub fn finalize(self: &Self) -> i32 {
+        sqlite3_finalize(self.handle)
+    }
+
+    pub fn column_count(self: &Self) -> i32 {
+        sqlite3_column_count(self.handle)
+    }
+
+    pub fn column_type(self: &Self, col: i32) -> i32 {
+        sqlite3_column_type(self.handle, col)
+    }
+
+    pub fn column_int(self: &Self, col: i32) -> i32 {
+        sqlite3_column_int(self.handle, col)
+    }
+
+    pub fn column_int64(self: &Self, col: i32) -> i64 {
+        sqlite3_column_int64(self.handle, col)
+    }
+
+    pub fn column_double(self: &Self, col: i32) -> f64 {
+        sqlite3_column_double(self.handle, col)
+    }
+
+    pub fn column_text(self: &Self, col: i32) -> String {
+        let ptr = sqlite3_column_text(self.handle, col);
+        let len = sqlite3_column_bytes(self.handle, col);
+        let mut res = String {
+            data_ptr: 0,
+            len: 0,
+            cap: 0,
+        };
+        vanta_str_from_str(&mut res, ptr, len);
+        res
+    }
+
+    pub fn column_is_null(self: &Self, col: i32) -> bool {
+        let t = sqlite3_column_type(self.handle, col);
+        t == 5
     }
 }

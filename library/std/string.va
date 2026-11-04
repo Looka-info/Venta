@@ -11,3 +11,11 @@ pub fn new() -> String {
 pub fn from_str(value: &str) -> String {
     String_from_str(value)
 }
+
+pub fn from_raw_parts(ptr: i64, len: i64) -> String {
+    String {
+        data_ptr: ptr,
+        len: len,
+        cap: len,
+    }
+}
