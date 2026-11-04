@@ -1,0 +1,53 @@
+import std::result::Result;
+import std::string::String;
+
+extern "C" {
+    pub fn sqlite3_open(filename: i64, ppDb: &mut i64) -> i32;
+    pub fn sqlite3_close(db: i64) -> i32;
+    pub fn sqlite3_exec(db: i64, sql: i64, callback: i64, arg: i64, errmsg: i64) -> i32;
+    pub fn sqlite3_changes(db: i64) -> i32;
+    pub fn sqlite3_total_changes(db: i64) -> i32;
+    pub fn sqlite3_libversion_number() -> i32;
+    pub fn sqlite3_errmsg(db: i64) -> i64;
+}
+
+pub struct Database {
+    pub handle: i64,
+}
+
+pub fn open(path: &str) -> Result<Database, i32> {
+    let path_str = String::from_str(path);
+    let mut handle: i64 = 0;
+    let rc = sqlite3_open(path_str.data_ptr, &mut handle);
+    if rc != 0 {
+        return Result::Err(rc);
+    }
+    Result::Ok(Database { handle: handle })
+}
+
+pub fn version_number() -> i32 {
+    sqlite3_libversion_number()
+}
+
+impl Database {
+    pub fn execute(self: &Self, sql: &str) -> Result<i32, i32> {
+        let sql_str = String::from_str(sql);
+        let rc = sqlite3_exec(self.handle, sql_str.data_ptr, 0, 0, 0);
+        if rc != 0 {
+            return Result::Err(rc);
+        }
+        Result::Ok(rc)
+    }
+
+    pub fn changes(self: &Self) -> i32 {
+        sqlite3_changes(self.handle)
+    }
+
+    pub fn total_changes(self: &Self) -> i32 {
+        sqlite3_total_changes(self.handle)
+    }
+
+    pub fn close(self: &Self) -> i32 {
+        sqlite3_close(self.handle)
+    }
+}

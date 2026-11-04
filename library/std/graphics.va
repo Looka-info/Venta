@@ -1,0 +1,93 @@
+import std::string::String;
+
+extern "C" {
+    pub fn InitWindow(width: i32, height: i32, title: i64);
+    pub fn WindowShouldClose() -> bool;
+    pub fn CloseWindow();
+    pub fn IsWindowReady() -> bool;
+    pub fn SetTargetFPS(fps: i32);
+    pub fn GetFPS() -> i32;
+    pub fn ClearBackground(color: i32);
+    pub fn BeginDrawing();
+    pub fn EndDrawing();
+    pub fn DrawText(text: i64, posX: i32, posY: i32, fontSize: i32, color: i32);
+    pub fn DrawRectangle(posX: i32, posY: i32, width: i32, height: i32, color: i32);
+    pub fn DrawCircle(centerX: i32, centerY: i32, radius: f32, color: i32);
+}
+
+pub struct Color {
+    pub rgba: i64,
+}
+
+pub fn rgb(r: i64, g: i64, b: i64) -> i64 {
+    let r_part = r;
+    let g_part = g * 256;
+    let b_part = b * 65536;
+    let a_part = 255 * 16777216;
+    r_part + g_part + b_part + a_part
+}
+
+pub fn rgba(r: i64, g: i64, b: i64, a: i64) -> i64 {
+    let r_part = r;
+    let g_part = g * 256;
+    let b_part = b * 65536;
+    let a_part = a * 16777216;
+    r_part + g_part + b_part + a_part
+}
+
+pub struct Window {
+    pub width: i32,
+    pub height: i32,
+}
+
+pub fn init_window(width: i32, height: i32, title: &str) -> Window {
+    let title_str = String::from_str(title);
+    InitWindow(width, height, title_str.data_ptr);
+    Window {
+        width: width,
+        height: height,
+    }
+}
+
+impl Window {
+    pub fn should_close(self: &Self) -> bool {
+        WindowShouldClose()
+    }
+
+    pub fn close(self: &Self) {
+        CloseWindow();
+    }
+
+    pub fn set_target_fps(self: &Self, fps: i32) {
+        SetTargetFPS(fps);
+    }
+
+    pub fn get_fps(self: &Self) -> i32 {
+        GetFPS()
+    }
+
+    pub fn clear(self: &Self, color: i32) {
+        ClearBackground(color);
+    }
+
+    pub fn begin_frame(self: &Self) {
+        BeginDrawing();
+    }
+
+    pub fn end_frame(self: &Self) {
+        EndDrawing();
+    }
+
+    pub fn draw_text(self: &Self, text: &str, x: i32, y: i32, font_size: i32, color: i32) {
+        let s = String::from_str(text);
+        DrawText(s.data_ptr, x, y, font_size, color);
+    }
+
+    pub fn draw_rectangle(self: &Self, x: i32, y: i32, width: i32, height: i32, color: i32) {
+        DrawRectangle(x, y, width, height, color);
+    }
+
+    pub fn draw_circle(self: &Self, center_x: i32, center_y: i32, radius: f32, color: i32) {
+        DrawCircle(center_x, center_y, radius, color);
+    }
+}

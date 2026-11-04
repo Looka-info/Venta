@@ -1,0 +1,66 @@
+import std::result::Result;
+import std::string::String;
+
+extern "C" {
+    pub fn curl_global_init(flags: i64) -> i32;
+    pub fn curl_global_cleanup();
+    pub fn curl_easy_init() -> i64;
+    pub fn curl_easy_cleanup(curl: i64);
+    pub fn curl_easy_setopt(curl: i64, option: i32, param: i64) -> i32;
+    pub fn curl_easy_perform(curl: i64) -> i32;
+    pub fn curl_easy_strerror(code: i32) -> i64;
+}
+
+pub fn global_init() -> i32 {
+    // CURL_GLOBAL_ALL = 3
+    curl_global_init(3)
+}
+
+pub fn global_cleanup() {
+    curl_global_cleanup();
+}
+
+pub struct Easy {
+    pub handle: i64,
+}
+
+pub fn new_easy() -> Easy {
+    let handle = curl_easy_init();
+    Easy { handle: handle }
+}
+
+impl Easy {
+    pub fn is_valid(self: &Self) -> bool {
+        self.handle != 0
+    }
+
+    pub fn set_url(self: &Self, url: &str) -> i32 {
+        let url_str = String::from_str(url);
+        // CURLOPT_URL = 10002
+        curl_easy_setopt(self.handle, 10002, url_str.data_ptr)
+    }
+
+    pub fn set_follow_location(self: &Self, enable: bool) -> i32 {
+        let mut val: i64 = 0;
+        if enable {
+            val = 1;
+        }
+        // CURLOPT_FOLLOWLOCATION = 52
+        curl_easy_setopt(self.handle, 52, val)
+    }
+
+    pub fn perform(self: &Self) -> Result<i32, i32> {
+        let rc = curl_easy_perform(self.handle);
+        if rc == 0 {
+            Result::Ok(rc)
+        } else {
+            Result::Err(rc)
+        }
+    }
+
+    pub fn cleanup(self: &Self) {
+        if self.handle != 0 {
+            curl_easy_cleanup(self.handle);
+        }
+    }
+}

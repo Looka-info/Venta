@@ -915,9 +915,38 @@ impl CompilerSession {
         }
 
         // 3. Requested libraries resolution against search paths (order preserved!)
+        let mut all_search_paths = options.lib_search_paths.clone();
+        if target_spec.os == Os::Linux {
+            for sys_dir in &[
+                "/usr/lib/x86_64-linux-gnu",
+                "/usr/lib64",
+                "/usr/lib",
+                "/lib/x86_64-linux-gnu",
+                "/lib64",
+                "/lib",
+                "/usr/local/lib",
+            ] {
+                let p = PathBuf::from(sys_dir);
+                if p.is_dir() && !all_search_paths.contains(&p) {
+                    all_search_paths.push(p);
+                }
+            }
+        } else if target_spec.os == Os::MacOS {
+            for sys_dir in &[
+                "/usr/local/lib",
+                "/opt/homebrew/lib",
+                "/usr/lib",
+            ] {
+                let p = PathBuf::from(sys_dir);
+                if p.is_dir() && !all_search_paths.contains(&p) {
+                    all_search_paths.push(p);
+                }
+            }
+        }
+
         for lib_name in &options.libs {
             let mut resolved = None;
-            for search_dir in &options.lib_search_paths {
+            for search_dir in &all_search_paths {
                 let candidates = match target_spec.os {
                     Os::Windows => vec![
                         format!("{}.lib", lib_name),
@@ -927,6 +956,13 @@ impl CompilerSession {
                     _ => vec![
                         format!("lib{}.a", lib_name),
                         format!("lib{}.so", lib_name),
+                        format!("lib{}.so.0", lib_name),
+                        format!("lib{}.so.1", lib_name),
+                        format!("lib{}.so.2", lib_name),
+                        format!("lib{}.so.3", lib_name),
+                        format!("lib{}.so.4", lib_name),
+                        format!("lib{}.so.5", lib_name),
+                        format!("lib{}.so.6", lib_name),
                         format!("lib{}.dylib", lib_name),
                     ],
                 };
@@ -1157,8 +1193,12 @@ impl CompilerSession {
                 for search_dir in &options.lib_search_paths {
                     args.push(format!("-L{}", search_dir.display()));
                 }
-                for lib in &options.libs {
-                    args.push(format!("-l{}", lib));
+                for lib in &plan.resolved_libraries {
+                    if let Some(ref p) = lib.resolved_path {
+                        args.push(p.to_string_lossy().to_string());
+                    } else {
+                        args.push(format!("-l{}", lib.name));
+                    }
                 }
                 args.push("-o".to_string());
                 args.push(options.output_file.to_string_lossy().to_string());
@@ -1266,8 +1306,12 @@ impl CompilerSession {
                 for search_dir in &options.lib_search_paths {
                     args.push(format!("-L{}", search_dir.display()));
                 }
-                for lib in &options.libs {
-                    args.push(format!("-l{}", lib));
+                for lib in &plan.resolved_libraries {
+                    if let Some(ref p) = lib.resolved_path {
+                        args.push(p.to_string_lossy().to_string());
+                    } else {
+                        args.push(format!("-l{}", lib.name));
+                    }
                 }
                 args.push("-o".to_string());
                 args.push(options.output_file.to_string_lossy().to_string());

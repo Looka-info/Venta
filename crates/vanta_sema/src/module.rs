@@ -25,6 +25,10 @@ const EMBEDDED_STD_COLLECTIONS_HASH_MAP: &str =
     include_str!("../../../library/std/collections/hash_map.va");
 const EMBEDDED_STD_COLLECTIONS_RING_BUFFER: &str =
     include_str!("../../../library/std/collections/ring_buffer.va");
+const EMBEDDED_STD_FFI: &str = include_str!("../../../library/std/ffi.va");
+const EMBEDDED_STD_SQLITE: &str = include_str!("../../../library/std/sqlite.va");
+const EMBEDDED_STD_CURL: &str = include_str!("../../../library/std/curl.va");
+const EMBEDDED_STD_GRAPHICS: &str = include_str!("../../../library/std/graphics.va");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ModuleId(pub usize);
@@ -305,6 +309,10 @@ impl<'a> ModuleLoader<'a> {
             collections_src,
             hash_map_src,
             ring_buffer_src,
+            ffi_src,
+            sqlite_src,
+            curl_src,
+            graphics_src,
         ) = if let Some(std_dir) = std_dir_opt {
             let mod_file = std_dir.join("mod.va");
             let canon_mod = mod_file.canonicalize().unwrap_or(mod_file);
@@ -342,9 +350,21 @@ impl<'a> ModuleLoader<'a> {
             let rb_file = std_dir.join("collections").join("ring_buffer.va");
             let rb_src = fs::read_to_string(&rb_file)
                 .unwrap_or_else(|_| EMBEDDED_STD_COLLECTIONS_RING_BUFFER.into());
+            let ffi_file = std_dir.join("ffi.va");
+            let ffi_src = fs::read_to_string(&ffi_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_FFI.into());
+            let sqlite_file = std_dir.join("sqlite.va");
+            let sqlite_src = fs::read_to_string(&sqlite_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_SQLITE.into());
+            let curl_file = std_dir.join("curl.va");
+            let curl_src = fs::read_to_string(&curl_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_CURL.into());
+            let graphics_file = std_dir.join("graphics.va");
+            let graphics_src = fs::read_to_string(&graphics_file)
+                .unwrap_or_else(|_| EMBEDDED_STD_GRAPHICS.into());
             (
                 canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
-                gpu_src, simd_src, coll_src, hm_src, rb_src,
+                gpu_src, simd_src, coll_src, hm_src, rb_src, ffi_src, sqlite_src, curl_src, graphics_src,
             )
         } else {
             (
@@ -363,6 +383,10 @@ impl<'a> ModuleLoader<'a> {
                 EMBEDDED_STD_COLLECTIONS_MOD.into(),
                 EMBEDDED_STD_COLLECTIONS_HASH_MAP.into(),
                 EMBEDDED_STD_COLLECTIONS_RING_BUFFER.into(),
+                EMBEDDED_STD_FFI.into(),
+                EMBEDDED_STD_SQLITE.into(),
+                EMBEDDED_STD_CURL.into(),
+                EMBEDDED_STD_GRAPHICS.into(),
             )
         };
 
@@ -812,6 +836,128 @@ impl<'a> ModuleLoader<'a> {
             .children
             .insert("ring_buffer".into(), rb_id);
         self.seen_canonical_paths.insert(rb_path, rb_id);
+
+        // 15. Add and parse std/ffi.va
+        let ffi_path = std_mod_path.parent().unwrap_or(Path::new("")).join("ffi.va");
+        let ffi_file_id = self
+            .source_map
+            .add_file(ffi_path.to_string_lossy().to_string(), ffi_src);
+        let ffi_file = self.source_map.get_file(ffi_file_id).unwrap();
+        let mut ffi_lexer = Lexer::new(&ffi_file);
+        let ffi_tokens = ffi_lexer.tokenize(self.diagnostics);
+        let mut ffi_parser = Parser::new(ffi_tokens);
+        let ffi_program = ffi_parser.parse_program(self.diagnostics);
+
+        let ffi_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: ffi_id,
+            name: "ffi".into(),
+            path: vec!["std".into(), "ffi".into()],
+            file_path: ffi_path.clone(),
+            file_id: ffi_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: ffi_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "ffi".into()], ffi_id);
+        self.modules[std_id.0].children.insert("ffi".into(), ffi_id);
+        self.seen_canonical_paths.insert(ffi_path, ffi_id);
+
+        // 16. Add and parse std/sqlite.va
+        let sqlite_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("sqlite.va");
+        let sqlite_file_id = self
+            .source_map
+            .add_file(sqlite_path.to_string_lossy().to_string(), sqlite_src);
+        let sqlite_file = self.source_map.get_file(sqlite_file_id).unwrap();
+        let mut sqlite_lexer = Lexer::new(&sqlite_file);
+        let sqlite_tokens = sqlite_lexer.tokenize(self.diagnostics);
+        let mut sqlite_parser = Parser::new(sqlite_tokens);
+        let sqlite_program = sqlite_parser.parse_program(self.diagnostics);
+
+        let sqlite_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: sqlite_id,
+            name: "sqlite".into(),
+            path: vec!["std".into(), "sqlite".into()],
+            file_path: sqlite_path.clone(),
+            file_id: sqlite_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: sqlite_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "sqlite".into()], sqlite_id);
+        self.modules[std_id.0]
+            .children
+            .insert("sqlite".into(), sqlite_id);
+        self.seen_canonical_paths.insert(sqlite_path, sqlite_id);
+
+        // 17. Add and parse std/curl.va
+        let curl_path = std_mod_path.parent().unwrap_or(Path::new("")).join("curl.va");
+        let curl_file_id = self
+            .source_map
+            .add_file(curl_path.to_string_lossy().to_string(), curl_src);
+        let curl_file = self.source_map.get_file(curl_file_id).unwrap();
+        let mut curl_lexer = Lexer::new(&curl_file);
+        let curl_tokens = curl_lexer.tokenize(self.diagnostics);
+        let mut curl_parser = Parser::new(curl_tokens);
+        let curl_program = curl_parser.parse_program(self.diagnostics);
+
+        let curl_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: curl_id,
+            name: "curl".into(),
+            path: vec!["std".into(), "curl".into()],
+            file_path: curl_path.clone(),
+            file_id: curl_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: curl_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "curl".into()], curl_id);
+        self.modules[std_id.0].children.insert("curl".into(), curl_id);
+        self.seen_canonical_paths.insert(curl_path, curl_id);
+
+        // 18. Add and parse std/graphics.va
+        let graphics_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("graphics.va");
+        let graphics_file_id = self
+            .source_map
+            .add_file(graphics_path.to_string_lossy().to_string(), graphics_src);
+        let graphics_file = self.source_map.get_file(graphics_file_id).unwrap();
+        let mut graphics_lexer = Lexer::new(&graphics_file);
+        let graphics_tokens = graphics_lexer.tokenize(self.diagnostics);
+        let mut graphics_parser = Parser::new(graphics_tokens);
+        let graphics_program = graphics_parser.parse_program(self.diagnostics);
+
+        let graphics_id = ModuleId(self.modules.len());
+        self.modules.push(ModuleNode {
+            id: graphics_id,
+            name: "graphics".into(),
+            path: vec!["std".into(), "graphics".into()],
+            file_path: graphics_path.clone(),
+            file_id: graphics_file_id,
+            parent: Some(std_id),
+            children: HashMap::new(),
+            is_pub: true,
+            items: graphics_program.items,
+        });
+        self.path_to_module
+            .insert(vec!["std".into(), "graphics".into()], graphics_id);
+        self.modules[std_id.0]
+            .children
+            .insert("graphics".into(), graphics_id);
+        self.seen_canonical_paths.insert(graphics_path, graphics_id);
 
         Ok(())
     }

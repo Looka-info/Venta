@@ -1,0 +1,13 @@
+import std::string::String;
+
+pub fn null() -> i64 {
+    0
+}
+
+pub fn is_null(ptr: i64) -> bool {
+    ptr == 0
+}
+
+pub fn c_str_from_str(s: &str) -> String {
+    String::from_str(s)
+}
