@@ -8322,10 +8322,20 @@ impl SemanticAnalyzer {
                             return Type::Unit;
                         }
 
+                        let is_generic_inferred =
+                            self.ctx.generic_enums.contains_key(enum_name_str) && type_args.is_empty();
                         for (idx, (arg, expected_ty)) in
                             args.iter().zip(v_def.payload.iter()).enumerate()
                         {
-                            let actual_ty = self.check_expr(arg, diags);
+                            let actual_ty = if is_generic_inferred {
+                                self.ctx
+                                    .expr_types
+                                    .get(&(arg as *const Expr))
+                                    .cloned()
+                                    .unwrap_or(Type::Unit)
+                            } else {
+                                self.check_expr(arg, diags)
+                            };
                             if !matches!(expected_ty, Type::Ref { .. })
                                 && expected_ty.needs_drop(&self.ctx.structs, &self.ctx.enums)
                             {

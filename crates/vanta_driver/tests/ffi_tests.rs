@@ -880,3 +880,84 @@ pub fn main() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("54321"), "Expected output to contain '54321', got: {}", stdout);
 }
+
+#[test]
+fn test_curl_response_streaming_and_header_extraction() {
+    // 1. Launch a local single-request HTTP server on an ephemeral port
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Venta-Header: Fast\r\nContent-Length: 18\r\n\r\nHello from Venta!\n";
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("test_curl_stream.va");
+    let out_bin = temp_dir.path().join("test_curl_stream_bin");
+
+    let source = format!(
+        r#"
+import std::curl;
+
+pub fn main() {{
+    let client = curl::new_easy();
+    if !client.is_valid() {{
+        panic("client init failed");
+    }}
+
+    client.set_url("http://127.0.0.1:{}");
+    client.set_timeout(5);
+
+    let res = client.fetch();
+    match res {{
+        Result::Ok(resp) => {{
+            if resp.status_code == 200 && resp.body.len == 18 {{
+                client.cleanup();
+                print_i64(12345);
+            }} else {{
+                panic("response status or length mismatch");
+            }}
+        }},
+        Result::Err(err) => {{
+            panic("fetch failed");
+        }}
+    }}
+}}
+"#,
+        port
+    );
+    fs::write(&src_path, source).unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_bin.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        linker: LinkerKind::System,
+        libs: vec!["curl".to_string()],
+        ..Default::default()
+    };
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&options);
+    assert!(
+        res.is_ok(),
+        "Compilation failed: {:?}\nDiagnostics: {}",
+        res.err(),
+        session.render_diagnostics(DiagnosticFormat::Human)
+    );
+
+    let output = Command::new(&out_bin).output().expect("Execute test binary");
+    assert!(output.status.success(), "Process exited with non-zero status");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("12345"), "Expected output to contain '12345', got: {}", stdout);
+}

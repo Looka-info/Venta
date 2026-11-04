@@ -788,6 +788,22 @@ int64_t vanta_net_close(int64_t fd) {
     return 0;
 }
 
+int64_t vanta_ptr_to_i64(void *p) {
+    return (int64_t)(uintptr_t)p;
+}
+
+size_t vanta_curl_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    size_t total = size * nmemb;
+    if (userdata != NULL && total > 0) {
+        vanta_str_push_str((VantaString *)userdata, ptr, (int64_t)total);
+    }
+    return total;
+}
+
+int64_t vanta_curl_get_write_callback(void) {
+    return (int64_t)(uintptr_t)vanta_curl_write_callback;
+}
+
 #if defined(__x86_64__) || defined(_M_X64)
 
 #if defined(_MSC_VER)

@@ -7,9 +7,27 @@ extern "C" {
     pub fn curl_easy_init() -> i64;
     pub fn curl_easy_cleanup(curl: i64);
     pub fn curl_easy_setopt(curl: i64, option: i32, param: i64) -> i32;
+    pub fn curl_easy_getinfo(curl: i64, info: i32, out: &mut i64) -> i32;
     pub fn curl_easy_perform(curl: i64) -> i32;
     pub fn curl_easy_strerror(code: i32) -> i64;
+
+    // Runtime bridge functions
+    pub fn vanta_ptr_to_i64(p: &mut String) -> i64;
+    pub fn vanta_curl_get_write_callback() -> i64;
 }
+
+// Option constants
+pub fn opt_url() -> i32 { 10002 }
+pub fn opt_writedata() -> i32 { 10001 }
+pub fn opt_writefunction() -> i32 { 20011 }
+pub fn opt_headerdata() -> i32 { 10029 }
+pub fn opt_headerfunction() -> i32 { 20079 }
+pub fn opt_followlocation() -> i32 { 52 }
+pub fn opt_timeout() -> i32 { 13 }
+pub fn opt_useragent() -> i32 { 10018 }
+
+// Info constants
+pub fn info_response_code() -> i32 { 2097154 }
 
 pub fn global_init() -> i32 {
     // CURL_GLOBAL_ALL = 3
@@ -24,6 +42,12 @@ pub struct Easy {
     pub handle: i64,
 }
 
+pub struct Response {
+    pub status_code: i64,
+    pub body: String,
+    pub headers: String,
+}
+
 pub fn new_easy() -> Easy {
     let handle = curl_easy_init();
     Easy { handle: handle }
@@ -36,7 +60,6 @@ impl Easy {
 
     pub fn set_url(self: &Self, url: &str) -> i32 {
         let url_str = String::from_str(url);
-        // CURLOPT_URL = 10002
         curl_easy_setopt(self.handle, 10002, url_str.data_ptr)
     }
 
@@ -45,8 +68,38 @@ impl Easy {
         if enable {
             val = 1;
         }
-        // CURLOPT_FOLLOWLOCATION = 52
         curl_easy_setopt(self.handle, 52, val)
+    }
+
+    pub fn set_timeout(self: &Self, seconds: i64) -> i32 {
+        curl_easy_setopt(self.handle, 13, seconds)
+    }
+
+    pub fn set_user_agent(self: &Self, user_agent: &str) -> i32 {
+        let ua_str = String::from_str(user_agent);
+        curl_easy_setopt(self.handle, 10018, ua_str.data_ptr)
+    }
+
+    pub fn set_write_buffer(self: &Self, dest: &mut String) -> i32 {
+        let cb = vanta_curl_get_write_callback();
+        let ptr = vanta_ptr_to_i64(dest);
+        let rc1 = curl_easy_setopt(self.handle, 20011, cb);
+        let rc2 = curl_easy_setopt(self.handle, 10001, ptr);
+        if rc1 != 0 {
+            return rc1;
+        }
+        rc2
+    }
+
+    pub fn set_header_buffer(self: &Self, dest: &mut String) -> i32 {
+        let cb = vanta_curl_get_write_callback();
+        let ptr = vanta_ptr_to_i64(dest);
+        let rc1 = curl_easy_setopt(self.handle, 20079, cb);
+        let rc2 = curl_easy_setopt(self.handle, 10029, ptr);
+        if rc1 != 0 {
+            return rc1;
+        }
+        rc2
     }
 
     pub fn perform(self: &Self) -> Result<i32, i32> {
@@ -55,6 +108,43 @@ impl Easy {
             Result::Ok(rc)
         } else {
             Result::Err(rc)
+        }
+    }
+
+    pub fn response_code(self: &Self) -> i64 {
+        let mut code: i64 = 0;
+        curl_easy_getinfo(self.handle, 2097154, &mut code);
+        code
+    }
+
+    pub fn fetch(self: &Self) -> Result<Response, i32> {
+        let mut body = String {
+            data_ptr: 0,
+            len: 0,
+            cap: 0,
+        };
+        let mut headers = String {
+            data_ptr: 0,
+            len: 0,
+            cap: 0,
+        };
+
+        self.set_write_buffer(&mut body);
+        self.set_header_buffer(&mut headers);
+
+        let perf_res = self.perform();
+        match perf_res {
+            Result::Ok(_) => {
+                let code = self.response_code();
+                Result::Ok(Response {
+                    status_code: code,
+                    body: body,
+                    headers: headers,
+                })
+            },
+            Result::Err(e) => {
+                Result::Err(e)
+            }
         }
     }
 
