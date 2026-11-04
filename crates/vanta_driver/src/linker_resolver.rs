@@ -432,11 +432,9 @@ impl LinkerResolver for MockLinkerResolver {
 
     fn read_executable_bytes(&self, path: &Path) -> Result<Vec<u8>, String> {
         let path_str = path.to_string_lossy().to_string();
-        for (_, (p, bytes, _)) in &self.executables {
-            if p == path || p.to_string_lossy() == path_str {
-                if !bytes.is_empty() {
-                    return Ok(bytes.clone());
-                }
+        for (p, bytes, _) in self.executables.values() {
+            if (p == path || p.to_string_lossy() == path_str) && !bytes.is_empty() {
+                return Ok(bytes.clone());
             }
         }
         if let Some((_, bytes, _)) = self.executables.get(&path_str) {
@@ -455,11 +453,9 @@ impl LinkerResolver for MockLinkerResolver {
 
     fn query_version(&self, exe_path: &Path) -> Option<String> {
         let path_str = exe_path.to_string_lossy().to_string();
-        for (_, (p, _, ver)) in &self.executables {
-            if p == exe_path || p.to_string_lossy() == path_str {
-                if ver.is_some() {
-                    return ver.clone();
-                }
+        for (p, _, ver) in self.executables.values() {
+            if (p == exe_path || p.to_string_lossy() == path_str) && ver.is_some() {
+                return ver.clone();
             }
         }
         self.executables

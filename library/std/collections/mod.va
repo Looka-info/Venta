@@ -3,5 +3,11 @@ pub mod ring_buffer;
 
 pub import hash_map::HashMap;
 pub import hash_map::new_hash_map;
+pub import hash_map::insert;
+pub import hash_map::get;
+pub import hash_map::contains_key;
+pub import hash_map::remove;
 pub import ring_buffer::RingBuffer;
 pub import ring_buffer::new_ring_buffer;
+pub import ring_buffer::peek;
+pub import ring_buffer::clear;

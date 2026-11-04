@@ -331,7 +331,7 @@ impl CompilerSession {
                 let mut can_fast_path = prev_manifest.compiler_id == current_compiler_id
                     && prev_manifest.config_fingerprint == current_config_fp
                     && prev_manifest.target_triple == options.target.spec().triple.to_string()
-                    && prev_manifest.root_file == options.input_file.to_string_lossy().to_string();
+                    && prev_manifest.root_file == options.input_file.to_string_lossy();
 
                 if !can_fast_path {
                     if prev_manifest.compiler_id != current_compiler_id {
@@ -932,11 +932,7 @@ impl CompilerSession {
                 }
             }
         } else if target_spec.os == Os::MacOS {
-            for sys_dir in &[
-                "/usr/local/lib",
-                "/opt/homebrew/lib",
-                "/usr/lib",
-            ] {
+            for sys_dir in &["/usr/local/lib", "/opt/homebrew/lib", "/usr/lib"] {
                 let p = PathBuf::from(sys_dir);
                 if p.is_dir() && !all_search_paths.contains(&p) {
                     all_search_paths.push(p);
@@ -1267,17 +1263,18 @@ impl CompilerSession {
                 let link_res =
                     resolver.execute_link(&driver_path, &args, &env_vars, expected_backend);
 
-                if link_res.is_ok() {
-                    let _ = fs::remove_file(&temp_obj_path);
-                    Ok(())
-                } else {
-                    Err(format!(
+                match link_res {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&temp_obj_path);
+                        Ok(())
+                    }
+                    Err(err) => Err(format!(
                         "Linker '{}' failed for target {}. Relocatable COFF object written to '{}': {}",
                         driver_path.display(),
                         target_spec.triple,
                         temp_obj_path.display(),
-                        link_res.unwrap_err()
-                    ))
+                        err
+                    )),
                 }
             }
             Os::MacOS => {
@@ -1327,17 +1324,18 @@ impl CompilerSession {
                 let link_res =
                     resolver.execute_link(&driver_path, &args, &env_vars, expected_backend);
 
-                if link_res.is_ok() {
-                    let _ = fs::remove_file(&temp_obj_path);
-                    Ok(())
-                } else {
-                    Err(format!(
+                match link_res {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&temp_obj_path);
+                        Ok(())
+                    }
+                    Err(err) => Err(format!(
                         "Linker '{}' failed for target {}. Relocatable Mach-O 64-bit object written to '{}': {}",
                         driver_path.display(),
                         target_spec.triple,
                         temp_obj_path.display(),
-                        link_res.unwrap_err()
-                    ))
+                        err
+                    )),
                 }
             }
         }
@@ -1536,10 +1534,7 @@ impl CompilerSession {
                     .arg(&temp_o)
                     .status();
 
-                let compiled = match clang_cmd {
-                    Ok(s) if s.success() => true,
-                    _ => false,
-                };
+                let compiled = matches!(clang_cmd, Ok(s) if s.success());
 
                 if compiled {
                     let ar_status = Command::new("llvm-ar")

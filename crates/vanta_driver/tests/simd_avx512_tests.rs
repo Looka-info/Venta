@@ -1,7 +1,7 @@
 //! AVX-512 ZMM Register Allocation, Spilling & System V Vector ABI Tests (Milestone 26.4).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use vanta_codegen_x86_64::target::TargetFeatures;
 use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, OptLevel};
@@ -53,7 +53,7 @@ fn compile_to_obj(
     (temp_dir, obj_path)
 }
 
-fn disassemble_obj(obj_path: &PathBuf) -> String {
+fn disassemble_obj(obj_path: &Path) -> String {
     let output = Command::new("objdump")
         .args(["-d", obj_path.to_str().unwrap()])
         .output()

@@ -250,6 +250,7 @@ impl CodeEmitter {
     /// - `use_vvvv`: whether vvvv is used
     /// - `l_bit`: true for 256-bit vector, false for 128-bit
     /// - `pp`: 0 for None, 1 for 66, 2 for F3, 3 for F2
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_vex(
         &mut self,
         map: u8,
@@ -312,6 +313,7 @@ impl CodeEmitter {
     }
 
     /// Emit EVEX prefix (0x62) for 512-bit AVX-512 operations.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_evex(
         &mut self,
         map: u8,

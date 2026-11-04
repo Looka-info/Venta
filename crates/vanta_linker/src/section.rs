@@ -172,3 +172,55 @@ impl MergedSection {
         offset
     }
 }
+
+/// Precise location of an input section contribution within a merged output section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContributionLoc {
+    pub merged_section_idx: usize,
+    pub offset_in_merged: usize,
+}
+
+/// Fast O(1) contribution index for accelerated symbol address resolution and relocation patching.
+#[derive(Debug, Default, Clone)]
+pub struct ContributionMap {
+    /// Maps (object_id, source_section_idx) -> ContributionLoc
+    pub by_section_index: std::collections::HashMap<(usize, usize), ContributionLoc>,
+    /// Maps (object_id, source_section_name) -> ContributionLoc
+    pub by_section_name: std::collections::HashMap<(usize, String), ContributionLoc>,
+}
+
+impl ContributionMap {
+    /// Builds an indexed contribution map from the slice of merged output sections.
+    pub fn build(merged_sections: &[MergedSection]) -> Self {
+        let mut map = Self::default();
+        for (m_idx, merged) in merged_sections.iter().enumerate() {
+            for contrib in &merged.contributions {
+                let loc = ContributionLoc {
+                    merged_section_idx: m_idx,
+                    offset_in_merged: contrib.offset_in_merged,
+                };
+                map.by_section_index
+                    .insert((contrib.object_id, contrib.source_section_idx), loc);
+                map.by_section_name.insert(
+                    (contrib.object_id, contrib.source_section_name.clone()),
+                    loc,
+                );
+            }
+        }
+        map
+    }
+
+    #[inline]
+    pub fn get_by_index(&self, object_id: usize, section_idx: usize) -> Option<ContributionLoc> {
+        self.by_section_index
+            .get(&(object_id, section_idx))
+            .copied()
+    }
+
+    #[inline]
+    pub fn get_by_name(&self, object_id: usize, section_name: &str) -> Option<ContributionLoc> {
+        self.by_section_name
+            .get(&(object_id, section_name.to_string()))
+            .copied()
+    }
+}

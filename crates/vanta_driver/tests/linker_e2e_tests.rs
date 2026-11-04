@@ -310,7 +310,7 @@ fn test_runtime_archive_target_selection_and_format_validation() {
         let path = resolved_win.unwrap();
         assert!(
             path.to_string_lossy().contains("windows")
-                || path.extension().map_or(false, |ext| ext == "lib"),
+                || path.extension().is_some_and(|ext| ext == "lib"),
             "Resolved path must be Windows target archive"
         );
     }

@@ -1,4 +1,5 @@
 target/
+.cargo/
 **/*.rs.bk
 Cargo.lock
 *.o
@@ -7,6 +8,11 @@ Cargo.lock
 *.bin
 *.log
 /dist/
+dist/
+www/dist/
+www/*_screenshot.png
+www/screenshot.png
+www/settings_modal.png
 packages/*/dist/
 *.a
 *.lib

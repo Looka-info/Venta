@@ -73,7 +73,7 @@ impl AbiClass {
     pub fn align(&self) -> usize {
         match self {
             AbiClass::Void => 1,
-            AbiClass::Integer1 { size } => (*size).min(8).max(1),
+            AbiClass::Integer1 { size } => (*size).clamp(1, 8),
             AbiClass::Integer2 { .. } => 8,
             AbiClass::Vector256 => 32,
             AbiClass::Vector512 => 64,
@@ -146,6 +146,7 @@ pub struct FnCallLayout {
 /// - If a multi-register argument cannot fit completely in remaining registers (e.g. Integer2
 ///   when only 1 GPR remains), it rolls back and is passed entirely on the stack.
 /// - Hidden sret return pointer occupies %rdi (int_reg_idx 0), shifting integer arguments.
+///
 /// Computes the argument and return layout for a function signature under the default System V AMD64 ABI.
 pub fn compute_fn_call_layout(
     param_types: &[Type],

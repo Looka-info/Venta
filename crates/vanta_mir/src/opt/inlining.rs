@@ -228,38 +228,9 @@ impl Inliner {
         // 4. Remap all callee destination ValueIds
         for block in &callee.blocks {
             for inst in &block.instructions {
-                match inst {
-                    Instruction::ConstInt { dest, .. }
-                    | Instruction::ConstBool { dest, .. }
-                    | Instruction::SlotAddr { dest, .. }
-                    | Instruction::Load { dest, .. }
-                    | Instruction::Binary { dest, .. }
-                    | Instruction::Unary { dest, .. }
-                    | Instruction::IndexAddr { dest, .. }
-                    | Instruction::IndexPtrAddr { dest, .. }
-                    | Instruction::FieldAddr { dest, .. }
-                    | Instruction::LoadIndirect { dest, .. }
-                    | Instruction::Phi { dest, .. }
-                    | Instruction::Copy { dest, .. } => {
-                        val_map.insert(*dest, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    Instruction::Call { dest: Some(d), .. } => {
-                        val_map.insert(*d, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    Instruction::StrSlice {
-                        dest_ptr, dest_len, ..
-                    }
-                    | Instruction::LoadSlice {
-                        dest_ptr, dest_len, ..
-                    } => {
-                        val_map.insert(*dest_ptr, ValueId(next_val_id));
-                        next_val_id += 1;
-                        val_map.insert(*dest_len, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    _ => {}
+                for def in inst.defs() {
+                    val_map.insert(def, ValueId(next_val_id));
+                    next_val_id += 1;
                 }
             }
         }

@@ -1019,7 +1019,7 @@ fn test_stage32_5_test_h_same_size_archive_change() {
     assert_eq!(fs::metadata(&archive_path).unwrap().len(), 32);
 
     let link_fp1 = engine
-        .compute_link_fingerprint(&[obj_fp], &[archive_path.clone()], &[])
+        .compute_link_fingerprint(&[obj_fp], std::slice::from_ref(&archive_path), &[])
         .unwrap();
 
     // Alter contents with exact same length of 32 bytes

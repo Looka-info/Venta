@@ -305,10 +305,10 @@ impl BuildGraph {
         let mut cycle_path = Vec::new();
 
         for node_id in self.nodes.keys() {
-            if !visited.contains(node_id) {
-                if self.find_cycle(node_id, &mut visited, &mut on_stack, &mut cycle_path) {
-                    return Err(cycle_path);
-                }
+            if !visited.contains(node_id)
+                && self.find_cycle(node_id, &mut visited, &mut on_stack, &mut cycle_path)
+            {
+                return Err(cycle_path);
             }
         }
         Ok(())

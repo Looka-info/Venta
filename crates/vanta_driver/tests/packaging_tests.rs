@@ -56,19 +56,32 @@ fn test_release_package_install_and_uninstall() {
 
     let installed_vanta = install_prefix.join("bin").join("vanta");
     let installed_vantac = install_prefix.join("bin").join("vantac");
+    let installed_ventanext = install_prefix.join("bin").join("ventanext-gen");
     let installed_rt = install_prefix
         .join("lib")
         .join("vanta")
         .join("libvanta_rt.a");
     let installed_std = install_prefix.join("lib").join("vanta").join("std");
+    let installed_templates = install_prefix
+        .join("share")
+        .join("ventanext")
+        .join("templates");
 
     assert!(installed_vanta.is_file(), "vanta binary installed");
     assert!(installed_vantac.is_file(), "vantac binary installed");
+    assert!(
+        installed_ventanext.is_file(),
+        "ventanext-gen binary installed"
+    );
     assert!(installed_rt.is_file(), "libvanta_rt.a installed");
     assert!(installed_std.join("mod.va").is_file(), "std::mod installed");
     assert!(installed_std.join("io.va").is_file(), "std::io installed");
     assert!(installed_std.join("fs.va").is_file(), "std::fs installed");
     assert!(installed_std.join("env.va").is_file(), "std::env installed");
+    assert!(
+        installed_templates.join("registry.json").is_file(),
+        "templates registry.json installed"
+    );
 
     // 3. Test running compiler from installed location on standalone file outside repo
     let app_dir = tempdir().unwrap();
@@ -185,7 +198,59 @@ fn main() -> i64 {
     assert!(bin_stdout.contains("argc: 2\n"));
     assert!(bin_stdout.contains("param1\n"));
 
-    // 6. Test uninstall.sh
+    // 6. Test `vanta templates` and `vanta new` from installed prefix outside repository
+    let scaffold_dir = tempdir().unwrap();
+    let bin_dir = install_prefix.join("bin");
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let extended_path = format!("{}:{}", bin_dir.display(), current_path);
+
+    let tmpl_output = Command::new(&installed_vanta)
+        .arg("templates")
+        .env("PATH", &extended_path)
+        .current_dir(scaffold_dir.path())
+        .output()
+        .expect("Run installed vanta templates");
+
+    assert_eq!(
+        tmpl_output.status.code(),
+        Some(0),
+        "vanta templates failed: {}",
+        String::from_utf8_lossy(&tmpl_output.stderr)
+    );
+    let tmpl_stdout = String::from_utf8_lossy(&tmpl_output.stdout);
+    assert!(
+        tmpl_stdout.contains("VentaNext Official Template Gallery"),
+        "got: {}",
+        tmpl_stdout
+    );
+    assert!(tmpl_stdout.contains("modern-saas"));
+
+    let new_output = Command::new(&installed_vanta)
+        .arg("new")
+        .arg("modern-saas")
+        .arg("my_app")
+        .env("PATH", &extended_path)
+        .current_dir(scaffold_dir.path())
+        .output()
+        .expect("Run installed vanta new");
+
+    assert_eq!(
+        new_output.status.code(),
+        Some(0),
+        "vanta new failed: {}",
+        String::from_utf8_lossy(&new_output.stderr)
+    );
+    let app_root = scaffold_dir.path().join("my_app");
+    assert!(
+        app_root.join("main.va").is_file(),
+        "Scaffolded main.va exists"
+    );
+    assert!(
+        app_root.join("app/page.va").is_file(),
+        "Scaffolded page.va exists"
+    );
+
+    // 7. Test uninstall.sh
     let uninstall_status = Command::new("bash")
         .arg(stage_dir.join("uninstall.sh"))
         .arg(format!("--prefix={}", install_prefix.display()))
@@ -196,6 +261,11 @@ fn main() -> i64 {
     assert!(uninstall_status.success(), "uninstall.sh failed");
     assert!(!installed_vanta.exists(), "vanta binary removed");
     assert!(!installed_vantac.exists(), "vantac binary removed");
+    assert!(
+        !installed_ventanext.exists(),
+        "ventanext-gen binary removed"
+    );
     assert!(!installed_rt.exists(), "libvanta_rt.a removed");
     assert!(!installed_std.exists(), "std directory removed");
+    assert!(!installed_templates.exists(), "templates directory removed");
 }

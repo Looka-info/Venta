@@ -231,7 +231,7 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
                 .data
                 .extend_from_slice(&[0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x90, 0x90]);
             thunks.push(ThunkInfo {
-                dll: *dll,
+                dll,
                 name: func.clone(),
                 thunk_offset,
             });
@@ -318,42 +318,43 @@ pub fn link_coff_executable(config: &LinkerConfig) -> LinkResult<CoffLinkOutput>
 
     // 11. Apply COFF Relocations
     let mut base_reloc_rvas: Vec<u32> = Vec::new();
+    let contrib_map = crate::section::ContributionMap::build(&merged_sections);
 
     for obj in &objects {
         for rel in &obj.relocations {
             let sym_va = resolver
-                .resolve_symbol_address(&rel.symbol_name, obj, &merged_sections)
+                .resolve_symbol_address_with_map(
+                    &rel.symbol_name,
+                    obj,
+                    &merged_sections,
+                    &contrib_map,
+                )
                 .ok_or_else(|| LinkerError::UndefinedSymbol {
                     symbol: rel.symbol_name.clone(),
                     referencing_file: obj.path.clone(),
                     referencing_section: rel.section_index.to_string(),
                 })?;
 
-            for merged_sec in merged_sections.iter_mut() {
-                if let Some(contrib) = merged_sec
-                    .contributions
-                    .iter()
-                    .find(|c| c.object_id == obj.id && c.source_section_idx == rel.section_index)
-                {
-                    let patch_offset = contrib.offset_in_merged + rel.offset_in_section;
-                    let place_va = merged_sec.virtual_address + patch_offset as u64;
+            if let Some(loc) = contrib_map.get_by_index(obj.id, rel.section_index) {
+                let merged_sec = &mut merged_sections[loc.merged_section_idx];
+                let patch_offset = loc.offset_in_merged + rel.offset_in_section;
+                let place_va = merged_sec.virtual_address + patch_offset as u64;
 
-                    apply_coff_relocation(
-                        &obj.path,
-                        &merged_sec.name,
-                        rel,
-                        patch_offset,
-                        &mut merged_sec.data,
-                        sym_va,
-                        place_va,
-                        image_base,
-                    )?;
+                apply_coff_relocation(
+                    &obj.path,
+                    &merged_sec.name,
+                    rel,
+                    patch_offset,
+                    &mut merged_sec.data,
+                    sym_va,
+                    place_va,
+                    image_base,
+                )?;
 
-                    // If 64-bit absolute address, record for .reloc base relocations
-                    if rel.reloc_type == 1 {
-                        let rva = (place_va.saturating_sub(image_base)) as u32;
-                        base_reloc_rvas.push(rva);
-                    }
+                // If 64-bit absolute address, record for .reloc base relocations
+                if rel.reloc_type == 1 {
+                    let rva = (place_va.saturating_sub(image_base)) as u32;
+                    base_reloc_rvas.push(rva);
                 }
             }
         }
@@ -822,7 +823,7 @@ fn build_reloc_section(start_rva: u32, rvas: &[u32]) -> (Vec<u8>, u32, u32) {
         // Each entry is 2 bytes: type (4 bits) | offset (12 bits)
         // IMAGE_REL_BASED_DIR64 = 10 (0xA)
         let block_entries_len = offsets.len();
-        let pad = block_entries_len % 2 != 0; // Each block must be 4-byte aligned
+        let pad = !block_entries_len.is_multiple_of(2); // Each block must be 4-byte aligned
         let block_size = 8 + (block_entries_len + if pad { 1 } else { 0 }) * 2;
 
         out.extend_from_slice(&page.to_le_bytes());

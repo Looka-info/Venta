@@ -8,6 +8,10 @@ pub fn accept(server_fd: i64) -> i64 {
     vanta_net_accept(server_fd)
 }
 
+pub fn connect(host: &str, port: i64) -> i64 {
+    vanta_net_connect(host, port)
+}
+
 pub fn read(client_fd: i64, dest: &mut String) -> i64 {
     vanta_net_read(client_fd, dest)
 }

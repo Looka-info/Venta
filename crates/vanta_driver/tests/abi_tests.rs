@@ -289,7 +289,7 @@ fn main() {
 fn test_cli_version_and_help_commands() {
     // 1. --version returns 0 and prints version to stdout
     let out_ver = Command::new("cargo")
-        .args(&["run", "--bin", "vantac", "--", "--version"])
+        .args(["run", "--bin", "vantac", "--", "--version"])
         .output()
         .expect("Failed to run vantac --version");
     assert!(out_ver.status.success());
@@ -302,7 +302,7 @@ fn test_cli_version_and_help_commands() {
 
     // 2. -V returns 0
     let out_v = Command::new("cargo")
-        .args(&["run", "--bin", "vantac", "--", "-V"])
+        .args(["run", "--bin", "vantac", "--", "-V"])
         .output()
         .expect("Failed to run vantac -V");
     assert!(out_v.status.success());
@@ -315,7 +315,7 @@ fn test_cli_version_and_help_commands() {
 
     // 3. --help returns 0 and prints help to stdout
     let out_help = Command::new("cargo")
-        .args(&["run", "--bin", "vantac", "--", "--help"])
+        .args(["run", "--bin", "vantac", "--", "--help"])
         .output()
         .expect("Failed to run vantac --help");
     assert!(out_help.status.success());
@@ -332,7 +332,7 @@ fn test_cli_version_and_help_commands() {
 
     // 4. Unknown option returns exit code 2 and outputs error to stderr
     let out_unknown = Command::new("cargo")
-        .args(&["run", "--bin", "vantac", "--", "--non-existent-option"])
+        .args(["run", "--bin", "vantac", "--", "--non-existent-option"])
         .output()
         .expect("Failed to run vantac --unknown");
     assert_eq!(out_unknown.status.code(), Some(2));
@@ -358,7 +358,7 @@ fn main() -> i64 {
 
     // 1. Test `vantac check <file> --json`
     let vantac_out = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "vantac",
@@ -388,7 +388,7 @@ fn main() -> i64 {
 
     // 2. Test `vanta check <file> --json`
     let vanta_out = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "vanta",
@@ -428,7 +428,7 @@ fn main() -> i64 {
     )
     .unwrap();
     let vanta_valid = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "vanta",

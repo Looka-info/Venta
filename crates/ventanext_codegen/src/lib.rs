@@ -591,17 +591,15 @@ fn parse_route_file(
     let mut param_names = BTreeSet::new();
     for seg in &segments {
         if let Some(ref p) = seg.param_name {
-            if seg.kind != SegmentKind::Group {
-                if !param_names.insert(p.clone()) {
-                    return Err(RouteConflictError {
-                        message: format!(
-                            "Duplicate parameter name '[{}]' in route {:?}",
-                            p, full_path
-                        ),
-                        first_source: Some(full_path.to_path_buf()),
-                        second_source: None,
-                    });
-                }
+            if seg.kind != SegmentKind::Group && !param_names.insert(p.clone()) {
+                return Err(RouteConflictError {
+                    message: format!(
+                        "Duplicate parameter name '[{}]' in route {:?}",
+                        p, full_path
+                    ),
+                    first_source: Some(full_path.to_path_buf()),
+                    second_source: None,
+                });
             }
         }
     }
@@ -627,7 +625,7 @@ fn parse_route_file(
     // Portable filesystems limit a filename component to 255 bytes, meaning canonical_pattern
     // cannot exceed MAX_PORTABLE_ROUTE_PATTERN_BYTES (123 bytes).
     if kind == RouteKind::Api {
-        let pattern_bytes = canonical_pattern.as_bytes().len();
+        let pattern_bytes = canonical_pattern.len();
         if pattern_bytes > MAX_PORTABLE_ROUTE_PATTERN_BYTES {
             let encoded_mod = sanitize_module_name(&canonical_pattern);
             let encoded_filename = format!("{}.va", encoded_mod);
@@ -708,7 +706,7 @@ fn parse_route_file(
         adapter_module_name,
         page_handler_kind,
     ) = if kind == RouteKind::Page {
-        let pattern_bytes = canonical_pattern.as_bytes().len();
+        let pattern_bytes = canonical_pattern.len();
         let encoded_mod = sanitize_page_module_name(&canonical_pattern);
         let encoded_filename = format!("{}.va", encoded_mod);
         let actual_filename_len = encoded_filename.len();
@@ -767,9 +765,7 @@ fn parse_route_file(
             || s.kind == SegmentKind::OptionalCatchAll
     });
 
-    let render_mode = if kind == RouteKind::Api {
-        RenderMode::Dynamic
-    } else if has_dynamic_segments {
+    let render_mode = if kind == RouteKind::Api || has_dynamic_segments {
         RenderMode::Dynamic
     } else {
         RenderMode::Static
@@ -1562,7 +1558,7 @@ pub fn generate_page_adapter_code(route: &RouteMetadata, content: &str) -> Strin
         out.push('\n');
     }
 
-    out.push_str("\n");
+    out.push('\n');
     out.push_str(
         "// ----------------------------------------------------------------------------\n",
     );
@@ -1719,7 +1715,7 @@ pub fn validate_conflicts(routes: &[RouteMetadata]) -> Result<(), RouteConflictE
         if r.route_kind == RouteKind::Api
             || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
         {
-            let pattern_bytes = r.canonical_pattern.as_bytes().len();
+            let pattern_bytes = r.canonical_pattern.len();
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
             } else if r.route_kind == RouteKind::Api {
@@ -1868,7 +1864,7 @@ pub fn generate_venta_code(app: &DiscoveredApp) -> String {
         out.push_str(&format!("mod {};\n", mod_name));
     }
     if !page_adapter_routes.is_empty() || !api_routes.is_empty() {
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str(
@@ -2104,7 +2100,7 @@ pub fn write_generated_routes(
         if r.route_kind == RouteKind::Api
             || (r.route_kind == RouteKind::Page && !r.adapter_module_name.is_empty())
         {
-            let pattern_bytes = r.canonical_pattern.as_bytes().len();
+            let pattern_bytes = r.canonical_pattern.len();
             let mod_name = if !r.adapter_module_name.is_empty() {
                 r.adapter_module_name.clone()
             } else if r.route_kind == RouteKind::Api {

@@ -114,10 +114,11 @@ fn test_signed_division_and_modulo_by_power_of_two() {
         let has_idiv = insts.iter().any(|i| matches!(i, MachineInst::Idiv(_)));
         let has_sar = insts.iter().any(|i| matches!(i, MachineInst::Sar { .. }));
 
-        if func.name == "div_by_2" || func.name == "div_by_16" {
-            assert!(!has_idiv, "{} must NOT use IDIV!", func.name);
-            assert!(has_sar, "{} must use SAR!", func.name);
-        } else if func.name == "rem_by_2" || func.name == "rem_by_16" {
+        if func.name == "div_by_2"
+            || func.name == "div_by_16"
+            || func.name == "rem_by_2"
+            || func.name == "rem_by_16"
+        {
             assert!(!has_idiv, "{} must NOT use IDIV!", func.name);
             assert!(has_sar, "{} must use SAR!", func.name);
         } else if func.name == "rem_by_one" {

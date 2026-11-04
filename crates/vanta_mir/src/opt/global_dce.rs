@@ -32,7 +32,7 @@ impl GlobalDce {
 
         // 1. Inter-procedural Function Reachability (for executables with a main entry point or library objects)
         let has_main = program.functions.iter().any(|f| f.name == "main");
-        let should_prune_functions = (is_executable && has_main) || !is_executable;
+        let should_prune_functions = !is_executable || has_main;
         if should_prune_functions {
             let initial_funcs = program.functions.len();
             let call_graph = CallGraph::build(program);
@@ -42,26 +42,24 @@ impl GlobalDce {
             if is_executable && has_main {
                 // Seed root functions: `main`, `vanta_rt_*`, foreign ABI hooks
                 for func in &program.functions {
-                    if func.name == "main"
+                    if (func.name == "main"
                         || func.name.starts_with("vanta_rt_")
-                        || func.name.starts_with("__")
+                        || func.name.starts_with("__"))
+                        && reachable.insert(func.name.clone())
                     {
-                        if reachable.insert(func.name.clone()) {
-                            queue.push_back(func.name.clone());
-                        }
+                        queue.push_back(func.name.clone());
                     }
                 }
             } else {
                 // In library/object mode:
                 // Seed root functions: any non-standard-library function or public ABI symbols
                 for func in &program.functions {
-                    if !func.name.starts_with("std__")
+                    if (!func.name.starts_with("std__")
                         || func.name.starts_with("vanta_rt_")
-                        || func.name.starts_with("__")
+                        || func.name.starts_with("__"))
+                        && reachable.insert(func.name.clone())
                     {
-                        if reachable.insert(func.name.clone()) {
-                            queue.push_back(func.name.clone());
-                        }
+                        queue.push_back(func.name.clone());
                     }
                 }
             }
@@ -131,13 +129,12 @@ impl GlobalDce {
         let mut queue = VecDeque::new();
 
         for func in &program.functions {
-            if !func.name.starts_with("std__")
+            if (!func.name.starts_with("std__")
                 || func.name.starts_with("vanta_rt_")
-                || func.name.starts_with("__")
+                || func.name.starts_with("__"))
+                && reachable.insert(func.name.clone())
             {
-                if reachable.insert(func.name.clone()) {
-                    queue.push_back(func.name.clone());
-                }
+                queue.push_back(func.name.clone());
             }
         }
 

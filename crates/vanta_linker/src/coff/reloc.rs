@@ -16,6 +16,7 @@ pub const IMAGE_REL_AMD64_REL32_4: u32 = 8;
 pub const IMAGE_REL_AMD64_REL32_5: u32 = 9;
 
 /// Applies a single AMD64 COFF relocation into section bytes at `patch_offset`.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_coff_relocation(
     path: &Path,
     section_name: &str,

@@ -23,7 +23,7 @@ impl SourceTreeDigest {
         &self.bytes
     }
 
-    pub fn to_hex(&self) -> String {
+    pub fn to_hex(self) -> String {
         let mut hex = String::with_capacity(64);
         for byte in &self.bytes {
             use std::fmt::Write;
@@ -285,13 +285,9 @@ fn walk_dir(root: &Path, dir: &Path, files: &mut Vec<String>) -> Result<(), io::
             if !should_ignore_dir(&name_str) {
                 walk_dir(root, &path, files)?;
             }
-        } else if path.is_file() {
-            if is_relevant_compiler_file(&name_str) {
-                let rel = path
-                    .strip_prefix(root)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                files.push(normalize_path(rel));
-            }
+        } else if path.is_file() && is_relevant_compiler_file(&name_str) {
+            let rel = path.strip_prefix(root).map_err(io::Error::other)?;
+            files.push(normalize_path(rel));
         }
     }
 
@@ -370,13 +366,9 @@ pub fn scan_compiler_source_files(root: &Path) -> Result<Vec<String>, io::Error>
                 if !should_ignore_dir(&name_str) {
                     walk_dir(root, &p, &mut files)?;
                 }
-            } else if p.is_file() {
-                if is_relevant_compiler_file(&name_str) {
-                    let rel = p
-                        .strip_prefix(root)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    files.push(normalize_path(rel));
-                }
+            } else if p.is_file() && is_relevant_compiler_file(&name_str) {
+                let rel = p.strip_prefix(root).map_err(io::Error::other)?;
+                files.push(normalize_path(rel));
             }
         }
     }

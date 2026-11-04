@@ -213,20 +213,10 @@ impl LoopPeeling {
                     continue;
                 }
                 let mut cl = inst.clone();
-                match &mut cl {
-                    Instruction::ConstInt { dest, .. }
-                    | Instruction::ConstBool { dest, .. }
-                    | Instruction::SlotAddr { dest, .. }
-                    | Instruction::Load { dest, .. }
-                    | Instruction::Binary { dest, .. }
-                    | Instruction::Unary { dest, .. }
-                    | Instruction::Copy { dest, .. } => {
-                        let new_d = ValueId(next_val_id);
-                        next_val_id += 1;
-                        preheader_val_map.insert(*dest, new_d);
-                        *dest = new_d;
-                    }
-                    _ => {}
+                for def in inst.defs() {
+                    let new_d = ValueId(next_val_id);
+                    next_val_id += 1;
+                    preheader_val_map.insert(def, new_d);
                 }
                 Self::remap_instruction(&mut cl, &preheader_val_map, &HashMap::new());
                 preheader_cloned_insts.push(cl);
@@ -253,34 +243,9 @@ impl LoopPeeling {
             for &b_id in &body_block_ids {
                 let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
                 for inst in &orig_b.instructions {
-                    match inst {
-                        Instruction::ConstInt { dest, .. }
-                        | Instruction::ConstBool { dest, .. }
-                        | Instruction::SlotAddr { dest, .. }
-                        | Instruction::Load { dest, .. }
-                        | Instruction::Binary { dest, .. }
-                        | Instruction::Unary { dest, .. }
-                        | Instruction::IndexAddr { dest, .. }
-                        | Instruction::IndexPtrAddr { dest, .. }
-                        | Instruction::FieldAddr { dest, .. }
-                        | Instruction::LoadIndirect { dest, .. }
-                        | Instruction::Phi { dest, .. }
-                        | Instruction::Copy { dest, .. } => {
-                            peeled_val_map.insert(*dest, ValueId(next_val_id));
-                            next_val_id += 1;
-                        }
-                        Instruction::StrSlice {
-                            dest_ptr, dest_len, ..
-                        }
-                        | Instruction::LoadSlice {
-                            dest_ptr, dest_len, ..
-                        } => {
-                            peeled_val_map.insert(*dest_ptr, ValueId(next_val_id));
-                            next_val_id += 1;
-                            peeled_val_map.insert(*dest_len, ValueId(next_val_id));
-                            next_val_id += 1;
-                        }
-                        _ => {}
+                    for def in inst.defs() {
+                        peeled_val_map.insert(def, ValueId(next_val_id));
+                        next_val_id += 1;
                     }
                 }
             }

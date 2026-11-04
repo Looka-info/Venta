@@ -72,6 +72,7 @@ impl<'a> InstructionSelector<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_simd(
         func: &'a MirFunction,
         frame: &'a FrameLayout,
@@ -299,16 +300,14 @@ impl<'a> InstructionSelector<'a> {
                     order.push(next_idx);
                     placed.insert(self.func.blocks[next_idx].id);
                     curr_idx = next_idx;
+                } else if let Some(unplaced_idx) =
+                    (0..self.func.blocks.len()).find(|&i| !placed.contains(&self.func.blocks[i].id))
+                {
+                    order.push(unplaced_idx);
+                    placed.insert(self.func.blocks[unplaced_idx].id);
+                    curr_idx = unplaced_idx;
                 } else {
-                    if let Some(unplaced_idx) = (0..self.func.blocks.len())
-                        .find(|&i| !placed.contains(&self.func.blocks[i].id))
-                    {
-                        order.push(unplaced_idx);
-                        placed.insert(self.func.blocks[unplaced_idx].id);
-                        curr_idx = unplaced_idx;
-                    } else {
-                        break;
-                    }
+                    break;
                 }
             }
             order
@@ -2247,7 +2246,7 @@ impl<'a> InstructionSelector<'a> {
                 }
 
                 if callee == "venta_simd_vec_load256" || callee == "simd_vec_load256" {
-                    assert!(args.len() >= 1, "vec_load256 requires src_ptr");
+                    assert!(!args.is_empty(), "vec_load256 requires src_ptr");
                     let src_ptr_op = self.get_val_op(args[0]);
                     let d = dest.expect("vec_load256 must have destination ValueId");
                     let d_loc = self

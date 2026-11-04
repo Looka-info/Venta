@@ -91,7 +91,11 @@ impl SymbolResolver {
     ) {
         for merged in merged_sections {
             for contrib in &merged.contributions {
-                if let Some(obj) = objects.iter().find(|o| o.id == contrib.object_id) {
+                let obj_opt = objects
+                    .get(contrib.object_id)
+                    .filter(|o| o.id == contrib.object_id)
+                    .or_else(|| objects.iter().find(|o| o.id == contrib.object_id));
+                if let Some(obj) = obj_opt {
                     for sym in &obj.symbols {
                         if sym.section_index == Some(contrib.source_section_idx) {
                             let sym_va = merged.virtual_address
@@ -114,36 +118,44 @@ impl SymbolResolver {
         referencing_object: &ObjectFile,
         merged_sections: &[MergedSection],
     ) -> Option<u64> {
+        let contrib_map = crate::section::ContributionMap::build(merged_sections);
+        self.resolve_symbol_address_with_map(
+            sym_name,
+            referencing_object,
+            merged_sections,
+            &contrib_map,
+        )
+    }
+
+    /// Resolves the virtual address of a symbol referenced from a specific object using an accelerated contribution index.
+    pub fn resolve_symbol_address_with_map(
+        &self,
+        sym_name: &str,
+        referencing_object: &ObjectFile,
+        merged_sections: &[MergedSection],
+        contrib_map: &crate::section::ContributionMap,
+    ) -> Option<u64> {
         // 1. Check if it's a local symbol within the referencing object
         for sym in &referencing_object.symbols {
             if sym.is_local() && sym.name == sym_name {
                 if let Some(sec_idx) = sym.section_index {
-                    for merged in merged_sections {
-                        for contrib in &merged.contributions {
-                            if contrib.object_id == referencing_object.id
-                                && contrib.source_section_idx == sec_idx
-                            {
-                                return Some(
-                                    merged.virtual_address
-                                        + contrib.offset_in_merged as u64
-                                        + sym.value,
-                                );
-                            }
-                        }
+                    if let Some(loc) = contrib_map.get_by_index(referencing_object.id, sec_idx) {
+                        return Some(
+                            merged_sections[loc.merged_section_idx].virtual_address
+                                + loc.offset_in_merged as u64
+                                + sym.value,
+                        );
                     }
                 }
             }
         }
 
         // 1b. Check if sym_name refers to an input section name of referencing_object
-        for merged in merged_sections {
-            for contrib in &merged.contributions {
-                if contrib.object_id == referencing_object.id
-                    && contrib.source_section_name == sym_name
-                {
-                    return Some(merged.virtual_address + contrib.offset_in_merged as u64);
-                }
-            }
+        if let Some(loc) = contrib_map.get_by_name(referencing_object.id, sym_name) {
+            return Some(
+                merged_sections[loc.merged_section_idx].virtual_address
+                    + loc.offset_in_merged as u64,
+            );
         }
 
         // 2. Otherwise look up in global resolved addresses

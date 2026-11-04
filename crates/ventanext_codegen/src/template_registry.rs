@@ -15,19 +15,21 @@ use std::path::{Component, Path, PathBuf};
 
 pub fn compute_sha256(data: &[u8]) -> String {
     let mut h: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
     ];
 
     let k: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
 
     let bit_len = (data.len() as u64).wrapping_mul(8);
@@ -51,7 +53,10 @@ pub fn compute_sha256(data: &[u8]) -> String {
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
 
         let mut a = h[0];
@@ -66,7 +71,11 @@ pub fn compute_sha256(data: &[u8]) -> String {
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ ((!e) & g);
-            let temp1 = h_val.wrapping_add(s1).wrapping_add(ch).wrapping_add(k[i]).wrapping_add(w[i]);
+            let temp1 = h_val
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(k[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let temp2 = s0.wrapping_add(maj);
@@ -177,10 +186,17 @@ pub enum TemplateError {
     Json(serde_json::Error),
     TemplateNotFound(String),
     ManifestMissingField(String),
-    IncompatibleFramework { required: String, actual: String },
+    IncompatibleFramework {
+        required: String,
+        actual: String,
+    },
     DestinationAlreadyExists(PathBuf),
     PathTraversalDetected(String),
-    ChecksumMismatch { file: String, expected: String, actual: String },
+    ChecksumMismatch {
+        file: String,
+        expected: String,
+        actual: String,
+    },
     MissingFileInArchive(String),
     InvalidProjectName(String),
 }
@@ -191,21 +207,41 @@ impl std::fmt::Display for TemplateError {
             TemplateError::Io(e) => write!(f, "I/O error: {}", e),
             TemplateError::Json(e) => write!(f, "JSON serialization error: {}", e),
             TemplateError::TemplateNotFound(id) => write!(f, "Template not found: '{}'", id),
-            TemplateError::ManifestMissingField(field) => write!(f, "Template manifest missing required field: '{}'", field),
+            TemplateError::ManifestMissingField(field) => {
+                write!(f, "Template manifest missing required field: '{}'", field)
+            }
             TemplateError::IncompatibleFramework { required, actual } => {
-                write!(f, "Incompatible framework version: required '{}', current version is '{}'", required, actual)
+                write!(
+                    f,
+                    "Incompatible framework version: required '{}', current version is '{}'",
+                    required, actual
+                )
             }
             TemplateError::DestinationAlreadyExists(p) => {
                 write!(f, "Destination directory already exists and is not empty: {:?}. Existing projects are protected from silent overwrite.", p)
             }
             TemplateError::PathTraversalDetected(path) => {
-                write!(f, "Path traversal attack detected and rejected for path: '{}'", path)
+                write!(
+                    f,
+                    "Path traversal attack detected and rejected for path: '{}'",
+                    path
+                )
             }
-            TemplateError::ChecksumMismatch { file, expected, actual } => {
+            TemplateError::ChecksumMismatch {
+                file,
+                expected,
+                actual,
+            } => {
                 write!(f, "Cryptographic integrity failure for '{}': expected SHA-256 '{}', computed '{}'", file, expected, actual)
             }
-            TemplateError::MissingFileInArchive(file) => write!(f, "Expected file missing in template archive: '{}'", file),
-            TemplateError::InvalidProjectName(name) => write!(f, "Invalid project name '{}': must be non-empty and alphanumeric", name),
+            TemplateError::MissingFileInArchive(file) => {
+                write!(f, "Expected file missing in template archive: '{}'", file)
+            }
+            TemplateError::InvalidProjectName(name) => write!(
+                f,
+                "Invalid project name '{}': must be non-empty and alphanumeric",
+                name
+            ),
         }
     }
 }
@@ -287,7 +323,9 @@ impl TemplateManifest {
             return Err(TemplateError::ManifestMissingField("category".into()));
         }
         if self.framework_compatibility.trim().is_empty() {
-            return Err(TemplateError::ManifestMissingField("framework_compatibility".into()));
+            return Err(TemplateError::ManifestMissingField(
+                "framework_compatibility".into(),
+            ));
         }
         if self.entry_point.trim().is_empty() {
             return Err(TemplateError::ManifestMissingField("entry_point".into()));
@@ -354,7 +392,10 @@ pub fn validate_safe_relative_path(rel_path: &str) -> Result<(), TemplateError> 
     Ok(())
 }
 
-pub fn check_version_compatibility(required_spec: &str, current: &str) -> Result<bool, TemplateError> {
+pub fn check_version_compatibility(
+    required_spec: &str,
+    current: &str,
+) -> Result<bool, TemplateError> {
     let req = required_spec.trim();
     if req == "*" || req.is_empty() {
         return Ok(true);
@@ -373,7 +414,7 @@ fn compare_semver_min(actual: &str, min_req: &str) -> bool {
         let clean = s.split('-').next().unwrap_or(s);
         let parts: Vec<u64> = clean.split('.').filter_map(|p| p.parse().ok()).collect();
         (
-            parts.get(0).copied().unwrap_or(0),
+            parts.first().copied().unwrap_or(0),
             parts.get(1).copied().unwrap_or(0),
             parts.get(2).copied().unwrap_or(0),
         )
@@ -389,6 +430,75 @@ fn compare_semver_min(actual: &str, min_req: &str) -> bool {
         return actual_nums.1 >= min_nums.1;
     }
     actual_nums.2 >= min_nums.2
+}
+
+/// Locates the root `templates` directory, searching user-provided paths, environment variables
+/// (`VENTANEXT_TEMPLATES_DIR`, `VANTA_TEMPLATES_DIR`), workspace directory trees, executable sibling
+/// directories, user data directories, and system paths.
+pub fn find_templates_root(custom_dir: Option<&Path>) -> PathBuf {
+    if let Some(d) = custom_dir {
+        if d.exists() {
+            return d.to_path_buf();
+        }
+    }
+    if let Ok(env_path) =
+        std::env::var("VENTANEXT_TEMPLATES_DIR").or_else(|_| std::env::var("VANTA_TEMPLATES_DIR"))
+    {
+        let p = PathBuf::from(env_path);
+        if p.exists() && p.join("registry.json").exists() {
+            return p;
+        }
+    }
+    let mut candidates = vec![
+        PathBuf::from("templates"),
+        PathBuf::from("../templates"),
+        PathBuf::from("../../templates"),
+    ];
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidates.push(parent.join("templates"));
+            candidates.push(parent.join("../templates"));
+            candidates.push(parent.join("../share/ventanext/templates"));
+            candidates.push(parent.join("../share/vanta/templates"));
+            candidates.push(parent.join("../lib/vanta/templates"));
+        }
+    }
+    // Walk up from current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut curr = Some(cwd.as_path());
+        while let Some(dir) = curr {
+            let candidate = dir.join("templates");
+            if candidate.join("registry.json").exists() {
+                candidates.push(candidate);
+                break;
+            }
+            curr = dir.parent();
+        }
+    }
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        let h = PathBuf::from(home);
+        candidates.push(h.join(".local/share/ventanext/templates"));
+        candidates.push(h.join(".local/share/vanta/templates"));
+        candidates.push(h.join(".ventanext/templates"));
+        candidates.push(h.join(".vanta/templates"));
+    }
+    candidates.push(PathBuf::from("/usr/local/share/ventanext/templates"));
+    candidates.push(PathBuf::from("/usr/share/ventanext/templates"));
+
+    // Development fallback using compile-time manifest dir if available
+    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+        let p = PathBuf::from(manifest_dir);
+        if let Some(repo_root) = p.parent().and_then(|p| p.parent()) {
+            candidates.push(repo_root.join("templates"));
+        }
+    }
+
+    for c in &candidates {
+        if c.exists() && c.join("registry.json").exists() {
+            return c.clone();
+        }
+    }
+    PathBuf::from("templates")
 }
 
 // ----------------------------------------------------------------------------
@@ -419,7 +529,9 @@ pub fn create_project_from_template(
             Err(_) => false,
         };
         if !is_empty {
-            return Err(TemplateError::DestinationAlreadyExists(dest_dir.to_path_buf()));
+            return Err(TemplateError::DestinationAlreadyExists(
+                dest_dir.to_path_buf(),
+            ));
         }
     }
 
@@ -510,19 +622,13 @@ pub fn create_project_from_template(
             let mut content = fs::read(&src_file)?;
 
             // Customize package metadata if package.json or ventanext.config.json
-            if entry.path == "package.json" {
+            if entry.path == "package.json" || entry.path == "ventanext.config.json" {
                 if let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(&content) {
                     if let Some(obj) = json.as_object_mut() {
-                        obj.insert("name".into(), serde_json::Value::String(clean_name.to_string()));
-                    }
-                    if let Ok(serialized) = serde_json::to_vec_pretty(&json) {
-                        content = serialized;
-                    }
-                }
-            } else if entry.path == "ventanext.config.json" {
-                if let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(&content) {
-                    if let Some(obj) = json.as_object_mut() {
-                        obj.insert("name".into(), serde_json::Value::String(clean_name.to_string()));
+                        obj.insert(
+                            "name".into(),
+                            serde_json::Value::String(clean_name.to_string()),
+                        );
                     }
                     if let Ok(serialized) = serde_json::to_vec_pretty(&json) {
                         content = serialized;
@@ -625,7 +731,11 @@ mod tests {
 
     #[test]
     fn test_load_and_verify_all_official_templates() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         let templates_dir = repo_root.join("templates");
         let registry_path = templates_dir.join("registry.json");
         let catalog = RegistryCatalog::load_from_file(&registry_path)
@@ -642,22 +752,32 @@ mod tests {
         ];
 
         for id in &expected_ids {
-            let summary = catalog.get_template(id).expect(&format!("Template {} must exist", id));
+            let summary = catalog
+                .get_template(id)
+                .unwrap_or_else(|| panic!("Template {} must exist", id));
             assert_eq!(summary.id, *id);
             assert!(summary.file_count >= 10);
-            assert!(check_version_compatibility(&summary.framework_compatibility, "1.0.0-rc.2").unwrap());
+            assert!(
+                check_version_compatibility(&summary.framework_compatibility, "1.0.0-rc.2")
+                    .unwrap()
+            );
 
             // Verify individual manifest and SHA-256 integrity
             let manifest_path = templates_dir.join(id).join("template.json");
             let manifest = TemplateManifest::load_from_file(&manifest_path)
-                .expect(&format!("Manifest for {} must load", id));
+                .unwrap_or_else(|_| panic!("Manifest for {} must load", id));
             assert_eq!(manifest.id, *id);
             assert_eq!(manifest.file_inventory.len(), summary.file_count);
 
             let project_dir = templates_dir.join(id).join("project");
             for file_entry in &manifest.file_inventory {
                 let file_path = project_dir.join(&file_entry.path);
-                assert!(file_path.exists(), "File {} in template {} must exist", file_entry.path, id);
+                assert!(
+                    file_path.exists(),
+                    "File {} in template {} must exist",
+                    file_entry.path,
+                    id
+                );
                 let content = fs::read(&file_path).unwrap();
                 let computed_hash = compute_sha256(&content);
                 assert_eq!(
@@ -671,7 +791,11 @@ mod tests {
 
     #[test]
     fn test_create_project_and_metadata_customization() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         let templates_dir = repo_root.join("templates");
 
         let tmp = tempdir().unwrap();
@@ -705,7 +829,11 @@ mod tests {
 
     #[test]
     fn test_destination_already_exists_protection() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         let templates_dir = repo_root.join("templates");
 
         let tmp = tempdir().unwrap();
@@ -756,9 +884,17 @@ mod tests {
         let fake_template_dir = fake_templates_root.join("fake-template");
         let fake_proj = fake_template_dir.join("project");
         fs::create_dir_all(fake_proj.join("app")).unwrap();
-        fs::write(fake_proj.join("app/page.va"), "real content with different hash").unwrap();
+        fs::write(
+            fake_proj.join("app/page.va"),
+            "real content with different hash",
+        )
+        .unwrap();
         let fake_manifest_path = fake_template_dir.join("template.json");
-        fs::write(&fake_manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+        fs::write(
+            &fake_manifest_path,
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
 
         let res = create_project_from_template(
             "fake-template",
@@ -775,7 +911,11 @@ mod tests {
 
     #[test]
     fn test_offline_caching() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         let templates_dir = repo_root.join("templates");
 
         let tmp = tempdir().unwrap();
@@ -812,5 +952,22 @@ mod tests {
 
         assert!(report2.from_offline_cache);
         assert!(dest2.join("app/page.va").exists());
+    }
+
+    #[test]
+    fn test_find_templates_root_resolution() {
+        let tmp = tempfile::tempdir().unwrap();
+        let custom_templates = tmp.path().join("my_templates");
+        fs::create_dir_all(&custom_templates).unwrap();
+        fs::write(custom_templates.join("registry.json"), "{}").unwrap();
+
+        // 1. Direct custom_dir takes highest precedence
+        let resolved = find_templates_root(Some(&custom_templates));
+        assert_eq!(resolved, custom_templates);
+
+        // 2. Fallback when custom_dir does not exist continues search
+        let nonexistent = tmp.path().join("does_not_exist");
+        let fallback = find_templates_root(Some(&nonexistent));
+        assert_ne!(fallback, nonexistent);
     }
 }

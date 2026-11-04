@@ -42,3 +42,116 @@ pub fn len<K, V>(map: &HashMap<K, V>) -> i64 {
 pub fn is_empty<K, V>(map: &HashMap<K, V>) -> bool {
     return map.size == 0;
 }
+
+pub fn insert<K, V>(map: &mut HashMap<K, V>, key: K, value: V) -> bool {
+    let mut i: i64 = 0;
+    let n: i64 = map.buckets.len();
+    let mut reuse_idx: i64 = -1;
+    while i < n {
+        let b = &mut map.buckets[i];
+        match b.state {
+            BucketState::Occupied => {
+                if b.key == key {
+                    b.value = value;
+                    return false;
+                }
+            }
+            BucketState::Deleted => {
+                if reuse_idx < 0 {
+                    reuse_idx = i;
+                }
+            }
+            BucketState::Empty => {
+                if reuse_idx < 0 {
+                    reuse_idx = i;
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    if reuse_idx >= 0 {
+        let rb = &mut map.buckets[reuse_idx];
+        rb.state = BucketState::Occupied;
+        rb.key = key;
+        rb.value = value;
+        rb.hash = 0;
+        map.size = map.size + 1;
+        return true;
+    }
+
+    let b = Bucket {
+        state: BucketState::Occupied,
+        key: key,
+        value: value,
+        hash: 0,
+    };
+    map.buckets.push(b);
+    map.size = map.size + 1;
+    return true;
+}
+
+pub fn get<K, V>(map: &HashMap<K, V>, key: K) -> Option<V> {
+    let mut i: i64 = 0;
+    let n: i64 = map.buckets.len();
+    while i < n {
+        let b = &map.buckets[i];
+        match b.state {
+            BucketState::Occupied => {
+                if b.key == key {
+                    return Option::Some(b.value);
+                }
+            }
+            BucketState::Deleted => {}
+            BucketState::Empty => {}
+        }
+        i = i + 1;
+    }
+    return Option::None;
+}
+
+pub fn contains_key<K, V>(map: &HashMap<K, V>, key: K) -> bool {
+    let mut i: i64 = 0;
+    let n: i64 = map.buckets.len();
+    while i < n {
+        let b = &map.buckets[i];
+        match b.state {
+            BucketState::Occupied => {
+                if b.key == key {
+                    return true;
+                }
+            }
+            BucketState::Deleted => {}
+            BucketState::Empty => {}
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fn remove<K, V>(map: &mut HashMap<K, V>, key: K) -> Option<V> {
+    let mut i: i64 = 0;
+    let n: i64 = map.buckets.len();
+    while i < n {
+        let b = &mut map.buckets[i];
+        match b.state {
+            BucketState::Occupied => {
+                if b.key == key {
+                    let val = b.value;
+                    b.state = BucketState::Deleted;
+                    map.size = map.size - 1;
+                    return Option::Some(val);
+                }
+            }
+            BucketState::Deleted => {}
+            BucketState::Empty => {}
+        }
+        i = i + 1;
+    }
+    return Option::None;
+}
+
+pub fn clear<K, V>(map: &mut HashMap<K, V>) {
+    map.buckets = Vec::new();
+    map.size = 0;
+}

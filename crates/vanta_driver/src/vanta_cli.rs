@@ -102,7 +102,11 @@ fn handle_templates_forward(args: &[String]) {
     let mut bin = PathBuf::from("ventanext-gen");
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
-            let candidate = parent.join(if cfg!(windows) { "ventanext-gen.exe" } else { "ventanext-gen" });
+            let candidate = parent.join(if cfg!(windows) {
+                "ventanext-gen.exe"
+            } else {
+                "ventanext-gen"
+            });
             if candidate.exists() {
                 bin = candidate;
             }
@@ -344,8 +348,8 @@ fn handle_run(args: &[String]) {
                     process::exit(2);
                 }
             };
-        } else if arg.starts_with("-C") {
-            let c_arg = if arg == "-C" {
+        } else if let Some(stripped) = arg.strip_prefix("-C") {
+            let c_arg = if stripped.is_empty() {
                 i += 1;
                 if i >= args.len() {
                     eprintln!("Error: -C requires an argument");
@@ -353,7 +357,7 @@ fn handle_run(args: &[String]) {
                 }
                 args[i].as_str()
             } else {
-                &arg[2..]
+                stripped
             };
             if let Some(feat) = c_arg.strip_prefix("target-feature=") {
                 if let Err(e) = target_features.parse_feature_list(feat) {
@@ -429,8 +433,7 @@ fn handle_run(args: &[String]) {
         }
     };
 
-    if (!libs.is_empty() || !additional_inputs.is_empty())
-        && std::env::var("VANTA_LINKER").is_err()
+    if (!libs.is_empty() || !additional_inputs.is_empty()) && std::env::var("VANTA_LINKER").is_err()
     {
         linker = LinkerKind::System;
     }
@@ -744,8 +747,8 @@ fn handle_compile(args: &[String]) {
                     process::exit(2);
                 }
             };
-        } else if arg.starts_with("-C") {
-            let c_arg = if arg == "-C" {
+        } else if let Some(stripped) = arg.strip_prefix("-C") {
+            let c_arg = if stripped.is_empty() {
                 i += 1;
                 if i >= args.len() {
                     eprintln!("Error: -C requires an argument");
@@ -753,7 +756,7 @@ fn handle_compile(args: &[String]) {
                 }
                 args[i].as_str()
             } else {
-                &arg[2..]
+                stripped
             };
             if let Some(feat) = c_arg.strip_prefix("target-feature=") {
                 if let Err(e) = target_features.parse_feature_list(feat) {
@@ -830,8 +833,7 @@ fn handle_compile(args: &[String]) {
         }
     };
 
-    if (!libs.is_empty() || !additional_inputs.is_empty())
-        && std::env::var("VANTA_LINKER").is_err()
+    if (!libs.is_empty() || !additional_inputs.is_empty()) && std::env::var("VANTA_LINKER").is_err()
     {
         linker = LinkerKind::System;
     }

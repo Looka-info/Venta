@@ -535,10 +535,8 @@ impl CacheManager {
         key: &ContentFingerprint,
     ) -> Result<Option<PathBuf>, String> {
         let art_path = self.artifact_path(key, ArtifactType::Object);
-        if art_path.exists() {
-            if let Some(_) = self.read_artifact(key, ArtifactType::Object)? {
-                return Ok(Some(art_path));
-            }
+        if art_path.exists() && self.read_artifact(key, ArtifactType::Object)?.is_some() {
+            return Ok(Some(art_path));
         }
         Ok(None)
     }

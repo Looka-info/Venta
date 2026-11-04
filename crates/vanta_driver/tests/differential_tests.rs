@@ -55,9 +55,19 @@ fn run_test_configuration(
         );
     }
 
-    let output = Command::new(out_path)
-        .output()
-        .unwrap_or_else(|e| panic!("Failed to execute '{}': {}", out_path.display(), e));
+    let output = {
+        let mut attempts = 0;
+        loop {
+            match Command::new(out_path).output() {
+                Ok(out) => break out,
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 5 => {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => panic!("Failed to execute '{}': {}", out_path.display(), e),
+            }
+        }
+    };
     let code = output.status.code().unwrap_or(-1);
     (code, output.stdout)
 }

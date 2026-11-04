@@ -6,11 +6,12 @@
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 use ventanext_codegen::{
-    create_project_from_template, export_static_site, generate_manifest_json, generate_venta_code,
-    scan_app_directory, write_generated_routes, RegistryCatalog, TemplateManifest,
+    create_project_from_template, export_static_site, find_templates_root, generate_manifest_json,
+    generate_venta_code, scan_app_directory, write_generated_routes, RegistryCatalog,
+    TemplateManifest,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -42,26 +43,6 @@ OPTIONS (for templates and new):
 "#,
         version = VERSION
     );
-}
-
-fn find_templates_root(custom_dir: Option<&Path>) -> PathBuf {
-    if let Some(d) = custom_dir {
-        if d.exists() {
-            return d.to_path_buf();
-        }
-    }
-    let candidates = [
-        PathBuf::from("templates"),
-        PathBuf::from("../templates"),
-        PathBuf::from("../../templates"),
-        PathBuf::from("c:/Users/mumer/OneDrive/Documents/Venta/templates"),
-    ];
-    for c in &candidates {
-        if c.exists() && c.join("registry.json").exists() {
-            return c.clone();
-        }
-    }
-    PathBuf::from("templates")
 }
 
 fn handle_templates(args: &[String]) {
@@ -119,9 +100,15 @@ fn handle_templates(args: &[String]) {
                 println!("• ID:           {}", t.id);
                 println!("  Name:         {}", t.name);
                 println!("  Category:     {}", t.category);
-                println!("  Version:      v{} ({})", t.version, t.framework_compatibility);
+                println!(
+                    "  Version:      v{} ({})",
+                    t.version, t.framework_compatibility
+                );
                 println!("  Description:  {}", t.description);
-                println!("  Pages:        {} routes | Files: {} verified files", t.page_count, t.file_count);
+                println!(
+                    "  Pages:        {} routes | Files: {} verified files",
+                    t.page_count, t.file_count
+                );
                 println!("  Features:     {}", t.features.join(", "));
                 println!("--------------------------------------------------------------------------------");
             }
@@ -193,8 +180,18 @@ fn handle_new(args: &[String]) {
             println!("• Project Name:     {}", rep.project_name);
             println!("• Template:         {}", rep.template_id);
             println!("• Destination:      {:?}", rep.destination);
-            println!("• Files Created:    {} files ({} bytes)", rep.files_created, rep.total_bytes);
-            println!("• Offline Cache:    {}", if rep.from_offline_cache { "Active (from cache)" } else { "Populated" });
+            println!(
+                "• Files Created:    {} files ({} bytes)",
+                rep.files_created, rep.total_bytes
+            );
+            println!(
+                "• Offline Cache:    {}",
+                if rep.from_offline_cache {
+                    "Active (from cache)"
+                } else {
+                    "Populated"
+                }
+            );
             println!("• Entry Point:      {:?}", rep.entry_point);
             println!("\nNext Steps:");
             println!("  1. cd {:?}", dest_dir);
@@ -225,7 +222,10 @@ fn handle_verify_template(args: &[String]) {
     match TemplateManifest::load_from_file(&manifest_path) {
         Ok(manifest) => {
             let project_dir = t_dir.join("project");
-            println!("[ventanext] Verifying manifest for '{}' (v{})...", manifest.id, manifest.version);
+            println!(
+                "[ventanext] Verifying manifest for '{}' (v{})...",
+                manifest.id, manifest.version
+            );
             for entry in &manifest.file_inventory {
                 let file_path = project_dir.join(&entry.path);
                 if !file_path.exists() {
@@ -239,7 +239,10 @@ fn handle_verify_template(args: &[String]) {
                     process::exit(1);
                 }
             }
-            println!("[OK] All {} file(s) cryptographically verified against SHA-256 signatures.", manifest.file_inventory.len());
+            println!(
+                "[OK] All {} file(s) cryptographically verified against SHA-256 signatures.",
+                manifest.file_inventory.len()
+            );
         }
         Err(e) => {
             eprintln!("[ventanext ERROR] Invalid manifest: {}", e);

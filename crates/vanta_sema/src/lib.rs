@@ -584,6 +584,25 @@ impl SemanticContext {
                 span: Span::new(vanta_source::FileId(0), 0, 0),
             },
         );
+        functions.insert(
+            "vanta_net_connect".into(),
+            FnSignature {
+                name: "vanta_net_connect".into(),
+                params: vec![
+                    (
+                        "host".into(),
+                        Type::Ref {
+                            is_mut: false,
+                            inner: Box::new(Type::Str),
+                        },
+                        false,
+                    ),
+                    ("port".into(), Type::I64, false),
+                ],
+                ret_type: Type::I64,
+                span: Span::new(vanta_source::FileId(0), 0, 0),
+            },
+        );
 
         // CPU feature detection intrinsics
         functions.insert(
@@ -8323,7 +8342,8 @@ impl SemanticAnalyzer {
                         }
 
                         let is_generic_inferred =
-                            self.ctx.generic_enums.contains_key(enum_name_str) && type_args.is_empty();
+                            self.ctx.generic_enums.contains_key(enum_name_str)
+                                && type_args.is_empty();
                         for (idx, (arg, expected_ty)) in
                             args.iter().zip(v_def.payload.iter()).enumerate()
                         {

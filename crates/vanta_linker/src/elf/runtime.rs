@@ -122,9 +122,9 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let print_str_offset = text_bytes.len();
     text_bytes.extend_from_slice(&[
         0x48, 0x85, 0xF6, // test %rsi, %rsi
-        0x74, 0x14, // jz 2f (+20)
+        0x74, 0x17, // jz 2f (+23 to ret)
         0x48, 0x85, 0xFF, // test %rdi, %rdi
-        0x74, 0x0F, // jz 2f (+15)
+        0x74, 0x12, // jz 2f (+18 to ret)
         0x48, 0x89, 0xF2, // mov %rsi, %rdx
         0x48, 0x89, 0xFE, // mov %rdi, %rsi
         0xBF, 0x01, 0x00, 0x00, 0x00, // mov $1, %edi
@@ -229,9 +229,9 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         0x31, 0xC0, // xor %eax, %eax (return NULL)
         0xC3, // ret
         // alloc_start:
-        0x48, 0x89, 0xF9, // mov %rdi, %rcx (save size)
+        0x57, // push %rdi (save size on stack across syscall)
         0x48, 0x83, 0xC7, 0x10, // add $16, %rdi (size + 16)
-        0x48, 0x89, 0xF6, // mov %rdi, %rsi (length)
+        0x48, 0x89, 0xFE, // mov %rdi, %rsi (length)
         0x31, 0xFF, // xor %edi, %edi (addr = NULL)
         0xBA, 0x03, 0x00, 0x00, 0x00, // mov $3, %edx (PROT_READ | PROT_WRITE)
         0x41, 0xBA, 0x22, 0x00, 0x00, 0x00, // mov $0x22, %r10d (MAP_PRIVATE | MAP_ANONYMOUS)
@@ -239,11 +239,13 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         0x4D, 0x31, 0xC9, // xor %r9, %r9 (offset = 0)
         0xB8, 0x09, 0x00, 0x00, 0x00, // mov $9, %eax (SYS_mmap)
         0x0F, 0x05, // syscall
+        0x59, // pop %rcx (restore exact size)
         0x48, 0x89, 0x08, // mov %rcx, (%rax) (store size)
         0x48, 0x83, 0xC0, 0x10, // add $16, %rax (return user buffer)
         0xC3, // ret
     ]);
     add_symbol("vanta_alloc", alloc_offset, text_bytes.len() - alloc_offset);
+    add_symbol("malloc", alloc_offset, text_bytes.len() - alloc_offset);
 
     // =========================================================================
     // 8. vanta_free(ptr: *mut u8)
@@ -252,7 +254,7 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let free_offset = text_bytes.len();
     text_bytes.extend_from_slice(&[
         0x48, 0x85, 0xFF, // test %rdi, %rdi
-        0x74, 0x18, // jz 2f
+        0x74, 0x12, // jz 2f (+18 to ret)
         0x48, 0x83, 0xEF, 0x10, // sub $16, %rdi
         0x48, 0x8B, 0x37, // mov (%rdi), %rsi (size)
         0x48, 0x83, 0xC6, 0x10, // add $16, %rsi (length = size + 16)
@@ -261,6 +263,7 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         0xC3, // ret
     ]);
     add_symbol("vanta_free", free_offset, text_bytes.len() - free_offset);
+    add_symbol("free", free_offset, text_bytes.len() - free_offset);
 
     // =========================================================================
     // 9. vanta_realloc(ptr: *mut u8, new_size: u64) -> *mut u8
@@ -268,9 +271,14 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let realloc_offset = text_bytes.len();
     text_bytes.extend_from_slice(&[
         0x48, 0x85, 0xFF, // test %rdi, %rdi
-        0x75, 0x06, // jnz do_realloc
+        0x75, 0x09, // jnz do_realloc (+9)
         0x48, 0x89, 0xF7, // mov %rsi, %rdi
-        0xEB, 0x87, // jmp vanta_alloc
+        0xE8, // call vanta_alloc
+    ]);
+    let call_alloc_null_pos = text_bytes.len();
+    text_bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+    text_bytes.extend_from_slice(&[
+        0xC3, // ret
         // do_realloc:
         // Save registers, allocate new buffer, copy min(old_size, new_size), free old
         0x53, // push %rbx
@@ -284,7 +292,7 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     text_bytes.extend_from_slice(&[
         0x5E, // pop %rsi (new_size)
         0x48, 0x85, 0xC0, // test %rax, %rax
-        0x74, 0x22, // jz fail
+        0x74, 0x1F, // jz fail (+31)
         // Copy old data:
         0x48, 0x8B, 0x4B, 0xF0, // mov -16(%rbx), %rcx (old_size)
         0x48, 0x39, 0xF1, // cmp %rsi, %rcx
@@ -306,6 +314,9 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         0x31, 0xC0, // xor %eax, %eax
         0xC3,
     ]);
+    let rel_alloc_null = (alloc_offset as i32) - ((call_alloc_null_pos + 4) as i32);
+    text_bytes[call_alloc_null_pos..call_alloc_null_pos + 4]
+        .copy_from_slice(&rel_alloc_null.to_le_bytes());
     let rel_alloc = (alloc_offset as i32) - ((call_alloc_pos + 4) as i32);
     text_bytes[call_alloc_pos..call_alloc_pos + 4].copy_from_slice(&rel_alloc.to_le_bytes());
     let rel_free = (free_offset as i32) - ((call_free_pos + 4) as i32);
@@ -315,6 +326,7 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         realloc_offset,
         text_bytes.len() - realloc_offset,
     );
+    add_symbol("realloc", realloc_offset, text_bytes.len() - realloc_offset);
 
     // =========================================================================
     // 10. CPU feature detection: vanta_cpu_has_avx/avx2/fma/avx512f
@@ -367,7 +379,7 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let vec_init_offset = text_bytes.len();
     text_bytes.extend_from_slice(&[
         0x48, 0x85, 0xFF, // test %rdi, %rdi
-        0x74, 0x18, // jz +24
+        0x74, 0x17, // jz +23 (to ret)
         0x48, 0xC7, 0x07, 0x00, 0x00, 0x00, 0x00, // movq $0, (%rdi)
         0x48, 0xC7, 0x47, 0x08, 0x00, 0x00, 0x00, 0x00, // movq $0, 8(%rdi)
         0x48, 0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00, // movq $0, 16(%rdi)
@@ -421,14 +433,14 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
     let vec_free_offset = text_bytes.len();
     text_bytes.extend_from_slice(&[
         0x48, 0x85, 0xFF, // test %rdi, %rdi
-        0x74, 0x0C, // jz done
+        0x74, 0x0D, // jz done
         0x48, 0x8B, 0x3F, // mov (%rdi), %rdi
         0x48, 0x85, 0xFF, // test %rdi, %rdi
         0x74, 0x05, // jz done
         0xE8, 0x00, 0x00, 0x00, 0x00, // call vanta_free
         0xC3, // done: ret
     ]);
-    let call_vfree_pos = vec_free_offset + 10;
+    let call_vfree_pos = vec_free_offset + 14;
     let rel_vfree = (free_offset as i32) - ((call_vfree_pos + 4) as i32);
     text_bytes[call_vfree_pos..call_vfree_pos + 4].copy_from_slice(&rel_vfree.to_le_bytes());
     add_symbol(
@@ -440,6 +452,89 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         "vanta_vec_free_strings",
         vec_free_offset,
         text_bytes.len() - vec_free_offset,
+    );
+
+    // =========================================================================
+    // 15b. vanta_vec_push(vec: *mut VantaVec, val: i64, elem_size: i64)
+    // =========================================================================
+    let vec_push_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xFF, // test %rdi, %rdi
+        0x0F, 0x84, 0x8B, 0x00, 0x00, 0x00, // je done (+139)
+        0x48, 0x85, 0xD2, // test %rdx, %rdx
+        0x7F, 0x05, // jg .has_elem_size (+5)
+        0xBA, 0x08, 0x00, 0x00, 0x00, // mov $8, %edx
+        // .has_elem_size:
+        0x48, 0x8B, 0x47, 0x08, // mov 8(%rdi), %rax (len)
+        0x48, 0x3B, 0x47, 0x10, // cmp 16(%rdi), %rax (cap)
+        0x7C, 0x31, // jl .has_space (+49)
+        // Grow vector:
+        0x48, 0x8B, 0x4F, 0x10, // mov 16(%rdi), %rcx (cap)
+        0x48, 0x85, 0xC9, // test %rcx, %rcx
+        0x75, 0x07, // jne .double_cap (+7)
+        0xB9, 0x04, 0x00, 0x00, 0x00, // mov $4, %ecx
+        0xEB, 0x03, // jmp .calc_size (+3)
+        // .double_cap:
+        0x48, 0xD1, 0xE1, // shl $1, %rcx
+        // .calc_size:
+        0x57, // push %rdi (vec)
+        0x56, // push %rsi (val)
+        0x52, // push %rdx (elem_size)
+        0x51, // push %rcx (new_cap)
+        0x48, 0x89, 0xCE, // mov %rcx, %rsi
+        0x48, 0x0F, 0xAF, 0xF2, // imul %rdx, %rsi (new_size = new_cap * elem_size)
+        0x48, 0x8B, 0x3F, // mov (%rdi), %rdi (vec->data)
+        0xE8, 0x00, 0x00, 0x00, 0x00, // call vanta_realloc
+        0x59, // pop %rcx (new_cap)
+        0x5A, // pop %rdx (elem_size)
+        0x5E, // pop %rsi (val)
+        0x5F, // pop %rdi (vec)
+        0x48, 0x89, 0x07, // mov %rax, (%rdi) (vec->data = new_ptr)
+        0x48, 0x89, 0x4F, 0x10, // mov %rcx, 16(%rdi) (vec->cap = new_cap)
+        // .has_space:
+        0x48, 0x8B, 0x47, 0x08, // mov 8(%rdi), %rax (len)
+        0x48, 0x0F, 0xAF, 0xC2, // imul %rdx, %rax (offset = len * elem_size)
+        0x48, 0x03, 0x07, // add (%rdi), %rax (dest = vec->data + offset)
+        // Store element:
+        0x48, 0x83, 0xFA, 0x08, // cmp $8, %rdx
+        0x75, 0x05, // jne .check_4
+        0x48, 0x89, 0x30, // mov %rsi, (%rax)
+        0xEB, 0x2C, // jmp .inc_len (+44)
+        // .check_4:
+        0x48, 0x83, 0xFA, 0x04, // cmp $4, %rdx
+        0x75, 0x04, // jne .check_2
+        0x89, 0x30, // mov %esi, (%rax)
+        0xEB, 0x22, // jmp .inc_len (+34)
+        // .check_2:
+        0x48, 0x83, 0xFA, 0x02, // cmp $2, %rdx
+        0x75, 0x05, // jne .check_1
+        0x66, 0x89, 0x30, // mov %si, (%rax)
+        0xEB, 0x17, // jmp .inc_len (+23)
+        // .check_1:
+        0x48, 0x83, 0xFA, 0x01, // cmp $1, %rdx
+        0x75, 0x05, // jne .copy_block
+        0x40, 0x88, 0x30, // mov %sil, (%rax)
+        0xEB, 0x0C, // jmp .inc_len (+12)
+        // .copy_block (elem_size > 8):
+        0x57, // push %rdi
+        0x56, // push %rsi
+        0x48, 0x89, 0xC7, // mov %rax, %rdi (dest)
+        0x48, 0x89, 0xD1, // mov %rdx, %rcx (count)
+        0xF3, 0xA4, // rep movsb
+        0x5E, // pop %rsi
+        0x5F, // pop %rdi
+        // .inc_len:
+        0x48, 0xFF, 0x47, 0x08, // incq 8(%rdi) (vec->len++)
+        // .done:
+        0xC3, // ret
+    ]);
+    let call_realloc_pos = vec_push_offset + 0x3F;
+    let rel_realloc = (realloc_offset as i32) - ((call_realloc_pos + 4) as i32);
+    text_bytes[call_realloc_pos..call_realloc_pos + 4].copy_from_slice(&rel_realloc.to_le_bytes());
+    add_symbol(
+        "vanta_vec_push",
+        vec_push_offset,
+        text_bytes.len() - vec_push_offset,
     );
 
     // =========================================================================
@@ -476,6 +571,65 @@ pub fn create_static_runtime_object(object_id: usize) -> ObjectFile {
         0xC3, // ret
     ]);
     add_symbol("open", open_offset, text_bytes.len() - open_offset);
+
+    let exit_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0xB8, 0x3C, 0x00, 0x00, 0x00, // mov $60, %eax (SYS_exit = 60)
+        0x0F, 0x05, // syscall
+        0xF4, // hlt
+    ]);
+    add_symbol("_exit", exit_offset, text_bytes.len() - exit_offset);
+
+    // memcpy: (dest = %rdi, src = %rsi, count = %rdx) -> %rax = dest
+    let memcpy_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x89, 0xF8, // mov %rdi, %rax
+        0x48, 0x89, 0xD1, // mov %rdx, %rcx
+        0xF3, 0xA4, // rep movsb
+        0xC3, // ret
+    ]);
+    add_symbol("memcpy", memcpy_offset, text_bytes.len() - memcpy_offset);
+
+    // memset: (s = %rdi, c = %rsi, n = %rdx) -> %rax = s
+    let memset_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x49, 0x89, 0xF8, // mov %rdi, %r8
+        0x40, 0x88, 0xF0, // mov %sil, %al
+        0x48, 0x89, 0xD1, // mov %rdx, %rcx
+        0xF3, 0xAA, // rep stosb
+        0x4C, 0x89, 0xC0, // mov %r8, %rax
+        0xC3, // ret
+    ]);
+    add_symbol("memset", memset_offset, text_bytes.len() - memset_offset);
+
+    // memcmp: (s1 = %rdi, s2 = %rsi, n = %rdx) -> %eax
+    let memcmp_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x48, 0x85, 0xD2, // test %rdx, %rdx
+        0x74, 0x15, // jz .Lzero (+21)
+        0x48, 0x89, 0xD1, // mov %rdx, %rcx
+        0xF3, 0xA6, // repe cmpsb
+        0x74, 0x0E, // je .Lzero (+14)
+        0x48, 0x0F, 0xB6, 0x47, 0xFF, // movzbq -1(%rdi), %rax
+        0x48, 0x0F, 0xB6, 0x4E, 0xFF, // movzbq -1(%rsi), %rcx
+        0x48, 0x29, 0xC8, // sub %rcx, %rax
+        0xC3, // ret
+        0x31, 0xC0, // .Lzero: xor %eax, %eax
+        0xC3, // ret
+    ]);
+    add_symbol("memcmp", memcmp_offset, text_bytes.len() - memcmp_offset);
+
+    // strlen: (s = %rdi) -> %rax
+    let strlen_offset = text_bytes.len();
+    text_bytes.extend_from_slice(&[
+        0x31, 0xC0, // xor %eax, %eax
+        0x80, 0x3C, 0x07, 0x00, // .Lloop: cmpb $0, (%rdi, %rax)
+        0x74, 0x05, // je .Ldone (+5)
+        0x48, 0xFF, 0xC0, // inc %rax
+        0xEB, 0xF5, // jmp .Lloop (-11)
+        0xC3, // .Ldone: ret
+    ]);
+    add_symbol("strlen", strlen_offset, text_bytes.len() - strlen_offset);
 
     // Create the .text section
     obj.sections.push(InputSection {

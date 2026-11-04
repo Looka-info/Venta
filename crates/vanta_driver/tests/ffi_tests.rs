@@ -47,8 +47,18 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("42"),
@@ -72,7 +82,12 @@ long long c_add_and_scale(long long a, long long b, long long scale) {
     fs::write(&c_file, c_code).unwrap();
 
     let cc_status = Command::new("cc")
-        .args(&["-c", c_file.to_str().unwrap(), "-o", obj_file.to_str().unwrap()])
+        .args([
+            "-c",
+            c_file.to_str().unwrap(),
+            "-o",
+            obj_file.to_str().unwrap(),
+        ])
         .status()
         .expect("Failed to invoke system C compiler 'cc'");
     assert!(cc_status.success(), "Compilation of C source failed");
@@ -120,8 +135,18 @@ pub fn main() {
     );
 
     // 4. Run binary and verify result
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("90"),
@@ -160,7 +185,7 @@ pub extern "C" fn rust_compute_power(base: i64, exp: i64) -> i64 {
     fs::write(&rs_file, rs_code).unwrap();
 
     let rustc_status = Command::new("rustc")
-        .args(&[
+        .args([
             "-O",
             "-C",
             "panic=abort",
@@ -212,8 +237,18 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("1024"),
@@ -265,8 +300,18 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("123456789"),
@@ -289,7 +334,12 @@ long long compute_cube(long long x) {
     fs::write(&c_file, c_code).unwrap();
 
     let cc_status = Command::new("cc")
-        .args(&["-c", c_file.to_str().unwrap(), "-o", obj_file.to_str().unwrap()])
+        .args([
+            "-c",
+            c_file.to_str().unwrap(),
+            "-o",
+            obj_file.to_str().unwrap(),
+        ])
         .status()
         .expect("Failed to invoke system C compiler 'cc'");
     assert!(cc_status.success(), "Compilation of C source failed");
@@ -330,7 +380,9 @@ pub fn main() {
     let res = session.compile(&options);
     assert!(res.is_ok(), "CLI FFI build failed: {:?}", res.err());
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("125"), "Expected 125, got: {}", stdout);
@@ -379,10 +431,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1"), "Expected output to contain '1', got: {}", stdout);
+    assert!(
+        stdout.contains("1"),
+        "Expected output to contain '1', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -430,10 +496,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("200"), "Expected output to contain '200', got: {}", stdout);
+    assert!(
+        stdout.contains("200"),
+        "Expected output to contain '200', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -507,10 +587,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("777"), "Expected output to contain '777', got: {}", stdout);
+    assert!(
+        stdout.contains("777"),
+        "Expected output to contain '777', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -551,7 +645,12 @@ int get_graphics_mock_stats(void) {
     fs::write(&c_file, c_code).unwrap();
 
     let gcc_status = Command::new("gcc")
-        .args(&["-c", c_file.to_str().unwrap(), "-o", obj_file.to_str().unwrap()])
+        .args([
+            "-c",
+            c_file.to_str().unwrap(),
+            "-o",
+            obj_file.to_str().unwrap(),
+        ])
         .status()
         .expect("Failed to invoke 'gcc'");
     assert!(gcc_status.success(), "Compilation of C mock failed");
@@ -609,8 +708,18 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("102"),
@@ -677,10 +786,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("888"), "Expected output to contain '888', got: {}", stdout);
+    assert!(
+        stdout.contains("888"),
+        "Expected output to contain '888', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -708,7 +831,12 @@ int get_closed_status(void) { return g_closed; }
     fs::write(&c_file, c_code).unwrap();
 
     let gcc_status = Command::new("gcc")
-        .args(&["-c", c_file.to_str().unwrap(), "-o", obj_file.to_str().unwrap()])
+        .args([
+            "-c",
+            c_file.to_str().unwrap(),
+            "-o",
+            obj_file.to_str().unwrap(),
+        ])
         .status()
         .expect("Failed to invoke 'gcc'");
     assert!(gcc_status.success(), "Compilation of C stub failed");
@@ -763,10 +891,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("999"), "Expected output to contain '999', got: {}", stdout);
+    assert!(
+        stdout.contains("999"),
+        "Expected output to contain '999', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -875,10 +1017,24 @@ pub fn main() {
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("54321"), "Expected output to contain '54321', got: {}", stdout);
+    assert!(
+        stdout.contains("54321"),
+        "Expected output to contain '54321', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -888,13 +1044,17 @@ fn test_curl_response_streaming_and_header_extraction() {
     let port = listener.local_addr().unwrap().port();
 
     std::thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            use std::io::{Read, Write};
+        use std::io::{Read, Write};
+        for mut stream in listener.incoming().flatten() {
             let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf);
+            let n = stream.read(&mut buf).unwrap_or(0);
+            if n == 0 {
+                continue;
+            }
             let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Venta-Header: Fast\r\nContent-Length: 18\r\n\r\nHello from Venta!\n";
             let _ = stream.write_all(response.as_bytes());
             let _ = stream.flush();
+            break;
         }
     });
 
@@ -956,10 +1116,24 @@ pub fn main() {{
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("12345"), "Expected output to contain '12345', got: {}", stdout);
+    assert!(
+        stdout.contains("12345"),
+        "Expected output to contain '12345', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -973,14 +1147,22 @@ fn test_curl_post_request_and_custom_headers() {
             let mut buf = [0u8; 2048];
             let n = stream.read(&mut buf).unwrap_or(0);
             let req = String::from_utf8_lossy(&buf[..n]);
-            assert!(req.starts_with("POST "), "Expected POST method, got: {}", req);
+            assert!(
+                req.starts_with("POST "),
+                "Expected POST method, got: {}",
+                req
+            );
             assert!(
                 req.contains("x-custom-auth: secret-api-key-999")
                     || req.contains("X-Custom-Auth: secret-api-key-999"),
                 "Missing custom header: {}",
                 req
             );
-            assert!(req.contains("{\"action\":\"test_post\"}"), "Missing POST body: {}", req);
+            assert!(
+                req.contains("{\"action\":\"test_post\"}"),
+                "Missing POST body: {}",
+                req
+            );
 
             let response = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 20\r\n\r\n{\"status\":\"created\"}\n";
             let _ = stream.write_all(response.as_bytes());
@@ -1058,10 +1240,24 @@ pub fn main() {{
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("77889"), "Expected output to contain '77889', got: {}", stdout);
+    assert!(
+        stdout.contains("77889"),
+        "Expected output to contain '77889', got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -1075,8 +1271,16 @@ fn test_curl_post_streaming_read_callback() {
             let mut buf = [0u8; 2048];
             let n = stream.read(&mut buf).unwrap_or(0);
             let req = String::from_utf8_lossy(&buf[..n]);
-            assert!(req.starts_with("POST "), "Expected POST method, got: {}", req);
-            assert!(req.contains("STREAMING_CHUNK_PAYLOAD_DATA"), "Missing streamed body: {}", req);
+            assert!(
+                req.starts_with("POST "),
+                "Expected POST method, got: {}",
+                req
+            );
+            assert!(
+                req.contains("STREAMING_CHUNK_PAYLOAD_DATA"),
+                "Missing streamed body: {}",
+                req
+            );
 
             let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nSTREAM_OK\n";
             let _ = stream.write_all(response.as_bytes());
@@ -1149,8 +1353,22 @@ pub fn main() {{
         session.render_diagnostics(DiagnosticFormat::Human)
     );
 
-    let output = Command::new(&out_bin).output().expect("Execute test binary");
-    assert!(output.status.success(), "Process exited with non-zero status");
+    let output = Command::new(&out_bin)
+        .output()
+        .expect("Execute test binary");
+    if !output.status.success() {
+        eprintln!("Status: {:?}", output.status);
+        eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(
+        output.status.success(),
+        "Process exited with non-zero status"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("99112"), "Expected output to contain '99112', got: {}", stdout);
+    assert!(
+        stdout.contains("99112"),
+        "Expected output to contain '99112', got: {}",
+        stdout
+    );
 }

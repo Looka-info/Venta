@@ -123,13 +123,10 @@ impl TestClient {
                 .receiver
                 .recv_timeout(Duration::from_secs(5))
                 .expect("Receive notification");
-            match msg {
-                Message::Notification(notif) => {
-                    if notif.method == N::METHOD {
-                        return serde_json::from_value(notif.params).expect("Deserialize params");
-                    }
+            if let Message::Notification(notif) = msg {
+                if notif.method == N::METHOD {
+                    return serde_json::from_value(notif.params).expect("Deserialize params");
                 }
-                _ => {}
             }
         }
     }

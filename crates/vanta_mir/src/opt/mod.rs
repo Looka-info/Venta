@@ -61,6 +61,7 @@ impl OptimizationPipeline {
     }
 
     /// Executes the optimization pipeline with explicit control over each optimization pass.
+    #[allow(clippy::too_many_arguments)]
     pub fn optimize_program_with_options(
         program: &mut MirProgram,
         level: OptLevel,
@@ -100,6 +101,7 @@ impl OptimizationPipeline {
 
     /// Executes the full optimization pipeline with fine-grained control over all passes,
     /// including Global DCE, Safe Tail-Call Optimization, and execution target mode.
+    #[allow(clippy::too_many_arguments)]
     pub fn optimize_program_full(
         program: &mut MirProgram,
         level: OptLevel,
@@ -144,6 +146,7 @@ impl OptimizationPipeline {
 
     /// Executes the full optimization pipeline with explicit target SIMD capability configuration
     /// for automatic vectorization.
+    #[allow(clippy::too_many_arguments)]
     pub fn optimize_program_full_with_target(
         program: &mut MirProgram,
         level: OptLevel,

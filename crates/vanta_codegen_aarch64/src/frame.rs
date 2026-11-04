@@ -106,7 +106,7 @@ impl ArmFrameLayout {
 
                 for v in val_ids {
                     let needs_offset = match alloc_res {
-                        Some(alloc) => alloc.assignments.get(&v).is_none(),
+                        Some(alloc) => !alloc.assignments.contains_key(&v),
                         None => true,
                     };
                     if needs_offset {

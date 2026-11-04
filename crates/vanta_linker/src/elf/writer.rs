@@ -182,10 +182,8 @@ impl ElfExecutableWriter {
             off
         };
 
-        // Build .symtab entries
-        let mut symtab_bytes = Vec::new();
-        // NULL symbol (index 0)
-        symtab_bytes.resize(24, 0);
+        // Build .symtab entries: NULL symbol (index 0) is 24 bytes of zero
+        let mut symtab_bytes = vec![0u8; 24];
 
         for (sym_name, sym_addr, sym_size) in global_symbols {
             let st_name = add_str(sym_name);
@@ -204,10 +202,8 @@ impl ElfExecutableWriter {
         let strtab_file_off = out.len() as u64;
         out.extend_from_slice(&strtab);
 
-        // Name strings for all sections
-        let mut section_header_data = Vec::new();
-        // 0. NULL Section
-        section_header_data.resize(64, 0);
+        // Name strings for all sections; 0. NULL Section is 64 bytes of zero
+        let mut section_header_data = vec![0u8; 64];
 
         for sec in merged_sections {
             let name_off = add_shstr(&sec.name);
@@ -317,6 +313,7 @@ impl ElfExecutableWriter {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_phdr(
     out: &mut Vec<u8>,
     p_type: u32,
@@ -338,6 +335,7 @@ fn write_phdr(
     out.extend_from_slice(&p_align.to_le_bytes());
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_shdr(
     out: &mut Vec<u8>,
     sh_name: u32,

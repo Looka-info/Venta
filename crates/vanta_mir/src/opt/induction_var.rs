@@ -210,6 +210,7 @@ impl InductionVarOpt {
     }
 
     /// Identifies and eliminates redundant basic induction variables.
+    #[allow(clippy::type_complexity)]
     fn eliminate_redundant_ivs(
         func: &mut MirFunction,
         ivs: &[BasicIndVar],

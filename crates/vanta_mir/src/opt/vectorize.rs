@@ -791,6 +791,7 @@ impl LoopVectorizer {
 
     /// Applies strip-mining to the recognized loop:
     /// Constructs `check_block`, `vector_header`, `vector_body`, and re-wires `scalar_header`.
+    #[allow(clippy::too_many_arguments)]
     fn apply_strip_mining(
         func: &mut MirFunction,
         loop_info: &NaturalLoop,

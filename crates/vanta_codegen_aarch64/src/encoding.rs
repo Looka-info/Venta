@@ -262,13 +262,13 @@ impl ArmCodeEmitter {
             ArmInst::AddImm { dest, src, imm } => {
                 let rd = dest.hw_encoding() as u32;
                 let rn = src.hw_encoding() as u32;
-                let imm12 = (*imm & 0xFFF) as u32;
+                let imm12 = *imm & 0xFFF;
                 self.emit_u32(0x91000000 | (imm12 << 10) | (rn << 5) | rd);
             }
             ArmInst::SubImm { dest, src, imm } => {
                 let rd = dest.hw_encoding() as u32;
                 let rn = src.hw_encoding() as u32;
-                let imm12 = (*imm & 0xFFF) as u32;
+                let imm12 = *imm & 0xFFF;
                 self.emit_u32(0xD1000000 | (imm12 << 10) | (rn << 5) | rd);
             }
             ArmInst::AddReg { dest, src1, src2 } => {
@@ -338,7 +338,7 @@ impl ArmCodeEmitter {
             }
             ArmInst::CmpImm { src, imm } => {
                 let rn = src.hw_encoding() as u32;
-                let imm12 = (*imm & 0xFFF) as u32;
+                let imm12 = *imm & 0xFFF;
                 // subs xzr, xn, #imm12
                 self.emit_u32(0xF100001F | (imm12 << 10) | (rn << 5));
             }
@@ -357,37 +357,37 @@ impl ArmCodeEmitter {
             ArmInst::Ldr { dest, base, offset } => {
                 let rt = dest.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = ((*offset / 8) & 0xFFF) as u32;
+                let imm12 = (*offset / 8) & 0xFFF;
                 self.emit_u32(0xF9400000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::Str { src, base, offset } => {
                 let rt = src.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = ((*offset / 8) & 0xFFF) as u32;
+                let imm12 = (*offset / 8) & 0xFFF;
                 self.emit_u32(0xF9000000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::Ldr32 { dest, base, offset } => {
                 let rt = dest.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = ((*offset / 4) & 0xFFF) as u32;
+                let imm12 = (*offset / 4) & 0xFFF;
                 self.emit_u32(0xB9400000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::Str32 { src, base, offset } => {
                 let rt = src.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = ((*offset / 4) & 0xFFF) as u32;
+                let imm12 = (*offset / 4) & 0xFFF;
                 self.emit_u32(0xB9000000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::Ldrb { dest, base, offset } => {
                 let rt = dest.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = (*offset & 0xFFF) as u32;
+                let imm12 = *offset & 0xFFF;
                 self.emit_u32(0x39400000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::Strb { src, base, offset } => {
                 let rt = src.hw_encoding() as u32;
                 let rn = base.hw_encoding() as u32;
-                let imm12 = (*offset & 0xFFF) as u32;
+                let imm12 = *offset & 0xFFF;
                 self.emit_u32(0x39000000 | (imm12 << 10) | (rn << 5) | rt);
             }
             ArmInst::StpPreIndex { r1, r2, base, imm } => {

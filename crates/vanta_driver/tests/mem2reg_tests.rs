@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 use vanta_diagnostics::DiagnosticBag;
@@ -12,6 +13,20 @@ use vanta_mir::MirLowerer;
 use vanta_parser::Parser;
 use vanta_sema::SemanticAnalyzer;
 use vanta_source::SourceMap;
+
+fn execute_with_retry(bin_path: &Path) -> std::process::Output {
+    let mut attempts = 0;
+    loop {
+        match Command::new(bin_path).output() {
+            Ok(out) => return out,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 5 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => panic!("Failed to execute binary {:?}: {}", bin_path, e),
+        }
+    }
+}
 
 fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_stdout: &str) {
     let temp_dir = tempdir().expect("Create temp dir");
@@ -55,9 +70,7 @@ fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_
         "No-mem2reg compilation failed: {:?}",
         res_no_mem.err()
     );
-    let output_no_mem = Command::new(&out_no_mem)
-        .output()
-        .expect("Execute no-mem2reg binary");
+    let output_no_mem = execute_with_retry(&out_no_mem);
     assert_eq!(
         output_no_mem.status.code(),
         Some(expected_exit),
@@ -106,9 +119,7 @@ fn run_differential_test(name: &str, source: &str, expected_exit: i32, expected_
         "Mem2Reg compilation failed: {:?}",
         res_mem.err()
     );
-    let output_mem = Command::new(&out_mem)
-        .output()
-        .expect("Execute mem2reg binary");
+    let output_mem = execute_with_retry(&out_mem);
     assert_eq!(
         output_mem.status.code(),
         Some(expected_exit),

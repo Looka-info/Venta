@@ -191,3 +191,160 @@ fn main() -> i64 {
 "#;
     check_compile_failure(source, "E0603");
 }
+
+#[test]
+fn test_ring_buffer_circular_wrap_push_pop_and_clear() {
+    let source = r#"
+import std::collections::RingBuffer;
+import std::collections::new_ring_buffer;
+import std::collections::ring_buffer::push;
+import std::collections::ring_buffer::pop;
+import std::collections::ring_buffer::peek;
+import std::collections::ring_buffer::len;
+import std::collections::ring_buffer::is_empty;
+import std::collections::ring_buffer::is_full;
+import std::collections::ring_buffer::clear;
+import std::option::Option;
+
+fn main() -> i64 {
+    let mut rb: RingBuffer<i64> = new_ring_buffer(3);
+    if !is_empty(&rb) || is_full(&rb) {
+        return 1;
+    }
+    push(&mut rb, 100);
+    push(&mut rb, 200);
+    push(&mut rb, 300);
+    if !is_full(&rb) || len(&rb) != 3 {
+        return 2;
+    }
+    // Trying to push to full buffer fails
+    if push(&mut rb, 400) {
+        return 3;
+    }
+    // Pop first item (100)
+    let p1 = match pop(&mut rb) {
+        Option::Some(v) => v,
+        Option::None => 0,
+    };
+    if p1 != 100 {
+        return 4;
+    }
+    // Now push 400 - this wraps into slot 0
+    if !push(&mut rb, 400) {
+        return 5;
+    }
+    // Peek next item: should be 200
+    let pk = match peek(&rb) {
+        Option::Some(v) => v,
+        Option::None => 0,
+    };
+    if pk != 200 {
+        return 6;
+    }
+    // Pop remaining 3 items: 200, 300, 400
+    let p2 = match pop(&mut rb) { Option::Some(v) => v, Option::None => 0 };
+    let p3 = match pop(&mut rb) { Option::Some(v) => v, Option::None => 0 };
+    let p4 = match pop(&mut rb) { Option::Some(v) => v, Option::None => 0 };
+    if p2 != 200 || p3 != 300 || p4 != 400 {
+        return 7;
+    }
+    if !is_empty(&rb) {
+        return 8;
+    }
+    // Test clear
+    push(&mut rb, 555);
+    clear(&mut rb);
+    if !is_empty(&rb) {
+        return 9;
+    }
+    return 100;
+}
+"#;
+    run_collections_test("ring_buffer_wrap_o0", source, OptLevel::None, 100);
+    run_collections_test("ring_buffer_wrap_o1", source, OptLevel::O1, 100);
+}
+
+#[test]
+fn test_hash_map_crud_and_reinsertion() {
+    let source = r#"
+import std::collections::HashMap;
+import std::collections::new_hash_map;
+import std::collections::insert;
+import std::collections::get;
+import std::collections::contains_key;
+import std::collections::remove;
+import std::collections::hash_map::clear;
+import std::collections::hash_map::len;
+import std::collections::hash_map::is_empty;
+import std::option::Option;
+
+fn main() -> i64 {
+    let mut map: HashMap<i64, i64> = new_hash_map(8);
+    if !is_empty(&map) || len(&map) != 0 {
+        return 1;
+    }
+
+    // Insert keys 1, 2, 3
+    if !insert(&mut map, 1, 100) { return 2; }
+    if !insert(&mut map, 2, 200) { return 3; }
+    if !insert(&mut map, 3, 300) { return 4; }
+    if len(&map) != 3 { return 5; }
+
+    // Updating existing key returns false
+    if insert(&mut map, 2, 250) { return 6; }
+    if len(&map) != 3 { return 7; }
+
+    // Check contains_key
+    if !contains_key(&map, 1) || !contains_key(&map, 2) || !contains_key(&map, 3) {
+        return 8;
+    }
+    if contains_key(&map, 999) {
+        return 9;
+    }
+
+    // Check get updated value
+    let v2 = match get(&map, 2) {
+        Option::Some(v) => v,
+        Option::None => 0,
+    };
+    if v2 != 250 { return 10; }
+
+    // Remove key 2
+    let rem2 = match remove(&mut map, 2) {
+        Option::Some(v) => v,
+        Option::None => 0,
+    };
+    if rem2 != 250 || len(&map) != 2 { return 11; }
+    if contains_key(&map, 2) { return 12; }
+
+    // Remove non-existing key returns None
+    let rem_none = match remove(&mut map, 999) {
+        Option::Some(v) => v,
+        Option::None => -1,
+    };
+    if rem_none != -1 { return 13; }
+
+    // Re-inserting key 2 should reuse the deleted slot
+    if !insert(&mut map, 2, 2222) { return 14; }
+    if len(&map) != 3 { return 15; }
+    let v2_new = match get(&map, 2) {
+        Option::Some(v) => v,
+        Option::None => 0,
+    };
+    if v2_new != 2222 { return 16; }
+
+    // Clear map
+    clear(&mut map);
+    if !is_empty(&map) || len(&map) != 0 {
+        return 17;
+    }
+    if contains_key(&map, 1) {
+        return 18;
+    }
+
+    return 42;
+}
+"#;
+    run_collections_test("hash_map_crud_o0", source, OptLevel::None, 42);
+    run_collections_test("hash_map_crud_o1", source, OptLevel::O1, 42);
+}

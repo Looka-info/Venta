@@ -70,35 +70,31 @@ impl TailCall {
 
         for block in &func.blocks {
             if let Some(term) = &block.terminator {
-                if let Some(inst) = block.instructions.last() {
-                    if let Instruction::Call {
-                        dest,
-                        callee,
-                        args,
-                        ret_type,
-                    } = inst
-                    {
-                        stats.calls_analyzed += 1;
+                if let Some(Instruction::Call {
+                    dest,
+                    callee,
+                    args,
+                    ret_type,
+                }) = block.instructions.last()
+                {
+                    stats.calls_analyzed += 1;
 
-                        // Check if it is a self call
-                        if callee == &func.name {
-                            // Verify matching argument count
-                            if args.len() != func.params.len() {
-                                continue;
-                            }
+                    // Check if it is a self call
+                    if callee == &func.name {
+                        // Verify matching argument count
+                        if args.len() != func.params.len() {
+                            continue;
+                        }
 
-                            // Verify tail position relative to terminator
-                            let is_tail = match term {
-                                Terminator::Return(Some(ret_val)) => dest.as_ref() == Some(ret_val),
-                                Terminator::Return(None) => {
-                                    dest.is_none() || *ret_type == Type::Unit
-                                }
-                                _ => false,
-                            };
+                        // Verify tail position relative to terminator
+                        let is_tail = match term {
+                            Terminator::Return(Some(ret_val)) => dest.as_ref() == Some(ret_val),
+                            Terminator::Return(None) => dest.is_none() || *ret_type == Type::Unit,
+                            _ => false,
+                        };
 
-                            if is_tail {
-                                self_tail_blocks.push((block.id, args.clone()));
-                            }
+                        if is_tail {
+                            self_tail_blocks.push((block.id, args.clone()));
                         }
                     }
                 }

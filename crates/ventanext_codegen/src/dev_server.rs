@@ -20,20 +20,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 // ----------------------------------------------------------------------------
 
 pub fn compute_sha1(data: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [
-        0x67452301,
-        0xEFCDAB89,
-        0x98BADCFE,
-        0x10325476,
-        0xC3D2E1F0,
-    ];
+    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
 
     let bit_len = (data.len() as u64).wrapping_mul(8);
-    let mut msg = data.to_vec();
+    let padded_len = ((data.len() + 8) / 64 + 1) * 64;
+    let mut msg = Vec::with_capacity(padded_len);
+    msg.extend_from_slice(data);
     msg.push(0x80);
-    while (msg.len() % 64) != 56 {
-        msg.push(0x00);
-    }
+    let zeros = (56 + 64 - (msg.len() % 64)) % 64;
+    msg.resize(msg.len() + zeros, 0);
     msg.extend_from_slice(&bit_len.to_be_bytes());
 
     for chunk in msg.chunks_exact(64) {
@@ -56,7 +51,7 @@ pub fn compute_sha1(data: &[u8]) -> [u8; 20] {
         let mut d = h[3];
         let mut e = h[4];
 
-        for i in 0..80 {
+        for (i, &w_val) in w.iter().enumerate() {
             let (f, k) = match i {
                 0..=19 => ((b & c) | ((!b) & d), 0x5A827999),
                 20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
@@ -69,7 +64,7 @@ pub fn compute_sha1(data: &[u8]) -> [u8; 20] {
                 .wrapping_add(f)
                 .wrapping_add(e)
                 .wrapping_add(k)
-                .wrapping_add(w[i]);
+                .wrapping_add(w_val);
             e = d;
             d = c;
             c = b.rotate_left(30);
@@ -93,12 +88,20 @@ pub fn compute_sha1(data: &[u8]) -> [u8; 20] {
 
 pub fn encode_base64(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
 
         let n = (b0 << 16) | (b1 << 8) | b2;
 
@@ -126,27 +129,227 @@ pub fn compute_websocket_accept(sec_websocket_key: &str) -> String {
     encode_base64(&sha1)
 }
 
-/// Encode RFC 6455 unmasked text frame
-pub fn encode_websocket_text_frame(payload: &str) -> Vec<u8> {
-    let bytes = payload.as_bytes();
-    let len = bytes.len();
-    let mut frame = Vec::with_capacity(len + 10);
+// ----------------------------------------------------------------------------
+// RFC 6455 WebSocket Frames: Encoding, Decoding, and Masking
+// ----------------------------------------------------------------------------
 
-    // FIN = 1, Opcode = 0x1 (Text)
-    frame.push(0x81);
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum WebSocketOpcode {
+    Continuation = 0x0,
+    Text = 0x1,
+    Binary = 0x2,
+    Close = 0x8,
+    Ping = 0x9,
+    Pong = 0xA,
+}
+
+impl WebSocketOpcode {
+    pub fn from_u8(val: u8) -> Option<Self> {
+        match val {
+            0x0 => Some(WebSocketOpcode::Continuation),
+            0x1 => Some(WebSocketOpcode::Text),
+            0x2 => Some(WebSocketOpcode::Binary),
+            0x8 => Some(WebSocketOpcode::Close),
+            0x9 => Some(WebSocketOpcode::Ping),
+            0xA => Some(WebSocketOpcode::Pong),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct WebSocketFrame {
+    pub fin: bool,
+    pub opcode: WebSocketOpcode,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum WebSocketError {
+    InvalidOpcode(u8),
+    ProtocolViolation(String),
+}
+
+impl std::fmt::Display for WebSocketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WebSocketError::InvalidOpcode(op) => write!(f, "Invalid WebSocket opcode: 0x{:X}", op),
+            WebSocketError::ProtocolViolation(msg) => {
+                write!(f, "WebSocket protocol violation: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for WebSocketError {}
+
+/// Encode an RFC 6455 WebSocket frame with optional masking
+pub fn encode_websocket_frame(
+    fin: bool,
+    opcode: WebSocketOpcode,
+    mask: Option<[u8; 4]>,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+
+    let b0 = (if fin { 0x80 } else { 0x00 }) | (opcode as u8);
+    frame.push(b0);
+
+    let mask_bit = if mask.is_some() { 0x80 } else { 0x00 };
+    let len = payload.len();
 
     if len <= 125 {
-        frame.push(len as u8);
+        frame.push(mask_bit | (len as u8));
     } else if len <= 65535 {
-        frame.push(126);
+        frame.push(mask_bit | 126);
         frame.extend_from_slice(&(len as u16).to_be_bytes());
     } else {
-        frame.push(127);
+        frame.push(mask_bit | 127);
         frame.extend_from_slice(&(len as u64).to_be_bytes());
     }
 
-    frame.extend_from_slice(bytes);
+    if let Some(mask_key) = mask {
+        frame.extend_from_slice(&mask_key);
+        for (i, &b) in payload.iter().enumerate() {
+            frame.push(b ^ mask_key[i % 4]);
+        }
+    } else {
+        frame.extend_from_slice(payload);
+    }
+
     frame
+}
+
+/// Decode a raw RFC 6455 WebSocket frame from a byte buffer.
+/// Returns Ok(Some((frame, bytes_consumed))) on full frame,
+/// Ok(None) if buffer is incomplete, or Err(WebSocketError).
+pub fn decode_websocket_frame(
+    data: &[u8],
+) -> Result<Option<(WebSocketFrame, usize)>, WebSocketError> {
+    if data.len() < 2 {
+        return Ok(None);
+    }
+
+    let fin = (data[0] & 0x80) != 0;
+    let rsv = data[0] & 0x70;
+    if rsv != 0 {
+        return Err(WebSocketError::ProtocolViolation(
+            "RSV bits must be 0 when no extensions negotiated".to_string(),
+        ));
+    }
+
+    let opcode_raw = data[0] & 0x0F;
+    let opcode =
+        WebSocketOpcode::from_u8(opcode_raw).ok_or(WebSocketError::InvalidOpcode(opcode_raw))?;
+
+    let masked = (data[1] & 0x80) != 0;
+    let len_indicator = data[1] & 0x7F;
+
+    let mut offset = 2;
+    let payload_len: usize = match len_indicator {
+        0..=125 => len_indicator as usize,
+        126 => {
+            if data.len() < offset + 2 {
+                return Ok(None);
+            }
+            let l = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+            offset += 2;
+            l
+        }
+        127 => {
+            if data.len() < offset + 8 {
+                return Ok(None);
+            }
+            let l = u64::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]) as usize;
+            offset += 8;
+            l
+        }
+        _ => unreachable!(),
+    };
+
+    if matches!(
+        opcode,
+        WebSocketOpcode::Close | WebSocketOpcode::Ping | WebSocketOpcode::Pong
+    ) && (payload_len > 125 || !fin)
+    {
+        return Err(WebSocketError::ProtocolViolation(
+            "Control frame cannot exceed 125 bytes or be fragmented".to_string(),
+        ));
+    }
+
+    let mask = if masked {
+        if data.len() < offset + 4 {
+            return Ok(None);
+        }
+        let m = [
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ];
+        offset += 4;
+        Some(m)
+    } else {
+        None
+    };
+
+    if data.len() < offset + payload_len {
+        return Ok(None);
+    }
+
+    let mut payload = data[offset..offset + payload_len].to_vec();
+    if let Some(mask_key) = mask {
+        for (i, b) in payload.iter_mut().enumerate() {
+            *b ^= mask_key[i % 4];
+        }
+    }
+
+    let consumed = offset + payload_len;
+    Ok(Some((
+        WebSocketFrame {
+            fin,
+            opcode,
+            payload,
+        },
+        consumed,
+    )))
+}
+
+/// Encode RFC 6455 unmasked text frame
+pub fn encode_websocket_text_frame(payload: &str) -> Vec<u8> {
+    encode_websocket_frame(true, WebSocketOpcode::Text, None, payload.as_bytes())
+}
+
+/// Encode RFC 6455 unmasked binary frame
+pub fn encode_websocket_binary_frame(payload: &[u8]) -> Vec<u8> {
+    encode_websocket_frame(true, WebSocketOpcode::Binary, None, payload)
+}
+
+/// Encode RFC 6455 unmasked ping frame
+pub fn encode_websocket_ping_frame(payload: &[u8]) -> Vec<u8> {
+    encode_websocket_frame(true, WebSocketOpcode::Ping, None, payload)
+}
+
+/// Encode RFC 6455 unmasked pong frame
+pub fn encode_websocket_pong_frame(payload: &[u8]) -> Vec<u8> {
+    encode_websocket_frame(true, WebSocketOpcode::Pong, None, payload)
+}
+
+/// Encode RFC 6455 unmasked close frame
+pub fn encode_websocket_close_frame(code: u16, reason: &str) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(2 + reason.len());
+    payload.extend_from_slice(&code.to_be_bytes());
+    payload.extend_from_slice(reason.as_bytes());
+    encode_websocket_frame(true, WebSocketOpcode::Close, None, &payload)
 }
 
 // ----------------------------------------------------------------------------
@@ -222,14 +425,15 @@ impl ReloadEvent {
 // 3. Client Connections & Live Reload Bridge
 // ----------------------------------------------------------------------------
 
-enum ClientKind {
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ClientKind {
     WebSocket,
     ServerSentEvents,
 }
 
-struct ActiveClient {
-    stream: TcpStream,
-    kind: ClientKind,
+pub struct ActiveClient {
+    pub stream: TcpStream,
+    pub kind: ClientKind,
 }
 
 #[derive(Clone)]
@@ -249,10 +453,18 @@ impl LiveReloadBridge {
     }
 
     pub fn add_websocket_client(&self, mut stream: TcpStream) {
+        let _ = stream.set_nodelay(true);
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
         let conn_evt = ReloadEvent::connected(self.port);
         let frame = encode_websocket_text_frame(&conn_evt.to_json());
         let _ = stream.write_all(&frame);
         let _ = stream.flush();
+
+        let read_stream = match stream.try_clone() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
 
         if let Ok(mut list) = self.clients.lock() {
             list.push(ActiveClient {
@@ -260,9 +472,55 @@ impl LiveReloadBridge {
                 kind: ClientKind::WebSocket,
             });
         }
+
+        // Spawn client frame listener (handles Ping/Pong, Close, and client messages)
+        thread::spawn(move || {
+            let mut reader = read_stream;
+            let mut buf = [0u8; 4096];
+            let mut pending = Vec::new();
+
+            loop {
+                match std::io::Read::read(&mut reader, &mut buf) {
+                    Ok(0) => break, // EOF, client disconnected
+                    Ok(n) => {
+                        pending.extend_from_slice(&buf[..n]);
+                        while !pending.is_empty() {
+                            match decode_websocket_frame(&pending) {
+                                Ok(Some((frame, consumed))) => {
+                                    pending.drain(..consumed);
+                                    match frame.opcode {
+                                        WebSocketOpcode::Ping => {
+                                            let pong = encode_websocket_pong_frame(&frame.payload);
+                                            let _ = reader.write_all(&pong);
+                                            let _ = reader.flush();
+                                        }
+                                        WebSocketOpcode::Close => {
+                                            let close_resp = encode_websocket_close_frame(
+                                                1000,
+                                                "Normal Closure",
+                                            );
+                                            let _ = reader.write_all(&close_resp);
+                                            let _ = reader.flush();
+                                            return;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                Ok(None) => break, // Incomplete frame
+                                Err(_) => return,  // Framing / protocol violation
+                            }
+                        }
+                    }
+                    Err(_) => break, // Socket error or closed
+                }
+            }
+        });
     }
 
     pub fn add_sse_client(&self, mut stream: TcpStream) {
+        let _ = stream.set_nodelay(true);
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
         let conn_evt = ReloadEvent::connected(self.port);
         let bytes = conn_evt.to_sse_bytes();
         let _ = stream.write_all(&bytes);
@@ -285,17 +543,25 @@ impl LiveReloadBridge {
         let ws_frame = encode_websocket_text_frame(&json);
         let sse_bytes = event.to_sse_bytes();
 
-        if let Ok(mut list) = self.clients.lock() {
-            let mut retained = Vec::new();
-            for mut client in list.drain(..) {
-                let res = match client.kind {
-                    ClientKind::WebSocket => client.stream.write_all(&ws_frame),
-                    ClientKind::ServerSentEvents => client.stream.write_all(&sse_bytes),
-                };
-                if res.is_ok() && client.stream.flush().is_ok() {
-                    retained.push(client);
-                }
+        let clients = if let Ok(mut list) = self.clients.lock() {
+            std::mem::take(&mut *list)
+        } else {
+            Vec::new()
+        };
+
+        let mut retained = Vec::with_capacity(clients.len());
+        for mut client in clients {
+            let res = match client.kind {
+                ClientKind::WebSocket => client.stream.write_all(&ws_frame),
+                ClientKind::ServerSentEvents => client.stream.write_all(&sse_bytes),
+            };
+            if res.is_ok() && client.stream.flush().is_ok() {
+                retained.push(client);
             }
+        }
+
+        if let Ok(mut list) = self.clients.lock() {
+            retained.extend(list.drain(..));
             *list = retained;
         }
     }
@@ -307,11 +573,31 @@ impl LiveReloadBridge {
     pub fn last_rebuild_ms(&self) -> u64 {
         self.last_rebuild_ms.load(Ordering::SeqCst)
     }
+
+    pub fn has_clients(&self) -> bool {
+        self.client_count() > 0
+    }
+
+    pub fn clear_clients(&self) {
+        if let Ok(mut list) = self.clients.lock() {
+            list.clear();
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
 // 4. File Watcher & Change Detector
 // ----------------------------------------------------------------------------
+
+const IGNORED_DIRS: &[&str] = &[
+    "target",
+    "out",
+    "dist",
+    "node_modules",
+    ".git",
+    ".cargo",
+    ".ventanext",
+];
 
 pub fn scan_directory_mtimes(dir: &Path, mtimes: &mut HashMap<PathBuf, SystemTime>) {
     if let Ok(entries) = fs::read_dir(dir) {
@@ -319,7 +605,7 @@ pub fn scan_directory_mtimes(dir: &Path, mtimes: &mut HashMap<PathBuf, SystemTim
             let p = entry.path();
             if p.is_dir() {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if !name.starts_with('.') && name != "target" && name != "out" {
+                if !name.starts_with('.') && !IGNORED_DIRS.contains(&name) {
                     scan_directory_mtimes(&p, mtimes);
                 }
             } else if let Ok(meta) = entry.metadata() {
@@ -339,12 +625,13 @@ pub fn start_file_watcher(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut snapshot: HashMap<PathBuf, SystemTime> = HashMap::new();
+        let mut current: HashMap<PathBuf, SystemTime> = HashMap::new();
         scan_directory_mtimes(&watch_root, &mut snapshot);
 
         while !stop_signal.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(debounce_ms));
 
-            let mut current: HashMap<PathBuf, SystemTime> = HashMap::new();
+            current.clear();
             scan_directory_mtimes(&watch_root, &mut current);
 
             let mut changed_file: Option<String> = None;
@@ -369,7 +656,7 @@ pub fn start_file_watcher(
 
             if let Some(file_desc) = changed_file {
                 let start = Instant::now();
-                snapshot = current;
+                std::mem::swap(&mut snapshot, &mut current);
 
                 let app_dir = if watch_root.join("app").exists() {
                     watch_root.join("app")
@@ -538,7 +825,12 @@ pub fn handle_client_connection(
     bridge: &LiveReloadBridge,
     config: &DevServerConfig,
 ) {
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let clone = match stream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = clone.set_read_timeout(Some(Duration::from_secs(5)));
+    let mut reader = BufReader::new(clone);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
         return;
@@ -555,7 +847,8 @@ pub fn handle_client_connection(
     let mut headers = HashMap::new();
     loop {
         let mut line = String::new();
-        if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty() {
+        if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty()
+        {
             break;
         }
         if let Some(idx) = line.find(':') {
@@ -584,6 +877,7 @@ pub fn handle_client_connection(
                 );
                 let _ = stream.write_all(response.as_bytes());
                 let _ = stream.flush();
+                let _ = stream.set_read_timeout(None);
                 bridge.add_websocket_client(stream);
                 return;
             }
@@ -597,6 +891,7 @@ pub fn handle_client_connection(
             Access-Control-Allow-Origin: *\r\n\r\n";
         let _ = stream.write_all(sse_header.as_bytes());
         let _ = stream.flush();
+        let _ = stream.set_read_timeout(None);
         bridge.add_sse_client(stream);
         return;
     }
@@ -693,22 +988,17 @@ pub fn run_development_server(config: DevServerConfig, serve_once: bool) -> std:
         stop_signal.clone(),
     );
 
-    println!(
-        "================================================================================"
-    );
-    println!(
-        "   ⚡ VentaNext Framework — Development Server & Live Reload Bridge"
-    );
-    println!(
-        "================================================================================"
-    );
+    println!("================================================================================");
+    println!("   ⚡ VentaNext Framework — Development Server & Live Reload Bridge");
+    println!("================================================================================");
     println!("• Local Viewport:       http://{}/", addr);
-    println!("• Live Reload Bridge:   Active (ws://{}/_ventanext/reload + SSE)", addr);
+    println!(
+        "• Live Reload Bridge:   Active (ws://{}/_ventanext/reload + SSE)",
+        addr
+    );
     println!("• Status Endpoint:      http://{}/_ventanext/status", addr);
     println!("• Watching Root:        {:?}", config.project_dir);
-    println!(
-        "================================================================================"
-    );
+    println!("================================================================================");
 
     if serve_once {
         listener.set_nonblocking(true)?;
@@ -725,24 +1015,64 @@ pub fn run_development_server(config: DevServerConfig, serve_once: bool) -> std:
         return Ok(());
     }
 
-    for stream_res in listener.incoming() {
-        if let Ok(stream) = stream_res {
-            let b_clone = bridge.clone();
-            let c_clone = DevServerConfig {
-                host: config.host.clone(),
-                port: config.port,
-                project_dir: config.project_dir.clone(),
-                debounce_ms: config.debounce_ms,
-            };
-            thread::spawn(move || {
-                handle_client_connection(stream, &b_clone, &c_clone);
-            });
-        }
+    for stream in listener.incoming().flatten() {
+        let b_clone = bridge.clone();
+        let c_clone = DevServerConfig {
+            host: config.host.clone(),
+            port: config.port,
+            project_dir: config.project_dir.clone(),
+            debounce_ms: config.debounce_ms,
+        };
+        thread::spawn(move || {
+            handle_client_connection(stream, &b_clone, &c_clone);
+        });
     }
 
     stop_signal.store(true, Ordering::Relaxed);
     let _ = watcher_handle.join();
     Ok(())
+}
+
+/// Start dev server listening on a bound `TcpListener` in a background thread.
+/// Returns the LiveReloadBridge and a JoinHandle to control the thread lifecycle.
+pub fn start_dev_server_background(
+    listener: TcpListener,
+    config: DevServerConfig,
+    stop_signal: Arc<AtomicBool>,
+) -> (LiveReloadBridge, thread::JoinHandle<()>) {
+    let port = listener
+        .local_addr()
+        .map(|a| a.port())
+        .unwrap_or(config.port);
+    let bridge = LiveReloadBridge::new(port);
+    let b_clone = bridge.clone();
+    let stop_clone = stop_signal.clone();
+
+    let handle = thread::spawn(move || {
+        let _ = listener.set_nonblocking(true);
+        while !stop_clone.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let b = b_clone.clone();
+                    let c = DevServerConfig {
+                        host: config.host.clone(),
+                        port,
+                        project_dir: config.project_dir.clone(),
+                        debounce_ms: config.debounce_ms,
+                    };
+                    thread::spawn(move || {
+                        handle_client_connection(stream, &b, &c);
+                    });
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    (bridge, handle)
 }
 
 // ----------------------------------------------------------------------------
@@ -752,6 +1082,7 @@ pub fn run_development_server(config: DevServerConfig, serve_once: bool) -> std:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
 
     fn to_hex(data: &[u8]) -> String {
         data.iter().map(|b| format!("{:02x}", b)).collect()
@@ -795,7 +1126,7 @@ mod tests {
     fn test_websocket_text_frame_encoding() {
         let frame = encode_websocket_text_frame("hello");
         assert_eq!(frame[0], 0x81); // FIN + Text
-        assert_eq!(frame[1], 5);    // Payload len
+        assert_eq!(frame[1], 5); // Payload len
         assert_eq!(&frame[2..], b"hello");
 
         // Medium frame (> 125 bytes)
@@ -830,5 +1161,286 @@ mod tests {
         // Idempotency: second injection does nothing
         let double_injected = inject_live_reload_script(&injected);
         assert_eq!(injected, double_injected);
+    }
+
+    #[test]
+    fn test_rfc6455_decode_unmasked_text_frame() {
+        // Canonical unmasked "Hello" frame from RFC 6455 Section 5.7
+        let raw = [0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f];
+        let res = decode_websocket_frame(&raw).expect("decode failed");
+        assert!(res.is_some());
+        let (frame, consumed) = res.unwrap();
+        assert_eq!(consumed, 7);
+        assert!(frame.fin);
+        assert_eq!(frame.opcode, WebSocketOpcode::Text);
+        assert_eq!(frame.payload, b"Hello");
+    }
+
+    #[test]
+    fn test_rfc6455_decode_masked_text_frame() {
+        // Canonical masked "Hello" frame from RFC 6455 Section 5.7
+        // Mask key: 0x37 0xfa 0x21 0x3d, masked payload: 0x7f 0x9f 0x4d 0x51 0x58
+        let raw = [
+            0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58,
+        ];
+        let res = decode_websocket_frame(&raw).expect("decode failed");
+        assert!(res.is_some());
+        let (frame, consumed) = res.unwrap();
+        assert_eq!(consumed, 11);
+        assert!(frame.fin);
+        assert_eq!(frame.opcode, WebSocketOpcode::Text);
+        assert_eq!(frame.payload, b"Hello");
+    }
+
+    #[test]
+    fn test_rfc6455_control_frames_ping_pong_close() {
+        // Ping frame with 4-byte payload
+        let ping_frame = encode_websocket_ping_frame(b"ping");
+        let (decoded_ping, _) = decode_websocket_frame(&ping_frame)
+            .unwrap()
+            .expect("ping decode");
+        assert_eq!(decoded_ping.opcode, WebSocketOpcode::Ping);
+        assert_eq!(decoded_ping.payload, b"ping");
+
+        // Pong frame response
+        let pong_frame = encode_websocket_pong_frame(&decoded_ping.payload);
+        let (decoded_pong, _) = decode_websocket_frame(&pong_frame)
+            .unwrap()
+            .expect("pong decode");
+        assert_eq!(decoded_pong.opcode, WebSocketOpcode::Pong);
+        assert_eq!(decoded_pong.payload, b"ping");
+
+        // Close frame
+        let close_frame = encode_websocket_close_frame(1000, "Normal Closure");
+        let (decoded_close, _) = decode_websocket_frame(&close_frame)
+            .unwrap()
+            .expect("close decode");
+        assert_eq!(decoded_close.opcode, WebSocketOpcode::Close);
+        assert_eq!(
+            u16::from_be_bytes([decoded_close.payload[0], decoded_close.payload[1]]),
+            1000
+        );
+        assert_eq!(&decoded_close.payload[2..], b"Normal Closure");
+    }
+
+    #[test]
+    fn test_rfc6455_partial_frame_streaming() {
+        let full = encode_websocket_text_frame("streaming partial frame test");
+        // Only 3 bytes provided
+        assert!(decode_websocket_frame(&full[..3]).unwrap().is_none());
+        // Half provided
+        assert!(decode_websocket_frame(&full[..full.len() / 2])
+            .unwrap()
+            .is_none());
+        // All provided
+        let (frame, consumed) = decode_websocket_frame(&full).unwrap().unwrap();
+        assert_eq!(consumed, full.len());
+        assert_eq!(frame.payload, b"streaming partial frame test");
+    }
+
+    #[test]
+    fn test_rfc6455_16bit_extended_length() {
+        let large_payload = vec![0x42; 600];
+        let mask = Some([0x12, 0x34, 0x56, 0x78]);
+        let encoded = encode_websocket_frame(true, WebSocketOpcode::Binary, mask, &large_payload);
+
+        let (frame, consumed) = decode_websocket_frame(&encoded).unwrap().unwrap();
+        assert_eq!(consumed, encoded.len());
+        assert_eq!(frame.opcode, WebSocketOpcode::Binary);
+        assert_eq!(frame.payload, large_payload);
+    }
+
+    #[test]
+    fn test_live_reload_bridge_lifecycle_and_pruning() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let bridge = LiveReloadBridge::new(port);
+
+        // Connect client 1 (WebSocket)
+        let c1_stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        let (s1, _) = listener.accept().unwrap();
+        bridge.add_websocket_client(s1);
+
+        // Connect client 2 (SSE)
+        let c2_stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        let (s2, _) = listener.accept().unwrap();
+        bridge.add_sse_client(s2);
+
+        assert_eq!(bridge.client_count(), 2);
+        assert!(bridge.has_clients());
+
+        // Broadcast event
+        let evt = ReloadEvent::reload("test.va", 12);
+        bridge.broadcast(&evt);
+        assert_eq!(bridge.last_rebuild_ms(), 12);
+        assert_eq!(bridge.client_count(), 2);
+
+        // Drop client 1 connection
+        drop(c1_stream);
+
+        // Next broadcast prunes dead client 1
+        let evt2 = ReloadEvent::reload("test2.va", 8);
+        bridge.broadcast(&evt2);
+        assert_eq!(bridge.client_count(), 1);
+
+        drop(c2_stream);
+        bridge.clear_clients();
+        assert_eq!(bridge.client_count(), 0);
+        assert!(!bridge.has_clients());
+    }
+
+    #[test]
+    fn test_dev_server_background_http_endpoints() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let stop_signal = Arc::new(AtomicBool::new(false));
+
+        let config = DevServerConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            project_dir: PathBuf::from("."),
+            debounce_ms: 100,
+        };
+
+        let (_bridge, handle) = start_dev_server_background(listener, config, stop_signal.clone());
+
+        // Test GET /_ventanext/status
+        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        stream
+            .write_all(b"GET /_ventanext/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut status_line = String::new();
+        reader.read_line(&mut status_line).unwrap();
+        assert!(status_line.contains("200 OK"));
+
+        // Read headers
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" || line.is_empty() {
+                break;
+            }
+        }
+        let mut body = String::new();
+        reader.read_line(&mut body).unwrap();
+        assert!(body.contains("\"status\":\"active\""));
+        assert!(body.contains(&format!("\"port\":{}", port)));
+
+        // Test POST /_ventanext/trigger-reload
+        let mut stream_trigger = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        stream_trigger
+            .write_all(b"POST /_ventanext/trigger-reload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n")
+            .unwrap();
+        let mut reader_trigger = BufReader::new(stream_trigger);
+        let mut trig_status = String::new();
+        reader_trigger.read_line(&mut trig_status).unwrap();
+        assert!(trig_status.contains("200 OK"));
+
+        // Test GET non-existent route 404
+        let mut stream_404 = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        stream_404
+            .write_all(b"GET /non-existent-xyz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut reader_404 = BufReader::new(stream_404);
+        let mut not_found_status = String::new();
+        reader_404.read_line(&mut not_found_status).unwrap();
+        assert!(not_found_status.contains("404 Not Found"));
+
+        // Shut down server
+        stop_signal.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+    }
+
+    #[test]
+    fn test_dev_server_websocket_upgrade_handshake() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let stop_signal = Arc::new(AtomicBool::new(false));
+
+        let config = DevServerConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            project_dir: PathBuf::from("."),
+            debounce_ms: 100,
+        };
+
+        let (bridge, handle) = start_dev_server_background(listener, config, stop_signal.clone());
+
+        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        let key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let req = format!(
+            "GET /_ventanext/reload HTTP/1.1\r\n\
+            Host: 127.0.0.1:{}\r\n\
+            Upgrade: websocket\r\n\
+            Connection: Upgrade\r\n\
+            Sec-WebSocket-Key: {}\r\n\
+            Sec-WebSocket-Version: 13\r\n\r\n",
+            port, key
+        );
+        stream.write_all(req.as_bytes()).unwrap();
+
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut status_line = String::new();
+        reader.read_line(&mut status_line).unwrap();
+        assert!(status_line.contains("101 Switching Protocols"));
+
+        let mut accept_found = false;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.to_lowercase().starts_with("sec-websocket-accept:") {
+                assert!(line.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
+                accept_found = true;
+            }
+            if line == "\r\n" || line.is_empty() {
+                break;
+            }
+        }
+        assert!(accept_found);
+
+        // Give the background thread time to register the client
+        thread::sleep(Duration::from_millis(50));
+        assert!(bridge.client_count() >= 1);
+
+        // Read the initial 'connected' frame sent on upgrade
+        let mut initial_buf = [0u8; 512];
+        let n = reader.get_mut().read(&mut initial_buf).unwrap();
+        let (conn_frame, _) = decode_websocket_frame(&initial_buf[..n])
+            .unwrap()
+            .expect("initial connected frame");
+        let conn_json: serde_json::Value = serde_json::from_slice(&conn_frame.payload).unwrap();
+        assert_eq!(conn_json["type"], "connected");
+
+        // Broadcast a reload event and verify client receives it over WebSocket
+        let evt = ReloadEvent::reload("components/header.va", 42);
+        bridge.broadcast(&evt);
+
+        let mut reload_buf = [0u8; 512];
+        let n_reload = reader.get_mut().read(&mut reload_buf).unwrap();
+        let (reload_frame, _) = decode_websocket_frame(&reload_buf[..n_reload])
+            .unwrap()
+            .expect("broadcast reload frame");
+        let reload_json: serde_json::Value = serde_json::from_slice(&reload_frame.payload).unwrap();
+        assert_eq!(reload_json["type"], "reload");
+        assert_eq!(reload_json["file"], "components/header.va");
+        assert_eq!(reload_json["rebuild_ms"], 42);
+
+        // Send a masked client Ping frame to server and receive Pong
+        let ping_payload = b"ping_test_data";
+        let mask = Some([0xAA, 0xBB, 0xCC, 0xDD]);
+        let ping_frame = encode_websocket_frame(true, WebSocketOpcode::Ping, mask, ping_payload);
+        stream.write_all(&ping_frame).unwrap();
+
+        let mut pong_buf = [0u8; 256];
+        let n_pong = reader.get_mut().read(&mut pong_buf).unwrap();
+        let (pong_frame, _) = decode_websocket_frame(&pong_buf[..n_pong])
+            .unwrap()
+            .expect("pong frame response");
+        assert_eq!(pong_frame.opcode, WebSocketOpcode::Pong);
+        assert_eq!(pong_frame.payload, ping_payload);
+
+        stop_signal.store(true, Ordering::Relaxed);
+        let _ = handle.join();
     }
 }

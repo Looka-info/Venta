@@ -111,9 +111,7 @@ fn check_compile_error(source: &str, expected_code: &str) {
     );
 
     let diags = session.diagnostics.diagnostics();
-    let has_code = diags
-        .iter()
-        .any(|d| d.code.as_deref() == Some(expected_code));
+    let has_code = diags.iter().any(|d| d.code == Some(expected_code));
     if !has_code {
         eprintln!("Expected diagnostic code: {}", expected_code);
         eprintln!("Actual diagnostics: {:?}", diags);

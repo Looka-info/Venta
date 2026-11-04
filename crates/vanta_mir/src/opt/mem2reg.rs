@@ -476,6 +476,7 @@ impl Mem2Reg {
     }
 
     /// Preorder traversal of dominator tree to rename variables and wire Phi inputs.
+    #[allow(clippy::too_many_arguments)]
     fn rename_in_dom_tree(
         curr_block: BlockId,
         dom_children: &HashMap<BlockId, Vec<BlockId>>,
@@ -590,6 +591,7 @@ impl Mem2Reg {
     /// Validates all candidate value substitutions using dominance checks.
     /// If a candidate substitution does not dominate its use (e.g. across loops or early returns),
     /// the slot is safely retained as an unpromoted memory variable rather than creating invalid SSA.
+    #[allow(clippy::too_many_arguments)]
     fn validate_slot_substitutions(
         func: &mut MirFunction,
         dom_tree: &crate::opt::dom::DominatorTree,
@@ -718,7 +720,7 @@ impl Mem2Reg {
                 }
             }
             if let Some(phi_map) = slot_phi_defs.get(&slot_id) {
-                for (_, phi_val) in phi_map {
+                for phi_val in phi_map.values() {
                     phis_to_remove.insert(*phi_val);
                 }
             }

@@ -105,6 +105,7 @@ impl DominatorTree {
     }
 
     /// Computes reachable blocks and predecessor/successor maps.
+    #[allow(clippy::type_complexity)]
     fn compute_cfg(
         func: &MirFunction,
         entry: BlockId,

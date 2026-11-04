@@ -433,14 +433,14 @@ mod tests {
         let engine = IncrementalBuildEngine::new(IncrementalOptions::default()).unwrap();
         let obj_fp = ContentFingerprint::for_bytes(Domain::Object, b"obj1");
         let link_fp1 = engine
-            .compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[])
+            .compute_link_fingerprint(&[obj_fp], std::slice::from_ref(&arch_path), &[])
             .unwrap();
 
         // Write second version: 16 bytes of 'B' (exact same byte size!)
         fs::write(&arch_path, vec![b'B'; 16]).unwrap();
 
         let link_fp2 = engine
-            .compute_link_fingerprint(&[obj_fp], &[arch_path.clone()], &[])
+            .compute_link_fingerprint(&[obj_fp], std::slice::from_ref(&arch_path), &[])
             .unwrap();
 
         assert_ne!(
@@ -452,8 +452,10 @@ mod tests {
     #[test]
     fn test_function_fragment_caching_and_stats() {
         let dir = tempdir().unwrap();
-        let mut opts = IncrementalOptions::default();
-        opts.cache_dir = dir.path().join("cache");
+        let opts = IncrementalOptions {
+            cache_dir: dir.path().join("cache"),
+            ..IncrementalOptions::default()
+        };
 
         let mut engine = IncrementalBuildEngine::new(opts).unwrap();
         let fn_key = ContentFingerprint::for_bytes(Domain::FunctionCodegen, b"my_func");
@@ -484,8 +486,10 @@ mod tests {
     #[test]
     fn test_link_validity_tampered_executable_fails() {
         let dir = tempdir().unwrap();
-        let mut opts = IncrementalOptions::default();
-        opts.cache_dir = dir.path().join("cache");
+        let opts = IncrementalOptions {
+            cache_dir: dir.path().join("cache"),
+            ..IncrementalOptions::default()
+        };
 
         let mut engine = IncrementalBuildEngine::new(opts).unwrap();
         let exe_path = dir.path().join("prog");

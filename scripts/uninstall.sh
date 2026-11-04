@@ -42,11 +42,15 @@ else
     echo "--> Removing standard Vanta installation files..."
     rm -f "${PREFIX}/bin/vantac"
     rm -f "${PREFIX}/bin/vanta"
+    rm -f "${PREFIX}/bin/ventanext-gen"
     rm -rf "${LIB_DEST}"
+    rm -rf "${PREFIX}/share/ventanext"
 fi
 
 # Clean up empty directories
 rm -rf "${LIB_DEST}"
+rm -rf "${PREFIX}/share/ventanext"
+rmdir "${PREFIX}/share" 2>/dev/null || true
 rmdir "${PREFIX}/bin" 2>/dev/null || true
 rmdir "${PREFIX}/lib" 2>/dev/null || true
 

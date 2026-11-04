@@ -206,8 +206,7 @@ impl LoopUnrolling {
             }
 
             if let Some(trip_count) = found_trip_count {
-                if trip_count >= 0
-                    && trip_count <= Self::MAX_FULL_UNROLL_ITERS
+                if (0..=Self::MAX_FULL_UNROLL_ITERS).contains(&trip_count)
                     && (body_inst_count * trip_count as usize) <= Self::MAX_FULL_UNROLL_INSTRUCTIONS
                 {
                     // Case A: FULL UNROLLING (trip_count 0..=16)
@@ -553,7 +552,7 @@ impl LoopUnrolling {
             func.blocks
                 .iter()
                 .find(|blk| blk.id == blk_id)
-                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+                .is_some_and(|blk| blk.terminator == Some(Terminator::Unreachable))
         };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
@@ -638,39 +637,7 @@ impl LoopUnrolling {
                 for &b_id in &unroll_block_ids {
                     let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
                     for inst in &orig_b.instructions {
-                        match inst {
-                            Instruction::ConstInt { dest, .. }
-                            | Instruction::ConstBool { dest, .. }
-                            | Instruction::SlotAddr { dest, .. }
-                            | Instruction::Load { dest, .. }
-                            | Instruction::Binary { dest, .. }
-                            | Instruction::Unary { dest, .. }
-                            | Instruction::IndexAddr { dest, .. }
-                            | Instruction::IndexPtrAddr { dest, .. }
-                            | Instruction::FieldAddr { dest, .. }
-                            | Instruction::LoadIndirect { dest, .. }
-                            | Instruction::Phi { dest, .. }
-                            | Instruction::Copy { dest, .. } => {
-                                val_map.insert(*dest, ValueId(next_val_id));
-                                next_val_id += 1;
-                            }
-                            Instruction::Call { dest: Some(d), .. } => {
-                                val_map.insert(*d, ValueId(next_val_id));
-                                next_val_id += 1;
-                            }
-                            Instruction::StrSlice {
-                                dest_ptr, dest_len, ..
-                            }
-                            | Instruction::LoadSlice {
-                                dest_ptr, dest_len, ..
-                            } => {
-                                val_map.insert(*dest_ptr, ValueId(next_val_id));
-                                next_val_id += 1;
-                                val_map.insert(*dest_len, ValueId(next_val_id));
-                                next_val_id += 1;
-                            }
-                            _ => {}
-                        }
+                        Self::assign_fresh_dest(inst, &mut val_map, &mut next_val_id);
                     }
                 }
 
@@ -852,7 +819,7 @@ impl LoopUnrolling {
             func.blocks
                 .iter()
                 .find(|blk| blk.id == blk_id)
-                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+                .is_some_and(|blk| blk.terminator == Some(Terminator::Unreachable))
         };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
@@ -918,39 +885,7 @@ impl LoopUnrolling {
         for &b_id in &unroll_block_ids {
             let orig_b = func.blocks.iter().find(|b| b.id == b_id).unwrap();
             for inst in &orig_b.instructions {
-                match inst {
-                    Instruction::ConstInt { dest, .. }
-                    | Instruction::ConstBool { dest, .. }
-                    | Instruction::SlotAddr { dest, .. }
-                    | Instruction::Load { dest, .. }
-                    | Instruction::Binary { dest, .. }
-                    | Instruction::Unary { dest, .. }
-                    | Instruction::IndexAddr { dest, .. }
-                    | Instruction::IndexPtrAddr { dest, .. }
-                    | Instruction::FieldAddr { dest, .. }
-                    | Instruction::LoadIndirect { dest, .. }
-                    | Instruction::Phi { dest, .. }
-                    | Instruction::Copy { dest, .. } => {
-                        val_map.insert(*dest, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    Instruction::Call { dest: Some(d), .. } => {
-                        val_map.insert(*d, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    Instruction::StrSlice {
-                        dest_ptr, dest_len, ..
-                    }
-                    | Instruction::LoadSlice {
-                        dest_ptr, dest_len, ..
-                    } => {
-                        val_map.insert(*dest_ptr, ValueId(next_val_id));
-                        next_val_id += 1;
-                        val_map.insert(*dest_len, ValueId(next_val_id));
-                        next_val_id += 1;
-                    }
-                    _ => {}
-                }
+                Self::assign_fresh_dest(inst, &mut val_map, &mut next_val_id);
             }
         }
 
@@ -1045,6 +980,7 @@ impl LoopUnrolling {
     }
 
     /// Partially unrolls a loop with factor 2 for dynamic bounds using a remainder loop.
+    #[allow(clippy::too_many_arguments)]
     fn apply_dynamic_partial_unroll_2(
         func: &mut MirFunction,
         loop_info: &NaturalLoop,
@@ -1073,7 +1009,7 @@ impl LoopUnrolling {
             func.blocks
                 .iter()
                 .find(|blk| blk.id == blk_id)
-                .map_or(false, |blk| blk.terminator == Some(Terminator::Unreachable))
+                .is_some_and(|blk| blk.terminator == Some(Terminator::Unreachable))
         };
         for &b_id in &body_block_ids {
             if let Some(b) = func.blocks.iter().find(|blk| blk.id == b_id) {
@@ -1428,38 +1364,9 @@ impl LoopUnrolling {
         val_map: &mut HashMap<ValueId, ValueId>,
         next_val_id: &mut u32,
     ) {
-        match inst {
-            Instruction::ConstInt { dest, .. }
-            | Instruction::ConstBool { dest, .. }
-            | Instruction::SlotAddr { dest, .. }
-            | Instruction::Load { dest, .. }
-            | Instruction::Binary { dest, .. }
-            | Instruction::Unary { dest, .. }
-            | Instruction::IndexAddr { dest, .. }
-            | Instruction::IndexPtrAddr { dest, .. }
-            | Instruction::FieldAddr { dest, .. }
-            | Instruction::LoadIndirect { dest, .. }
-            | Instruction::Phi { dest, .. }
-            | Instruction::Copy { dest, .. } => {
-                val_map.insert(*dest, ValueId(*next_val_id));
-                *next_val_id += 1;
-            }
-            Instruction::Call { dest: Some(d), .. } => {
-                val_map.insert(*d, ValueId(*next_val_id));
-                *next_val_id += 1;
-            }
-            Instruction::StrSlice {
-                dest_ptr, dest_len, ..
-            }
-            | Instruction::LoadSlice {
-                dest_ptr, dest_len, ..
-            } => {
-                val_map.insert(*dest_ptr, ValueId(*next_val_id));
-                *next_val_id += 1;
-                val_map.insert(*dest_len, ValueId(*next_val_id));
-                *next_val_id += 1;
-            }
-            _ => {}
+        for def in inst.defs() {
+            val_map.insert(def, ValueId(*next_val_id));
+            *next_val_id += 1;
         }
     }
 

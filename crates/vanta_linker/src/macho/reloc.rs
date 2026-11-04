@@ -63,7 +63,7 @@ pub fn apply_macho_relocation(
                 });
             }
             let imm26 = disp >> 2;
-            if imm26 < -(1 << 25) || imm26 >= (1 << 25) {
+            if !(-(1 << 25)..(1 << 25)).contains(&imm26) {
                 return Err(LinkerError::RelocationOverflow {
                     path: path.to_path_buf(),
                     section: section_name.to_string(),
@@ -99,7 +99,7 @@ pub fn apply_macho_relocation(
             let place_page = place_va & !0xFFF;
             let page_disp = (sym_page as i64).wrapping_sub(place_page as i64) >> 12;
 
-            if page_disp < -(1 << 20) || page_disp >= (1 << 20) {
+            if !(-(1 << 20)..(1 << 20)).contains(&page_disp) {
                 return Err(LinkerError::RelocationOverflow {
                     path: path.to_path_buf(),
                     section: section_name.to_string(),

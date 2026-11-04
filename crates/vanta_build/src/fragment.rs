@@ -59,6 +59,7 @@ pub struct FunctionFragment {
 }
 
 impl FunctionFragment {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
         sig_fingerprint: ContentFingerprint,

@@ -119,6 +119,7 @@ impl X86_64Backend {
 
     /// Compiles a MIR program into an ELF64 object with fine-grained backend controls,
     /// explicit target feature validation, and optional DWARF 5 source-level debug information.
+    #[allow(clippy::too_many_arguments)]
     pub fn compile_to_elf_full_with_debug(
         program: &MirProgram,
         enable_reg_alloc: bool,
@@ -304,6 +305,7 @@ impl X86_64Backend {
 
     /// Dispatches compilation to either ELF64 or COFF according to target specification
     /// with full backend pipeline flags and debug info support.
+    #[allow(clippy::too_many_arguments)]
     pub fn compile_to_object_full_with_debug(
         program: &MirProgram,
         target_spec: &TargetSpec,
@@ -367,7 +369,7 @@ impl X86_64Backend {
 
         // CFG blocks and instructions
         for block in &func.blocks {
-            body_builder.update_u32(block.id.0 as u32);
+            body_builder.update_u32(block.id.0);
             for inst in &block.instructions {
                 body_builder.update_str(&format!("{:?}", inst));
             }
@@ -413,6 +415,7 @@ impl X86_64Backend {
     }
 
     /// Emits code generation for a single function into a standalone, relocatable FunctionFragment.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_function_fragment(
         func: &vanta_mir::MirFunction,
         program: &MirProgram,
@@ -895,6 +898,7 @@ impl X86_64Backend {
     }
 
     /// Compiles a MIR program using the function fragment cache for true function-level incrementality.
+    #[allow(clippy::too_many_arguments)]
     pub fn compile_to_object_incremental(
         program: &MirProgram,
         target_spec: &TargetSpec,
@@ -976,6 +980,7 @@ impl X86_64Backend {
     }
 
     /// Lowers and encodes MIR functions to machine instructions under the specified ABI.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_program_code(
         program: &MirProgram,
         abi: TargetAbi,

@@ -126,7 +126,7 @@ impl FrameLayout {
                         call_return_buffers.insert(*d, current_offset);
 
                         let needs_val_offset = match alloc_res {
-                            Some(alloc) => alloc.assignments.get(d).is_none(),
+                            Some(alloc) => !alloc.assignments.contains_key(d),
                             None => true,
                         };
                         if needs_val_offset {
@@ -161,7 +161,7 @@ impl FrameLayout {
                 };
                 for v in val_ids {
                     let needs_val_offset = match alloc_res {
-                        Some(alloc) => alloc.assignments.get(&v).is_none(),
+                        Some(alloc) => !alloc.assignments.contains_key(&v),
                         None => true,
                     };
                     if needs_val_offset {

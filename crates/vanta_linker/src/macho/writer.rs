@@ -400,6 +400,7 @@ impl MachOExecutableWriter {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_segment_command(
     out: &mut Vec<u8>,
     segname: &str,
@@ -432,6 +433,7 @@ fn write_segment_command(
     out.extend_from_slice(&flags.to_le_bytes());
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_section_header(
     out: &mut Vec<u8>,
     sectname: &str,

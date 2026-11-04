@@ -216,35 +216,37 @@ pub fn link_macho_executable(config: &LinkerConfig) -> LinkResult<MachOLinkOutpu
     let entry_offset = entry_va.saturating_sub(base_text_va);
 
     // 10. Apply Mach-O relocations
+    let contrib_map = crate::section::ContributionMap::build(&merged_sections);
+
     for obj in &objects {
         for rel in &obj.relocations {
             let sym_va = resolver
-                .resolve_symbol_address(&rel.symbol_name, obj, &merged_sections)
+                .resolve_symbol_address_with_map(
+                    &rel.symbol_name,
+                    obj,
+                    &merged_sections,
+                    &contrib_map,
+                )
                 .ok_or_else(|| LinkerError::UndefinedSymbol {
                     symbol: rel.symbol_name.clone(),
                     referencing_file: obj.path.clone(),
                     referencing_section: rel.section_index.to_string(),
                 })?;
 
-            for merged_sec in merged_sections.iter_mut() {
-                if let Some(contrib) = merged_sec
-                    .contributions
-                    .iter()
-                    .find(|c| c.object_id == obj.id && c.source_section_idx == rel.section_index)
-                {
-                    let patch_offset = contrib.offset_in_merged + rel.offset_in_section;
-                    let place_va = merged_sec.virtual_address + patch_offset as u64;
+            if let Some(loc) = contrib_map.get_by_index(obj.id, rel.section_index) {
+                let merged_sec = &mut merged_sections[loc.merged_section_idx];
+                let patch_offset = loc.offset_in_merged + rel.offset_in_section;
+                let place_va = merged_sec.virtual_address + patch_offset as u64;
 
-                    apply_macho_relocation(
-                        &obj.path,
-                        &merged_sec.name,
-                        rel,
-                        patch_offset,
-                        &mut merged_sec.data,
-                        sym_va,
-                        place_va,
-                    )?;
-                }
+                apply_macho_relocation(
+                    &obj.path,
+                    &merged_sec.name,
+                    rel,
+                    patch_offset,
+                    &mut merged_sec.data,
+                    sym_va,
+                    place_va,
+                )?;
             }
         }
     }

@@ -237,10 +237,8 @@ impl CallGraph {
             return (false, "recursive or mutually recursive function");
         }
 
-        if summary.has_aggregate_types {
-            if !summary.is_leaf || !summary.safe_aggregate_leaf {
-                return (false, "callee uses aggregate or memory-class types");
-            }
+        if summary.has_aggregate_types && (!summary.is_leaf || !summary.safe_aggregate_leaf) {
+            return (false, "callee uses aggregate or memory-class types");
         }
 
         // Exclude large functions

@@ -101,12 +101,7 @@ impl LinkMap {
 
         // 4. Global Symbols
         writeln!(&mut out, "Symbol Table:").unwrap();
-        writeln!(
-            &mut out,
-            "  {:<18} {:<36} {}",
-            "Address", "Symbol", "Defined In"
-        )
-        .unwrap();
+        writeln!(&mut out, "  {:<18} {:<36} Defined In", "Address", "Symbol").unwrap();
         writeln!(
             &mut out,
             "  ----------------------------------------------------------------------"

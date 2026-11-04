@@ -192,34 +192,32 @@ pub fn read_macho_object(
                 raw_relocs_by_section.push((sec_idx, reloff, nreloc));
                 sec_cursor += 80;
             }
-        } else if cmd == LC_SYMTAB {
-            if cursor + 24 <= data.len() {
-                let symoff = u32::from_le_bytes([
-                    data[cursor + 8],
-                    data[cursor + 9],
-                    data[cursor + 10],
-                    data[cursor + 11],
-                ]) as usize;
-                let nsyms = u32::from_le_bytes([
-                    data[cursor + 12],
-                    data[cursor + 13],
-                    data[cursor + 14],
-                    data[cursor + 15],
-                ]) as usize;
-                let stroff = u32::from_le_bytes([
-                    data[cursor + 16],
-                    data[cursor + 17],
-                    data[cursor + 18],
-                    data[cursor + 19],
-                ]) as usize;
-                let strsize = u32::from_le_bytes([
-                    data[cursor + 20],
-                    data[cursor + 21],
-                    data[cursor + 22],
-                    data[cursor + 23],
-                ]) as usize;
-                symtab_cmd = Some((symoff, nsyms, stroff, strsize));
-            }
+        } else if cmd == LC_SYMTAB && cursor + 24 <= data.len() {
+            let symoff = u32::from_le_bytes([
+                data[cursor + 8],
+                data[cursor + 9],
+                data[cursor + 10],
+                data[cursor + 11],
+            ]) as usize;
+            let nsyms = u32::from_le_bytes([
+                data[cursor + 12],
+                data[cursor + 13],
+                data[cursor + 14],
+                data[cursor + 15],
+            ]) as usize;
+            let stroff = u32::from_le_bytes([
+                data[cursor + 16],
+                data[cursor + 17],
+                data[cursor + 18],
+                data[cursor + 19],
+            ]) as usize;
+            let strsize = u32::from_le_bytes([
+                data[cursor + 20],
+                data[cursor + 21],
+                data[cursor + 22],
+                data[cursor + 23],
+            ]) as usize;
+            symtab_cmd = Some((symoff, nsyms, stroff, strsize));
         }
 
         cursor += cmdsize;
@@ -336,7 +334,7 @@ pub fn read_macho_object(
 
             let r_symbolnum = (r_info & 0x00FFFFFF) as usize;
             let _r_pcrel = (r_info >> 24) & 1 != 0;
-            let r_type = ((r_info >> 28) & 0x0F) as u32;
+            let r_type = (r_info >> 28) & 0x0F;
 
             let sym_name = if let Some(sym) = symbols.get(r_symbolnum) {
                 sym.name.clone()

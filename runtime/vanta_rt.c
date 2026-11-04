@@ -698,9 +698,11 @@ typedef int socklen_t;
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #endif
 
 int64_t vanta_net_listen(int64_t port) {
+    if (port <= 0 || port > 65535) return -1;
 #ifdef _WIN32
     static int wsa_inited = 0;
     if (!wsa_inited) {
@@ -787,6 +789,54 @@ int64_t vanta_net_close(int64_t fd) {
 #endif
     }
     return 0;
+}
+
+int64_t vanta_net_connect(const char *host, uint64_t host_len, int64_t port) {
+#ifdef _WIN32
+    static int wsa_inited = 0;
+    if (!wsa_inited) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+        wsa_inited = 1;
+    }
+#endif
+    if (host == NULL || host_len == 0 || port <= 0 || port > 65535) return -1;
+    char host_buf[256];
+    if (host_len >= sizeof(host_buf)) return -1;
+    memcpy(host_buf, host, host_len);
+    host_buf[host_len] = '\0';
+
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return -1;
+
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons((uint16_t)port);
+
+    if (inet_pton(AF_INET, host_buf, &serv_addr.sin_addr) <= 0) {
+        struct hostent *he = gethostbyname(host_buf);
+        if (he == NULL || he->h_addr_list[0] == NULL) {
+#ifdef _WIN32
+            closesocket((SOCKET)sock);
+#else
+            close(sock);
+#endif
+            return -2;
+        }
+        memcpy(&serv_addr.sin_addr, he->h_addr_list[0], sizeof(struct in_addr));
+    }
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+#ifdef _WIN32
+        closesocket((SOCKET)sock);
+#else
+        close(sock);
+#endif
+        return -3;
+    }
+
+    return (int64_t)sock;
 }
 
 int64_t vanta_ptr_to_i64(void *p) {

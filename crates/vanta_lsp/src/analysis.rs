@@ -370,15 +370,13 @@ impl AnalysisSnapshot {
         if let Some(ref sema) = self.sema_ctx {
             // Local variables
             for sym in sema.symbols.values() {
-                if (sym.span.start as usize) <= offset {
-                    if seen.insert(sym.name.clone()) {
-                        items.push(CompletionItem {
-                            label: sym.name.clone(),
-                            kind: Some(CompletionItemKind::VARIABLE),
-                            detail: Some(format!("{}", sym.ty)),
-                            ..Default::default()
-                        });
-                    }
+                if (sym.span.start as usize) <= offset && seen.insert(sym.name.clone()) {
+                    items.push(CompletionItem {
+                        label: sym.name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("{}", sym.ty)),
+                        ..Default::default()
+                    });
                 }
             }
 

@@ -42,7 +42,7 @@ fn generate_synthetic_elf_object(
     for &(fname, size) in defined_funcs {
         let offset = code_bytes.len();
         // Fill dummy x86-64 code: mov $42, %rax; ret (or nops)
-        code_bytes.extend(std::iter::repeat(0x90).take(size.max(8)));
+        code_bytes.extend(std::iter::repeat_n(0x90, size.max(8)));
         code_bytes[offset] = 0x48;
         code_bytes[offset + 1] = 0xC7;
         code_bytes[offset + 2] = 0xC0;
@@ -558,6 +558,7 @@ fn serialize_synthetic_object(obj: &ObjectFile) -> Vec<u8> {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_shdr(
     out: &mut Vec<u8>,
     name: u32,

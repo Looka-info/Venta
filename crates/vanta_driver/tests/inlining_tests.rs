@@ -727,3 +727,118 @@ fn test_aggregate_inlining_candidate_verification() {
         ret_reason
     );
 }
+
+#[test]
+fn test_inline_callee_with_indirect_call_and_vtable_ssa_integrity() {
+    use vanta_mir::{
+        BasicBlock, BlockId, LocalSlot, MirFunction, MirProgram, SlotId, Terminator, ValueId,
+    };
+    use vanta_sema::Type;
+
+    // Construct a MIR program with a callee that invokes a method (VtableAddr + CallIndirect)
+    let callee_slot = SlotId(0);
+    let callee_slots = vec![LocalSlot {
+        id: callee_slot,
+        name: "x".to_string(),
+        ty: Type::I64,
+        size: 8,
+        align: 8,
+    }];
+    let callee_params = vec![(callee_slot, Type::I64)];
+
+    let callee_bb = BasicBlock {
+        id: BlockId(0),
+        name: "entry".to_string(),
+        instructions: vec![
+            Instruction::VtableAddr {
+                dest: ValueId(1),
+                symbol: "Test_vtable".to_string(),
+            },
+            Instruction::CallIndirect {
+                dest: Some(ValueId(2)),
+                callee_ptr: ValueId(1),
+                args: vec![],
+                ret_type: Type::I64,
+            },
+        ],
+        terminator: Some(Terminator::Return(Some(ValueId(2)))),
+    };
+
+    let callee = MirFunction::new(
+        "polymorphic_helper".to_string(),
+        callee_params,
+        Type::I64,
+        callee_slots,
+        vec![callee_bb],
+    );
+
+    // Caller
+    let caller_bb = BasicBlock {
+        id: BlockId(0),
+        name: "entry".to_string(),
+        instructions: vec![
+            Instruction::ConstInt {
+                dest: ValueId(1),
+                val: 42,
+                ty: Type::I64,
+            },
+            Instruction::Call {
+                dest: Some(ValueId(2)),
+                callee: "polymorphic_helper".to_string(),
+                args: vec![ValueId(1)],
+                ret_type: Type::I64,
+            },
+        ],
+        terminator: Some(Terminator::Return(Some(ValueId(2)))),
+    };
+
+    let caller = MirFunction::new(
+        "caller_func".to_string(),
+        vec![],
+        Type::I64,
+        vec![],
+        vec![caller_bb],
+    );
+
+    let mut program = MirProgram {
+        functions: vec![callee, caller],
+        structs: std::collections::HashMap::new(),
+        enums: std::collections::HashMap::new(),
+        string_literals: Vec::new(),
+        vtables: Vec::new(),
+    };
+
+    let mut diags = DiagnosticBag::new();
+    vanta_mir::opt::Inliner::run_on_program(&mut program);
+
+    let caller_after = program
+        .functions
+        .iter()
+        .find(|f| f.name == "caller_func")
+        .unwrap();
+    // Verify that the call was inlined
+    assert!(!caller_after.blocks.iter().any(|b| {
+        b.instructions.iter().any(|inst| match inst {
+            Instruction::Call { callee, .. } => callee == "polymorphic_helper",
+            _ => false,
+        })
+    }));
+
+    // Verify SSA uniqueness: each defined ValueId in caller must be unique
+    let mut seen_defs = std::collections::HashSet::new();
+    for block in &caller_after.blocks {
+        for inst in &block.instructions {
+            for def in inst.defs() {
+                assert!(
+                    seen_defs.insert(def),
+                    "Duplicate SSA ValueId definition found after inlining: {:?}",
+                    def
+                );
+            }
+        }
+    }
+
+    // Verify program with MirVerifier
+    vanta_mir::verify::MirVerifier::verify_program(&program, &mut diags);
+    assert!(!diags.has_errors(), "MirVerifier found errors: {:?}", diags);
+}

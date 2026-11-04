@@ -1,4 +1,5 @@
 //! LSP request and notification dispatch.
+#![allow(clippy::arc_with_non_send_sync)]
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::{

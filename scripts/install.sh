@@ -55,20 +55,31 @@ fi
 
 SRC_BIN=""
 SRC_LIB=""
+SRC_TEMPLATES=""
 
 # 1. Check local directory candidates
 if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/bin/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/bin"
     SRC_LIB="${SCRIPT_DIR}/lib/vanta"
+    if [ -d "${SCRIPT_DIR}/share/ventanext/templates" ]; then
+        SRC_TEMPLATES="${SCRIPT_DIR}/share/ventanext/templates"
+    elif [ -d "${SCRIPT_DIR}/../templates" ]; then
+        SRC_TEMPLATES="${SCRIPT_DIR}/../templates"
+    fi
 elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/bin/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/bin"
     SRC_LIB="${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/lib/vanta"
+    if [ -d "${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/share/ventanext/templates" ]; then
+        SRC_TEMPLATES="${SCRIPT_DIR}/../dist/vanta-${VERSION}-x86_64-unknown-linux-gnu/share/ventanext/templates"
+    fi
 elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/../target/release"
     SRC_LIB="${SCRIPT_DIR}/../library"
+    SRC_TEMPLATES="${SCRIPT_DIR}/../templates"
 elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/vantac" ]; then
     SRC_BIN="${SCRIPT_DIR}/../target/debug"
     SRC_LIB="${SCRIPT_DIR}/../library"
+    SRC_TEMPLATES="${SCRIPT_DIR}/../templates"
 fi
 
 # 2. Remote fallback: download official release tarball if piped from curl or standalone
@@ -117,6 +128,9 @@ if [ -z "${SRC_BIN}" ]; then
     tar -xzf "${CLEANUP_TMP}/${TARBALL}" -C "${CLEANUP_TMP}" --strip-components=1
     SRC_BIN="${CLEANUP_TMP}/bin"
     SRC_LIB="${CLEANUP_TMP}/lib/vanta"
+    if [ -d "${CLEANUP_TMP}/share/ventanext/templates" ]; then
+        SRC_TEMPLATES="${CLEANUP_TMP}/share/ventanext/templates"
+    fi
 fi
 
 echo "=== Installing Vanta to ${PREFIX} ==="
@@ -162,6 +176,16 @@ elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/vanta" ]; the
     install_file "${SCRIPT_DIR}/../target/debug/vanta" "${BIN_DEST}/vanta" 0755
 fi
 
+if [ -f "${SRC_BIN}/ventanext-gen" ]; then
+    install_file "${SRC_BIN}/ventanext-gen" "${BIN_DEST}/ventanext-gen" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../bin/ventanext-gen" ]; then
+    install_file "${SCRIPT_DIR}/../bin/ventanext-gen" "${BIN_DEST}/ventanext-gen" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/ventanext-gen" ]; then
+    install_file "${SCRIPT_DIR}/../target/release/ventanext-gen" "${BIN_DEST}/ventanext-gen" 0755
+elif [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/debug/ventanext-gen" ]; then
+    install_file "${SCRIPT_DIR}/../target/debug/ventanext-gen" "${BIN_DEST}/ventanext-gen" 0755
+fi
+
 echo "--> Installing native runtime archive to ${LIB_DEST}..."
 if [ -f "${SRC_LIB}/libvanta_rt.a" ]; then
     install_file "${SRC_LIB}/libvanta_rt.a" "${LIB_DEST}/libvanta_rt.a" 0644
@@ -185,6 +209,17 @@ if [ -n "${STD_SRC_DIR}" ]; then
         rel_f="${f#./}"
         mkdir -p "${STD_DEST}/$(dirname "${rel_f}")"
         install_file "${STD_SRC_DIR}/${rel_f}" "${STD_DEST}/${rel_f}" 0644
+    done
+fi
+
+if [ -n "${SRC_TEMPLATES}" ] && [ -d "${SRC_TEMPLATES}" ]; then
+    echo "--> Installing VentaNext official website templates..."
+    TEMPLATES_DEST="${PREFIX}/share/ventanext/templates"
+    mkdir -p "${TEMPLATES_DEST}"
+    for f in $(cd "${SRC_TEMPLATES}" && find . -type f); do
+        rel_f="${f#./}"
+        mkdir -p "${TEMPLATES_DEST}/$(dirname "${rel_f}")"
+        install_file "${SRC_TEMPLATES}/${rel_f}" "${TEMPLATES_DEST}/${rel_f}" 0644
     done
 fi
 

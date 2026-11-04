@@ -1917,7 +1917,7 @@ fn test_71_route_at_maximum_supported_length_succeeds() {
     assert_eq!(discovered.routes.len(), 1);
     let r = &discovered.routes[0];
 
-    assert_eq!(r.canonical_pattern.as_bytes().len(), 123);
+    assert_eq!(r.canonical_pattern.len(), 123);
     assert_eq!(r.canonical_pattern, format!("/api/{}", seg118));
 
     let expected_mod_name = sanitize_module_name(&r.canonical_pattern);
@@ -2004,7 +2004,7 @@ fn test_73_unicode_routes_measured_by_utf8_bytes_not_char_count() {
     let app_dir = tmp.path().join("app");
     let sixty_es: String = "é".repeat(60);
     assert_eq!(sixty_es.chars().count(), 60);
-    assert_eq!(sixty_es.as_bytes().len(), 120);
+    assert_eq!(sixty_es.len(), 120);
 
     let route_dir = app_dir.join("api").join(&sixty_es);
     fs::create_dir_all(&route_dir).unwrap();
@@ -2053,7 +2053,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
         let tmp = tempfile::tempdir().unwrap();
         let app_dir = tmp.path().join("app");
         let seg = format!("{}é", "b".repeat(116));
-        assert_eq!(seg.as_bytes().len(), 118);
+        assert_eq!(seg.len(), 118);
         assert_eq!(seg.chars().count(), 117);
 
         let route_dir = app_dir.join("api").join(&seg);
@@ -2066,7 +2066,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
 
         let discovered =
             scan_app_directory(&app_dir).expect("2-byte Unicode at 123 bytes must succeed");
-        assert_eq!(discovered.routes[0].canonical_pattern.as_bytes().len(), 123);
+        assert_eq!(discovered.routes[0].canonical_pattern.len(), 123);
         let mod_name = &discovered.routes[0].adapter_module_name;
         assert_eq!(format!("{}.va", mod_name).len(), 255);
     }
@@ -2078,7 +2078,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
         let tmp = tempfile::tempdir().unwrap();
         let app_dir = tmp.path().join("app");
         let seg = format!("{}é", "b".repeat(117));
-        assert_eq!(seg.as_bytes().len(), 119);
+        assert_eq!(seg.len(), 119);
         assert_eq!(seg.chars().count(), 118);
 
         let route_dir = app_dir.join("api").join(&seg);
@@ -2103,7 +2103,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
         let tmp = tempfile::tempdir().unwrap();
         let app_dir = tmp.path().join("app");
         let seg = format!("{}あ", "c".repeat(115));
-        assert_eq!(seg.as_bytes().len(), 118);
+        assert_eq!(seg.len(), 118);
 
         let route_dir = app_dir.join("api").join(&seg);
         fs::create_dir_all(&route_dir).unwrap();
@@ -2115,7 +2115,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
 
         let discovered =
             scan_app_directory(&app_dir).expect("3-byte Unicode at 123 bytes must succeed");
-        assert_eq!(discovered.routes[0].canonical_pattern.as_bytes().len(), 123);
+        assert_eq!(discovered.routes[0].canonical_pattern.len(), 123);
         let mod_name = &discovered.routes[0].adapter_module_name;
         assert_eq!(format!("{}.va", mod_name).len(), 255);
     }
@@ -2126,7 +2126,7 @@ fn test_74_multibyte_unicode_at_boundary_handled_correctly() {
         let tmp = tempfile::tempdir().unwrap();
         let app_dir = tmp.path().join("app");
         let seg = format!("{}あ", "c".repeat(116));
-        assert_eq!(seg.as_bytes().len(), 119);
+        assert_eq!(seg.len(), 119);
 
         let route_dir = app_dir.join("api").join(&seg);
         fs::create_dir_all(&route_dir).unwrap();
@@ -2232,15 +2232,15 @@ fn test_75_rejected_oversized_routes_do_not_create_or_overwrite_adapter_files() 
 fn test_76_existing_users_and_health_remain_unaffected() {
     // /api/users is 10 UTF-8 bytes
     let users_pattern = "/api/users";
-    assert_eq!(users_pattern.as_bytes().len(), 10);
-    let users_filename_len = adapter_filename_len_for_bytes(users_pattern.as_bytes().len());
+    assert_eq!(users_pattern.len(), 10);
+    let users_filename_len = adapter_filename_len_for_bytes(users_pattern.len());
     assert_eq!(users_filename_len, 29);
     assert!(users_filename_len <= MAX_PORTABLE_ADAPTER_FILENAME_LEN);
 
     // /api/health is 11 UTF-8 bytes
     let health_pattern = "/api/health";
-    assert_eq!(health_pattern.as_bytes().len(), 11);
-    let health_filename_len = adapter_filename_len_for_bytes(health_pattern.as_bytes().len());
+    assert_eq!(health_pattern.len(), 11);
+    let health_filename_len = adapter_filename_len_for_bytes(health_pattern.len());
     assert_eq!(health_filename_len, 31);
     assert!(health_filename_len <= MAX_PORTABLE_ADAPTER_FILENAME_LEN);
 
@@ -2309,9 +2309,9 @@ fn test_77_collision_resistant_module_identifiers_remain_deterministic() {
         );
         assert!(id1.starts_with("route_"));
 
-        let expected_filename_len = ADAPTER_FILENAME_WRAPPER_LEN + (pattern.as_bytes().len() * 2);
+        let expected_filename_len = ADAPTER_FILENAME_WRAPPER_LEN + (pattern.len() * 2);
         assert_eq!(
-            adapter_filename_len_for_bytes(pattern.as_bytes().len()),
+            adapter_filename_len_for_bytes(pattern.len()),
             expected_filename_len
         );
         let filename = format!("{}.va", id1);

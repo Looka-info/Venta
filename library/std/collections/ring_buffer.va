@@ -22,7 +22,11 @@ pub fn push<T>(rb: &mut RingBuffer<T>, item: T) -> bool {
     if rb.count >= rb.capacity {
         return false;
     }
-    rb.data.push(item);
+    if rb.data.len() < rb.capacity {
+        rb.data.push(item);
+    } else {
+        rb.data[rb.tail] = item;
+    }
     rb.tail = (rb.tail + 1) % rb.capacity;
     rb.count = rb.count + 1;
     return true;
@@ -36,6 +40,20 @@ pub fn pop<T>(rb: &mut RingBuffer<T>) -> Option<T> {
     rb.head = (rb.head + 1) % rb.capacity;
     rb.count = rb.count - 1;
     return Option::Some(item);
+}
+
+pub fn peek<T>(rb: &RingBuffer<T>) -> Option<T> {
+    if rb.count == 0 {
+        return Option::None;
+    }
+    let item = rb.data[rb.head];
+    return Option::Some(item);
+}
+
+pub fn clear<T>(rb: &mut RingBuffer<T>) {
+    rb.head = 0;
+    rb.tail = 0;
+    rb.count = 0;
 }
 
 pub fn is_empty<T>(rb: &RingBuffer<T>) -> bool {

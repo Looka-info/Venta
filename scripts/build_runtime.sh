@@ -33,7 +33,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 rm -f "${TARGET_DIR}/libvanta_rt.a" "${RUNTIME_DIR}/libvanta_rt.a"
-"${CC_BIN}" -c -O2 -fPIC "${RUNTIME_DIR}/vanta_rt.c" -o "${TMP_DIR}/vanta_rt.o"
+"${CC_BIN}" -c -O2 -fPIC -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 "${RUNTIME_DIR}/vanta_rt.c" -o "${TMP_DIR}/vanta_rt.o"
 "${AR_BIN}" rcs "${TARGET_DIR}/libvanta_rt.a" "${TMP_DIR}/vanta_rt.o"
 cp -f "${TARGET_DIR}/libvanta_rt.a" "${RUNTIME_DIR}/libvanta_rt.a"
 

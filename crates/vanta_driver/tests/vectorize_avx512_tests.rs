@@ -5,7 +5,7 @@
 //! target-feature gating, memory dependency analysis, and hardware-gated execution.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use vanta_codegen_x86_64::target::TargetFeatures;
 use vanta_driver::{CompilerOptions, CompilerSession, EmitTarget, OptLevel};
@@ -60,7 +60,7 @@ fn compile_to_binary(
     exe_path
 }
 
-fn disassemble_binary(exe_path: &PathBuf) -> String {
+fn disassemble_binary(exe_path: &Path) -> String {
     let output = Command::new("objdump")
         .args(["-d", exe_path.to_str().unwrap()])
         .output()

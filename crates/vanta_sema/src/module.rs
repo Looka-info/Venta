@@ -351,20 +351,36 @@ impl<'a> ModuleLoader<'a> {
             let rb_src = fs::read_to_string(&rb_file)
                 .unwrap_or_else(|_| EMBEDDED_STD_COLLECTIONS_RING_BUFFER.into());
             let ffi_file = std_dir.join("ffi.va");
-            let ffi_src = fs::read_to_string(&ffi_file)
-                .unwrap_or_else(|_| EMBEDDED_STD_FFI.into());
+            let ffi_src = fs::read_to_string(&ffi_file).unwrap_or_else(|_| EMBEDDED_STD_FFI.into());
             let sqlite_file = std_dir.join("sqlite.va");
-            let sqlite_src = fs::read_to_string(&sqlite_file)
-                .unwrap_or_else(|_| EMBEDDED_STD_SQLITE.into());
+            let sqlite_src =
+                fs::read_to_string(&sqlite_file).unwrap_or_else(|_| EMBEDDED_STD_SQLITE.into());
             let curl_file = std_dir.join("curl.va");
-            let curl_src = fs::read_to_string(&curl_file)
-                .unwrap_or_else(|_| EMBEDDED_STD_CURL.into());
+            let curl_src =
+                fs::read_to_string(&curl_file).unwrap_or_else(|_| EMBEDDED_STD_CURL.into());
             let graphics_file = std_dir.join("graphics.va");
-            let graphics_src = fs::read_to_string(&graphics_file)
-                .unwrap_or_else(|_| EMBEDDED_STD_GRAPHICS.into());
+            let graphics_src =
+                fs::read_to_string(&graphics_file).unwrap_or_else(|_| EMBEDDED_STD_GRAPHICS.into());
             (
-                canon_mod, m_src, o_src, r_src, i_src, s_src, io_src, fs_src, env_src, net_src,
-                gpu_src, simd_src, coll_src, hm_src, rb_src, ffi_src, sqlite_src, curl_src, graphics_src,
+                canon_mod,
+                m_src,
+                o_src,
+                r_src,
+                i_src,
+                s_src,
+                io_src,
+                fs_src,
+                env_src,
+                net_src,
+                gpu_src,
+                simd_src,
+                coll_src,
+                hm_src,
+                rb_src,
+                ffi_src,
+                sqlite_src,
+                curl_src,
+                graphics_src,
             )
         } else {
             (
@@ -838,7 +854,10 @@ impl<'a> ModuleLoader<'a> {
         self.seen_canonical_paths.insert(rb_path, rb_id);
 
         // 15. Add and parse std/ffi.va
-        let ffi_path = std_mod_path.parent().unwrap_or(Path::new("")).join("ffi.va");
+        let ffi_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("ffi.va");
         let ffi_file_id = self
             .source_map
             .add_file(ffi_path.to_string_lossy().to_string(), ffi_src);
@@ -899,7 +918,10 @@ impl<'a> ModuleLoader<'a> {
         self.seen_canonical_paths.insert(sqlite_path, sqlite_id);
 
         // 17. Add and parse std/curl.va
-        let curl_path = std_mod_path.parent().unwrap_or(Path::new("")).join("curl.va");
+        let curl_path = std_mod_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("curl.va");
         let curl_file_id = self
             .source_map
             .add_file(curl_path.to_string_lossy().to_string(), curl_src);
@@ -923,7 +945,9 @@ impl<'a> ModuleLoader<'a> {
         });
         self.path_to_module
             .insert(vec!["std".into(), "curl".into()], curl_id);
-        self.modules[std_id.0].children.insert("curl".into(), curl_id);
+        self.modules[std_id.0]
+            .children
+            .insert("curl".into(), curl_id);
         self.seen_canonical_paths.insert(curl_path, curl_id);
 
         // 18. Add and parse std/graphics.va
