@@ -13,6 +13,11 @@ mod middleware;
 mod generated_routes;
 mod server;
 
+extern "C" {
+    pub fn abs(x: i64) -> i64;
+    pub fn labs(x: i64) -> i64;
+}
+
 import http::{
     Request, Response, HeaderMap, QueryMap, ParamMap, CookieMap,
     make_request, parse_http_request, make_response, response_html, response_json,
@@ -903,9 +908,10 @@ fn main() -> i64 {
     test_template_gallery_and_preview_routes();
     test_phase5_live_preview_websocket_bridge_and_hot_reload();
     test_phase5_source_code_editor_and_multitemplate_preview();
+    test_phase6_foreign_function_interface();
 
     print_str("============================================================\n");
-    print_str("   ALL 32 TEST SUITES PASSED (100% SUCCESS)\n");
+    print_str("   ALL 33 TEST SUITES PASSED (100% SUCCESS)\n");
     print_str("============================================================\n\n");
     0
 }
@@ -1759,6 +1765,33 @@ fn test_phase5_source_code_editor_and_multitemplate_preview() {
     assert(str_contains(resp_dash.body.as_str(), "setViewport"), "6. Body must contain setViewport");
     assert(str_contains(resp_dash.body.as_str(), "initLiveReloadBridge()"), "6. Body must contain initLiveReloadBridge");
     assert(str_contains(resp_dash.body.as_str(), "saveCurrentFile()"), "6. Body must contain saveCurrentFile");
+
+    print_str("OK\n");
+}
+
+fn test_phase6_foreign_function_interface() {
+    print_str("[33/33] Testing Foreign Function Interface (FFI) & C-ABI Interoperability (1-5)... ");
+
+    // 1. Direct external C-ABI libc abs call with negative integer
+    let neg = -1337;
+    let pos = abs(neg);
+    assert(pos == 1337, "1. abs(-1337) must equal 1337");
+
+    // 2. Direct external C-ABI libc labs call with 64-bit integer
+    let large_neg = -987654321;
+    let large_pos = labs(large_neg);
+    assert(large_pos == 987654321, "2. labs(-987654321) must equal 987654321");
+
+    // 3. Positive argument identity
+    let pos_in = 42;
+    assert(abs(pos_in) == 42, "3. abs(42) must equal 42");
+
+    // 4. Zero identity
+    assert(abs(0) == 0, "4. abs(0) must equal 0");
+
+    // 5. In-expression invocation and arithmetic chaining
+    let chained = abs(-50) + labs(-50);
+    assert(chained == 100, "5. abs(-50) + labs(-50) must equal 100");
 
     print_str("OK\n");
 }

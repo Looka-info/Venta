@@ -1148,6 +1148,18 @@ impl CompilerSession {
                 let mut args = plan.linker_flags.clone();
                 args.push(temp_obj_path.to_string_lossy().to_string());
                 args.push(rt_archive.to_string_lossy().to_string());
+                for obj in &plan.additional_objects {
+                    args.push(obj.path.to_string_lossy().to_string());
+                }
+                for arch in &plan.static_archives {
+                    args.push(arch.path.to_string_lossy().to_string());
+                }
+                for search_dir in &options.lib_search_paths {
+                    args.push(format!("-L{}", search_dir.display()));
+                }
+                for lib in &options.libs {
+                    args.push(format!("-l{}", lib));
+                }
                 args.push("-o".to_string());
                 args.push(options.output_file.to_string_lossy().to_string());
 
@@ -1187,6 +1199,22 @@ impl CompilerSession {
 
                 let mut args = plan.linker_flags.clone();
                 args.push(temp_obj_path.to_string_lossy().to_string());
+                for obj in &plan.additional_objects {
+                    args.push(obj.path.to_string_lossy().to_string());
+                }
+                for arch in &plan.static_archives {
+                    args.push(arch.path.to_string_lossy().to_string());
+                }
+                for search_dir in &options.lib_search_paths {
+                    args.push(format!("/LIBPATH:{}", search_dir.display()));
+                }
+                for lib in &options.libs {
+                    if lib.ends_with(".lib") {
+                        args.push(lib.clone());
+                    } else {
+                        args.push(format!("{}.lib", lib));
+                    }
+                }
 
                 let env_vars = if let Some(ref inv) = plan.resolved_invocation {
                     inv.process_environment.clone()
@@ -1229,6 +1257,20 @@ impl CompilerSession {
 
                 let mut args = plan.linker_flags.clone();
                 args.push(temp_obj_path.to_string_lossy().to_string());
+                for obj in &plan.additional_objects {
+                    args.push(obj.path.to_string_lossy().to_string());
+                }
+                for arch in &plan.static_archives {
+                    args.push(arch.path.to_string_lossy().to_string());
+                }
+                for search_dir in &options.lib_search_paths {
+                    args.push(format!("-L{}", search_dir.display()));
+                }
+                for lib in &options.libs {
+                    args.push(format!("-l{}", lib));
+                }
+                args.push("-o".to_string());
+                args.push(options.output_file.to_string_lossy().to_string());
 
                 let env_vars = if let Some(ref inv) = plan.resolved_invocation {
                     inv.process_environment.clone()

@@ -106,7 +106,10 @@ impl Parser {
     fn synchronize(&mut self) {
         self.bump();
         while !self.check(&TokenKind::Eof) {
-            if matches!(self.peek(), TokenKind::Fn | TokenKind::Struct) {
+            if matches!(
+                self.peek(),
+                TokenKind::Fn | TokenKind::Struct | TokenKind::Extern
+            ) {
                 break;
             }
             self.bump();
@@ -129,10 +132,11 @@ impl Parser {
             TokenKind::Impl => self.parse_impl(diags).map(Item::Impl),
             TokenKind::Mod => self.parse_mod(is_pub, diags).map(Item::Mod),
             TokenKind::Import => self.parse_import(is_pub, diags).map(Item::Import),
+            TokenKind::Extern => self.parse_extern(is_pub, diags).map(Item::Extern),
             other => {
                 diags.emit(
                     Diagnostic::error(format!(
-                        "Expected item (fn, struct, enum, trait, impl, mod, or import), found {:?}",
+                        "Expected item (fn, struct, enum, trait, impl, mod, import, or extern), found {:?}",
                         other
                     ))
                     .with_code(codes::E0004_SYNTAX_ERROR)
@@ -292,6 +296,127 @@ impl Parser {
             is_pub,
             path,
             items,
+            span: start_span.merge(end_tok.span),
+        })
+    }
+
+    fn parse_extern(&mut self, is_pub: bool, diags: &mut DiagnosticBag) -> Option<ExternBlock> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Extern, diags)?;
+
+        let abi = match self.peek() {
+            TokenKind::StringLiteral(ref s) => {
+                let abi_str = s.clone();
+                self.bump();
+                abi_str
+            }
+            _ => "C".to_string(),
+        };
+
+        if self.check(&TokenKind::LBrace) {
+            self.expect(TokenKind::LBrace, diags)?;
+            let mut functions = Vec::new();
+            while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+                let fn_is_pub = if self.check(&TokenKind::Pub) {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
+                if let Some(f) = self.parse_extern_fn(fn_is_pub, &abi, diags) {
+                    functions.push(f);
+                } else {
+                    while !self.check(&TokenKind::Semicolon)
+                        && !self.check(&TokenKind::RBrace)
+                        && !self.check(&TokenKind::Eof)
+                    {
+                        self.bump();
+                    }
+                    if self.check(&TokenKind::Semicolon) {
+                        self.bump();
+                    }
+                }
+            }
+            let end_tok = self.expect(TokenKind::RBrace, diags)?;
+            Some(ExternBlock {
+                abi,
+                functions,
+                span: start_span.merge(end_tok.span),
+            })
+        } else if self.check(&TokenKind::Fn) {
+            let f = self.parse_extern_fn(is_pub, &abi, diags)?;
+            let span = start_span.merge(f.span);
+            Some(ExternBlock {
+                abi,
+                functions: vec![f],
+                span,
+            })
+        } else {
+            diags.emit(
+                Diagnostic::error(format!(
+                    "Expected '{{' or 'fn' after extern, found {:?}",
+                    self.peek()
+                ))
+                .with_code(codes::E0004_SYNTAX_ERROR)
+                .with_span(self.current_span()),
+            );
+            None
+        }
+    }
+
+    fn parse_extern_fn(
+        &mut self,
+        is_pub: bool,
+        abi: &str,
+        diags: &mut DiagnosticBag,
+    ) -> Option<ExternFnDecl> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Fn, diags)?;
+        let name = self.parse_ident(diags)?;
+        self.expect(TokenKind::LParen, diags)?;
+
+        let mut params = Vec::new();
+        while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::Eof) {
+            let is_mut = if self.check(&TokenKind::Mut) {
+                self.bump();
+                true
+            } else {
+                false
+            };
+            let param_name = self.parse_ident(diags)?;
+            self.expect(TokenKind::Colon, diags)?;
+            let ty = self.parse_type(diags)?;
+
+            let param_span = param_name.span.merge(ty.span);
+            params.push(Param {
+                is_mut,
+                name: param_name,
+                ty,
+                span: param_span,
+            });
+
+            if self.check(&TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, diags)?;
+
+        let ret_type = if self.check(&TokenKind::Arrow) {
+            self.bump();
+            Some(self.parse_type(diags)?)
+        } else {
+            None
+        };
+        let end_tok = self.expect(TokenKind::Semicolon, diags)?;
+
+        Some(ExternFnDecl {
+            is_pub,
+            abi: abi.to_string(),
+            name,
+            params,
+            ret_type,
             span: start_span.merge(end_tok.span),
         })
     }
@@ -2289,6 +2414,73 @@ mod tests {
                 assert_eq!(f.body.stmts.len(), 2);
             }
             _ => panic!("Expected Function item"),
+        }
+    }
+
+    #[test]
+    fn test_parse_extern_block() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "ffi.va".into(),
+            r#"
+            extern "C" {
+                pub fn abs(x: i64) -> i64;
+                pub fn puts(s: str) -> i32;
+            }
+            "#
+            .into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        assert!(!diags.has_errors());
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+        assert!(!diags.has_errors());
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Item::Extern(ext) => {
+                assert_eq!(ext.abi, "C");
+                assert_eq!(ext.functions.len(), 2);
+                assert_eq!(ext.functions[0].name.name, "abs");
+                assert_eq!(ext.functions[0].params.len(), 1);
+                assert!(ext.functions[0].is_pub);
+                assert_eq!(ext.functions[1].name.name, "puts");
+                assert_eq!(ext.functions[1].params.len(), 1);
+            }
+            _ => panic!("Expected extern block"),
+        }
+    }
+
+    #[test]
+    fn test_parse_single_extern_fn() {
+        let mut sm = SourceMap::new();
+        let id = sm.add_file(
+            "single_ffi.va".into(),
+            r#"pub extern "C" fn sqrt(x: f64) -> f64;"#.into(),
+        );
+        let file = sm.get_file(id).unwrap();
+        let mut diags = DiagnosticBag::new();
+        let mut lexer = Lexer::new(&file);
+        let tokens = lexer.tokenize(&mut diags);
+        assert!(!diags.has_errors());
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program(&mut diags);
+        assert!(!diags.has_errors());
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Item::Extern(ext) => {
+                assert_eq!(ext.abi, "C");
+                assert_eq!(ext.functions.len(), 1);
+                assert_eq!(ext.functions[0].name.name, "sqrt");
+                assert!(ext.functions[0].is_pub);
+            }
+            _ => panic!("Expected extern single fn"),
         }
     }
 }

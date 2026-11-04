@@ -94,6 +94,24 @@ pub enum Item {
     Impl(ImplBlock),
     Mod(ModDecl),
     Import(ImportDecl),
+    Extern(ExternBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternFnDecl {
+    pub is_pub: bool,
+    pub abi: String,
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub ret_type: Option<TypeExpr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternBlock {
+    pub abi: String,
+    pub functions: Vec<ExternFnDecl>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

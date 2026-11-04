@@ -3386,6 +3386,15 @@ impl SemanticAnalyzer {
                                 .insert(canon_name.clone(), f.clone());
                         }
                     }
+                    Item::Extern(ext) => {
+                        for f in &ext.functions {
+                            let canon_name = f.name.name.clone();
+                            scope.functions.insert(f.name.name.clone(), canon_name);
+                            if f.is_pub {
+                                scope.pub_items.insert(f.name.name.clone());
+                            }
+                        }
+                    }
                     Item::Mod(m) => {
                         if m.is_pub {
                             scope.pub_items.insert(m.name.name.clone());
@@ -4059,6 +4068,29 @@ impl SemanticAnalyzer {
 
             for item in &mod_node.items {
                 match item {
+                    Item::Extern(ext) => {
+                        for f in &ext.functions {
+                            let canon_name = f.name.name.clone();
+                            let mut params = Vec::new();
+                            for p in &f.params {
+                                let p_ty = self.ctx.type_from_ast(&p.ty, diags);
+                                params.push((p.name.name.clone(), p_ty, p.is_mut));
+                            }
+                            let ret_type = match &f.ret_type {
+                                Some(t) => self.ctx.type_from_ast(t, diags),
+                                None => Type::Unit,
+                            };
+                            self.ctx.functions.insert(
+                                canon_name.clone(),
+                                FnSignature {
+                                    name: canon_name,
+                                    params,
+                                    ret_type,
+                                    span: f.span,
+                                },
+                            );
+                        }
+                    }
                     Item::Function(f) => {
                         if !f.type_params.is_empty() {
                             for tp in &f.type_params {
@@ -4645,6 +4677,7 @@ impl SemanticAnalyzer {
 
             for item in &mod_node.items {
                 match item {
+                    Item::Extern(_) => {}
                     Item::Function(f) => {
                         if f.type_params.is_empty() {
                             let canon_name = scope

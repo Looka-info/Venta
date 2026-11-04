@@ -29,6 +29,7 @@ pub enum TokenKind {
     For,
     In,
     Dyn,
+    Extern,
 
     // Primitive Type names
     I8,

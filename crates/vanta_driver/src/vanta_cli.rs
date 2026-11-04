@@ -161,9 +161,12 @@ fn handle_run(args: &[String]) {
     let mut target = TargetTriple::default();
     let mut debug_info = false;
     let mut linker = match std::env::var("VANTA_LINKER").as_deref() {
-        Ok("system") => LinkerKind::System,
-        _ => LinkerKind::Internal,
+        Ok("internal") => LinkerKind::Internal,
+        _ => LinkerKind::System,
     };
+    let mut libs: Vec<String> = Vec::new();
+    let mut lib_search_paths: Vec<PathBuf> = Vec::new();
+    let mut additional_inputs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -377,6 +380,36 @@ fn handle_run(args: &[String]) {
                 eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
                 process::exit(2);
             }
+        } else if let Some(lib) = arg.strip_prefix("-l") {
+            let lib_name = if lib.is_empty() {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -l requires an argument");
+                    process::exit(2);
+                }
+                &args[i]
+            } else {
+                lib
+            };
+            libs.push(lib_name.to_string());
+        } else if let Some(path) = arg.strip_prefix("-L") {
+            let dir = if path.is_empty() {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -L requires an argument");
+                    process::exit(2);
+                }
+                &args[i]
+            } else {
+                path
+            };
+            lib_search_paths.push(PathBuf::from(dir));
+        } else if arg.ends_with(".o")
+            || arg.ends_with(".a")
+            || arg.ends_with(".lib")
+            || arg.ends_with(".obj")
+        {
+            additional_inputs.push(PathBuf::from(arg));
         } else if arg.starts_with('-') {
             eprintln!("Error: Unknown flag '{}' for 'vanta run'", arg);
             process::exit(2);
@@ -395,6 +428,12 @@ fn handle_run(args: &[String]) {
             process::exit(2);
         }
     };
+
+    if (!libs.is_empty() || !additional_inputs.is_empty())
+        && std::env::var("VANTA_LINKER").is_err()
+    {
+        linker = LinkerKind::System;
+    }
 
     let temp_dir = std::env::temp_dir().join(format!("vanta_run_{}", process::id()));
     let _ = fs::create_dir_all(&temp_dir);
@@ -436,10 +475,10 @@ fn handle_run(args: &[String]) {
         linker,
         linker_flags: Vec::new(),
         link_archives: Vec::new(),
-        additional_inputs: Vec::new(),
+        additional_inputs,
         map_file: None,
-        lib_search_paths: Vec::new(),
-        libs: Vec::new(),
+        lib_search_paths,
+        libs,
         incremental: false,
         cache_dir: None,
         build_stats: false,
@@ -518,9 +557,12 @@ fn handle_compile(args: &[String]) {
     let mut target = TargetTriple::default();
     let mut debug_info = false;
     let mut linker = match std::env::var("VANTA_LINKER").as_deref() {
-        Ok("system") => LinkerKind::System,
-        _ => LinkerKind::Internal,
+        Ok("internal") => LinkerKind::Internal,
+        _ => LinkerKind::System,
     };
+    let mut libs: Vec<String> = Vec::new();
+    let mut lib_search_paths: Vec<PathBuf> = Vec::new();
+    let mut additional_inputs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -738,6 +780,36 @@ fn handle_compile(args: &[String]) {
                 eprintln!("Error: Unknown codegen option '-C {}'", c_arg);
                 process::exit(2);
             }
+        } else if let Some(lib) = arg.strip_prefix("-l") {
+            let lib_name = if lib.is_empty() {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -l requires an argument");
+                    process::exit(2);
+                }
+                &args[i]
+            } else {
+                lib
+            };
+            libs.push(lib_name.to_string());
+        } else if let Some(path) = arg.strip_prefix("-L") {
+            let dir = if path.is_empty() {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -L requires an argument");
+                    process::exit(2);
+                }
+                &args[i]
+            } else {
+                path
+            };
+            lib_search_paths.push(PathBuf::from(dir));
+        } else if arg.ends_with(".o")
+            || arg.ends_with(".a")
+            || arg.ends_with(".lib")
+            || arg.ends_with(".obj")
+        {
+            additional_inputs.push(PathBuf::from(arg));
         } else if arg.starts_with('-') {
             eprintln!("Error: Unknown option '{}' for 'vanta compile'", arg);
             process::exit(2);
@@ -757,6 +829,12 @@ fn handle_compile(args: &[String]) {
             process::exit(2);
         }
     };
+
+    if (!libs.is_empty() || !additional_inputs.is_empty())
+        && std::env::var("VANTA_LINKER").is_err()
+    {
+        linker = LinkerKind::System;
+    }
 
     let out_path = output_file.unwrap_or_else(|| {
         let stem = input_path
@@ -798,10 +876,10 @@ fn handle_compile(args: &[String]) {
         linker,
         linker_flags: Vec::new(),
         link_archives: Vec::new(),
-        additional_inputs: Vec::new(),
+        additional_inputs,
         map_file: None,
-        lib_search_paths: Vec::new(),
-        libs: Vec::new(),
+        lib_search_paths,
+        libs,
         incremental: false,
         cache_dir: None,
         build_stats: false,

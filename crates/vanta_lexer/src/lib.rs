@@ -192,6 +192,7 @@ impl<'a> Lexer<'a> {
                 "for" => TokenKind::For,
                 "in" => TokenKind::In,
                 "dyn" => TokenKind::Dyn,
+                "extern" => TokenKind::Extern,
                 "_" => TokenKind::Underscore,
                 "true" => TokenKind::BoolLiteral(true),
                 "false" => TokenKind::BoolLiteral(false),

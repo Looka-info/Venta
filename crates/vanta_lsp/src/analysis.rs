@@ -643,6 +643,22 @@ impl AnalysisSnapshot {
                         children: None,
                     });
                 }
+                Item::Extern(ext) => {
+                    for f in &ext.functions {
+                        let range = self.line_index.span_to_range(&self.text, f.span);
+                        let sel_range = self.line_index.span_to_range(&self.text, f.name.span);
+                        symbols.push(DocumentSymbol {
+                            name: f.name.name.clone(),
+                            detail: Some(format!("extern \"{}\" fn", ext.abi)),
+                            kind: SymbolKind::FUNCTION,
+                            tags: None,
+                            deprecated: None,
+                            range,
+                            selection_range: sel_range,
+                            children: None,
+                        });
+                    }
+                }
             }
         }
 

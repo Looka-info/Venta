@@ -228,6 +228,7 @@ fn collect_syntax_tags(program: &Program, tokens: &[Token]) -> SyntaxTags {
                 }
             }
             Item::Mod(_) => {}
+            Item::Extern(_) => {}
         }
     }
 
@@ -789,6 +790,7 @@ impl<'a> Formatter<'a> {
             TokenKind::For => "for".into(),
             TokenKind::In => "in".into(),
             TokenKind::Dyn => "dyn".into(),
+            TokenKind::Extern => "extern".into(),
             TokenKind::As => "as".into(),
             TokenKind::Const => "const".into(),
             TokenKind::Unsafe => "unsafe".into(),
