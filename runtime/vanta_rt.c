@@ -289,13 +289,14 @@ void vanta_str_from_str(VantaString *dest, const char *ptr, int64_t len) {
         dest->cap = 0;
         return;
     }
-    if (len > 0x7fffffffffffffffLL) {
+    if (len > 0x7fffffffffffffffLL - 1) {
         vanta_panic("string allocation size overflow", 31);
     }
-    dest->data = (char *)vanta_alloc((uint64_t)len);
+    dest->data = (char *)vanta_alloc((uint64_t)len + 1);
     memcpy(dest->data, ptr, (size_t)len);
+    dest->data[len] = '\0';
     dest->len = len;
-    dest->cap = len;
+    dest->cap = len + 1;
 }
 
 void vanta_str_push_str(VantaString *s, const char *ptr, int64_t len) {
@@ -792,6 +793,10 @@ int64_t vanta_ptr_to_i64(void *p) {
     return (int64_t)(uintptr_t)p;
 }
 
+int64_t vanta_read_stream_to_i64(void *p) {
+    return (int64_t)(uintptr_t)p;
+}
+
 size_t vanta_curl_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
     if (userdata != NULL && total > 0) {
@@ -802,6 +807,29 @@ size_t vanta_curl_write_callback(char *ptr, size_t size, size_t nmemb, void *use
 
 int64_t vanta_curl_get_write_callback(void) {
     return (int64_t)(uintptr_t)vanta_curl_write_callback;
+}
+
+typedef struct {
+    const char *ptr;
+    int64_t len;
+    int64_t offset;
+} VantaCurlReadStream;
+
+size_t vanta_curl_read_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
+    if (!userdata || !buffer) return 0;
+    VantaCurlReadStream *stream = (VantaCurlReadStream *)userdata;
+    if (!stream->ptr) return 0;
+    size_t max_bytes = size * nitems;
+    int64_t remaining = stream->len - stream->offset;
+    if (remaining <= 0) return 0;
+    size_t to_copy = (size_t)remaining < max_bytes ? (size_t)remaining : max_bytes;
+    memcpy(buffer, stream->ptr + stream->offset, to_copy);
+    stream->offset += (int64_t)to_copy;
+    return to_copy;
+}
+
+int64_t vanta_curl_get_read_callback(void) {
+    return (int64_t)(uintptr_t)vanta_curl_read_callback;
 }
 
 #if defined(__x86_64__) || defined(_M_X64)

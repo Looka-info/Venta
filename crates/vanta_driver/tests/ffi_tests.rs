@@ -961,3 +961,196 @@ pub fn main() {{
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("12345"), "Expected output to contain '12345', got: {}", stdout);
 }
+
+#[test]
+fn test_curl_post_request_and_custom_headers() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]);
+            assert!(req.starts_with("POST "), "Expected POST method, got: {}", req);
+            assert!(
+                req.contains("x-custom-auth: secret-api-key-999")
+                    || req.contains("X-Custom-Auth: secret-api-key-999"),
+                "Missing custom header: {}",
+                req
+            );
+            assert!(req.contains("{\"action\":\"test_post\"}"), "Missing POST body: {}", req);
+
+            let response = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 20\r\n\r\n{\"status\":\"created\"}\n";
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("test_curl_post.va");
+    let out_bin = temp_dir.path().join("test_curl_post_bin");
+
+    let source = format!(
+        r#"
+import std::curl;
+import std::string::String;
+
+pub fn main() {{
+    let client = curl::new_easy();
+    if !client.is_valid() {{
+        panic("client init failed");
+    }}
+
+    client.set_url("http://127.0.0.1:{}");
+    client.set_timeout(5);
+
+    let mut headers = curl::new_header_list();
+    headers.append("Content-Type: application/json");
+    headers.append("X-Custom-Auth: secret-api-key-999");
+    client.set_headers(&headers);
+
+    let payload = String::from_str("{{\"action\":\"test_post\"}}");
+    client.set_post_fields(&payload);
+
+    let res = client.fetch();
+    match res {{
+        Result::Ok(resp) => {{
+            headers.cleanup();
+            client.cleanup();
+            if resp.status_code == 201 && resp.body.len == 20 {{
+                print_i64(77889);
+            }} else {{
+                panic("response status or length mismatch");
+            }}
+        }},
+        Result::Err(err) => {{
+            headers.cleanup();
+            client.cleanup();
+            panic("post fetch failed");
+        }}
+    }}
+}}
+"#,
+        port
+    );
+    fs::write(&src_path, source).unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_bin.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        linker: LinkerKind::System,
+        libs: vec!["curl".to_string()],
+        ..Default::default()
+    };
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&options);
+    assert!(
+        res.is_ok(),
+        "Compilation failed: {:?}\nDiagnostics: {}",
+        res.err(),
+        session.render_diagnostics(DiagnosticFormat::Human)
+    );
+
+    let output = Command::new(&out_bin).output().expect("Execute test binary");
+    assert!(output.status.success(), "Process exited with non-zero status");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("77889"), "Expected output to contain '77889', got: {}", stdout);
+}
+
+#[test]
+fn test_curl_post_streaming_read_callback() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]);
+            assert!(req.starts_with("POST "), "Expected POST method, got: {}", req);
+            assert!(req.contains("STREAMING_CHUNK_PAYLOAD_DATA"), "Missing streamed body: {}", req);
+
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nSTREAM_OK\n";
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("test_curl_read_cb.va");
+    let out_bin = temp_dir.path().join("test_curl_read_cb_bin");
+
+    let source = format!(
+        r#"
+import std::curl;
+import std::string::String;
+
+pub fn main() {{
+    let client = curl::new_easy();
+    if !client.is_valid() {{
+        panic("client init failed");
+    }}
+
+    client.set_url("http://127.0.0.1:{}");
+    client.set_timeout(5);
+    client.set_post(true);
+
+    let payload = String::from_str("STREAMING_CHUNK_PAYLOAD_DATA");
+    let mut stream = curl::new_read_stream(&payload);
+    client.set_read_stream(&mut stream);
+
+    let res = client.fetch();
+    match res {{
+        Result::Ok(resp) => {{
+            client.cleanup();
+            if resp.status_code == 200 && resp.body.len == 10 {{
+                print_i64(99112);
+            }} else {{
+                panic("response status mismatch");
+            }}
+        }},
+        Result::Err(err) => {{
+            client.cleanup();
+            panic("streaming post failed");
+        }}
+    }}
+}}
+"#,
+        port
+    );
+    fs::write(&src_path, source).unwrap();
+
+    let options = CompilerOptions {
+        input_file: src_path,
+        output_file: out_bin.clone(),
+        emit_target: EmitTarget::Exe,
+        opt_level: OptLevel::O1,
+        verbose: false,
+        diagnostic_format: DiagnosticFormat::Human,
+        linker: LinkerKind::System,
+        libs: vec!["curl".to_string()],
+        ..Default::default()
+    };
+
+    let mut session = CompilerSession::new();
+    let res = session.compile(&options);
+    assert!(
+        res.is_ok(),
+        "Compilation failed: {:?}\nDiagnostics: {}",
+        res.err(),
+        session.render_diagnostics(DiagnosticFormat::Human)
+    );
+
+    let output = Command::new(&out_bin).output().expect("Execute test binary");
+    assert!(output.status.success(), "Process exited with non-zero status");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("99112"), "Expected output to contain '99112', got: {}", stdout);
+}

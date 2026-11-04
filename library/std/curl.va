@@ -10,10 +10,14 @@ extern "C" {
     pub fn curl_easy_getinfo(curl: i64, info: i32, out: &mut i64) -> i32;
     pub fn curl_easy_perform(curl: i64) -> i32;
     pub fn curl_easy_strerror(code: i32) -> i64;
+    pub fn curl_slist_append(list: i64, string: i64) -> i64;
+    pub fn curl_slist_free_all(list: i64);
 
     // Runtime bridge functions
     pub fn vanta_ptr_to_i64(p: &mut String) -> i64;
+    pub fn vanta_read_stream_to_i64(s: &mut ReadStream) -> i64;
     pub fn vanta_curl_get_write_callback() -> i64;
+    pub fn vanta_curl_get_read_callback() -> i64;
 }
 
 // Option constants
@@ -25,6 +29,13 @@ pub fn opt_headerfunction() -> i32 { 20079 }
 pub fn opt_followlocation() -> i32 { 52 }
 pub fn opt_timeout() -> i32 { 13 }
 pub fn opt_useragent() -> i32 { 10018 }
+pub fn opt_post() -> i32 { 47 }
+pub fn opt_postfields() -> i32 { 10015 }
+pub fn opt_postfieldsize() -> i32 { 60 }
+pub fn opt_readfunction() -> i32 { 20012 }
+pub fn opt_readdata() -> i32 { 10009 }
+pub fn opt_httpheader() -> i32 { 10023 }
+pub fn opt_customrequest() -> i32 { 10036 }
 
 // Info constants
 pub fn info_response_code() -> i32 { 2097154 }
@@ -36,6 +47,54 @@ pub fn global_init() -> i32 {
 
 pub fn global_cleanup() {
     curl_global_cleanup();
+}
+
+pub struct HeaderList {
+    pub handle: i64,
+}
+
+pub fn new_header_list() -> HeaderList {
+    HeaderList { handle: 0 }
+}
+
+impl HeaderList {
+    pub fn append(self: &mut Self, header: &str) {
+        let s = String::from_str(header);
+        self.handle = curl_slist_append(self.handle, s.data_ptr);
+    }
+
+    pub fn is_empty(self: &Self) -> bool {
+        self.handle == 0
+    }
+
+    pub fn cleanup(self: &mut Self) {
+        if self.handle != 0 {
+            curl_slist_free_all(self.handle);
+            self.handle = 0;
+        }
+    }
+}
+
+pub struct ReadStream {
+    pub data_ptr: i64,
+    pub len: i64,
+    pub offset: i64,
+}
+
+pub fn new_read_stream(src: &String) -> ReadStream {
+    ReadStream {
+        data_ptr: src.data_ptr,
+        len: src.len,
+        offset: 0,
+    }
+}
+
+pub fn new_read_stream_raw(data_ptr: i64, len: i64) -> ReadStream {
+    ReadStream {
+        data_ptr: data_ptr,
+        len: len,
+        offset: 0,
+    }
 }
 
 pub struct Easy {
@@ -61,6 +120,71 @@ impl Easy {
     pub fn set_url(self: &Self, url: &str) -> i32 {
         let url_str = String::from_str(url);
         curl_easy_setopt(self.handle, 10002, url_str.data_ptr)
+    }
+
+    pub fn set_headers(self: &Self, headers: &HeaderList) -> i32 {
+        curl_easy_setopt(self.handle, 10023, headers.handle)
+    }
+
+    pub fn clear_headers(self: &Self) -> i32 {
+        curl_easy_setopt(self.handle, 10023, 0)
+    }
+
+    pub fn set_post(self: &Self, enable: bool) -> i32 {
+        let mut val: i64 = 0;
+        if enable {
+            val = 1;
+        }
+        curl_easy_setopt(self.handle, 47, val)
+    }
+
+    pub fn set_post_fields(self: &Self, data: &String) -> i32 {
+        let rc1 = curl_easy_setopt(self.handle, 47, 1);
+        let rc2 = curl_easy_setopt(self.handle, 10015, data.data_ptr);
+        let rc3 = curl_easy_setopt(self.handle, 60, data.len);
+        if rc1 != 0 {
+            return rc1;
+        }
+        if rc2 != 0 {
+            return rc2;
+        }
+        rc3
+    }
+
+    pub fn set_post_fields_raw(self: &Self, data_ptr: i64, len: i64) -> i32 {
+        let rc1 = curl_easy_setopt(self.handle, 47, 1);
+        let rc2 = curl_easy_setopt(self.handle, 10015, data_ptr);
+        let rc3 = curl_easy_setopt(self.handle, 60, len);
+        if rc1 != 0 {
+            return rc1;
+        }
+        if rc2 != 0 {
+            return rc2;
+        }
+        rc3
+    }
+
+    pub fn set_post_field_size(self: &Self, size: i64) -> i32 {
+        curl_easy_setopt(self.handle, 60, size)
+    }
+
+    pub fn set_custom_request(self: &Self, method: &str) -> i32 {
+        let s = String::from_str(method);
+        curl_easy_setopt(self.handle, 10036, s.data_ptr)
+    }
+
+    pub fn set_read_stream(self: &Self, stream: &mut ReadStream) -> i32 {
+        let cb = vanta_curl_get_read_callback();
+        let ptr = vanta_read_stream_to_i64(stream);
+        let rc1 = curl_easy_setopt(self.handle, 20012, cb);
+        let rc2 = curl_easy_setopt(self.handle, 10009, ptr);
+        if rc1 != 0 {
+            return rc1;
+        }
+        if rc2 != 0 {
+            return rc2;
+        }
+        curl_easy_setopt(self.handle, 60, stream.len)
     }
 
     pub fn set_follow_location(self: &Self, enable: bool) -> i32 {
